@@ -109,6 +109,11 @@ public final class Engine {
         TornadoExecutor.fetch(s);
     }
 
+    /** Plans compiled and plans replayed on this JVM so far: {@code [compiles, replays]}. */
+    public static long[] planStats() {
+        return TornadoExecutor.isLoaded() ? TornadoExecutor.stats() : new long[2];
+    }
+
     /** Closes every cached compiled plan, first saving persistent storages to the host. */
     public static void reset() {
         sync();
