@@ -38,6 +38,7 @@ public final class Emitter {
     private final Map<Storage, Object> arrays;
     final List<Spec> tasks = new ArrayList<>();
     final List<Object> constants = new ArrayList<>();
+    final List<Object> scratch = new ArrayList<>();
     private final Map<String, IntArray> constantCache = new java.util.HashMap<>();
 
     Emitter(String graphName, IdentityHashMap<Storage, Object> arrays) {
@@ -61,6 +62,13 @@ public final class Emitter {
             constants.add(a);
             return a;
         });
+    }
+
+    /** A device work buffer owned by the compiled plan (partial results between two passes). */
+    public FloatArray scratch(int numel) {
+        FloatArray a = new FloatArray(Math.max(numel, 1));
+        scratch.add(a);
+        return a;
     }
 
     public KernelContext context() {

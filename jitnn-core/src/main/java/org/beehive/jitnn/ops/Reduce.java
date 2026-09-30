@@ -86,11 +86,46 @@ public final class Reduce implements Op {
         int inner = n.iattr[3];
         float scale = n.fattr[0];
         int outputs = outer * inner;
-        if (len >= 128 && outputs <= 8192) {
-            e.task(Emitter.groups(outputs), (g, id) -> g.task(id, ReduceKernels::reduceGroup, e.context(), x, out, outer, len, inner, op, scale));
+        if (inner == 1) {
+            // Contiguous rows: a work-group per row, or per row chunk when rows are few and long.
+            int parts = splitParts(outputs * Emitter.LOCAL, len, Emitter.LOCAL * 8, 1024);
+            if (parts > 1) {
+                int chunk = Emitter.ceilDiv(len, parts);
+                FloatArray partial = e.scratch(outputs * parts);
+                e.task(Emitter.groups(outputs * parts), (g, id) -> g.task(id, ReduceKernels::reduceRowsSplit, e.context(), x, partial, len, parts, chunk, op));
+                e.task(Emitter.groups(outputs), (g, id) -> g.task(id, ReduceKernels::reduceGroup, e.context(), partial, out, outputs, parts, 1, op, scale));
+            } else if (len >= 64) {
+                e.task(Emitter.groups(outputs), (g, id) -> g.task(id, ReduceKernels::reduceGroup, e.context(), x, out, outer, len, inner, op, scale));
+            } else {
+                e.task(Emitter.grid1D(outputs), (g, id) -> g.task(id, ReduceKernels::reduceThread, e.context(), x, out, outer, len, inner, op, scale));
+            }
         } else {
-            e.task(Emitter.grid1D(outputs), (g, id) -> g.task(id, ReduceKernels::reduceThread, e.context(), x, out, outer, len, inner, op, scale));
+            // Strided axis: a thread per output column (coalesced), split along the axis when
+            // there are too few columns to fill the device.
+            int parts = splitParts(outputs, len, 64, 256);
+            if (parts > 1) {
+                int chunk = Emitter.ceilDiv(len, parts);
+                FloatArray partial = e.scratch(outputs * parts);
+                e.task(Emitter.grid1D(outputs * parts), (g, id) -> g.task(id, ReduceKernels::reduceColumnsSplit, e.context(), x, partial, outer, len, inner, parts, chunk, op));
+                e.task(Emitter.grid1D(outputs), (g, id) -> g.task(id, ReduceKernels::reduceThread, e.context(), partial, out, 1, parts, outputs, op, scale));
+            } else {
+                e.task(Emitter.grid1D(outputs), (g, id) -> g.task(id, ReduceKernels::reduceThread, e.context(), x, out, outer, len, inner, op, scale));
+            }
         }
+    }
+
+    /**
+     * How many chunks to split each output's axis into so that about 2^16 threads have work:
+     * {@code threads} is the thread count without splitting, each chunk keeps at least
+     * {@code minChunk} elements, and there are at most {@code maxParts} chunks. 1 means no split.
+     */
+    static int splitParts(int threads, int len, int minChunk, int maxParts) {
+        final int target = 1 << 16;
+        if (threads >= target) {
+            return 1;
+        }
+        int parts = Math.min(Math.min(Emitter.ceilDiv(target, threads), len / minChunk), maxParts);
+        return Math.max(parts, 1);
     }
 
     @Override

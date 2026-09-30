@@ -89,6 +89,60 @@ public final class ReduceKernels {
         }
     }
 
+    /**
+     * First pass of a split reduction over a contiguous axis ({@code inner == 1}): work-group g
+     * reduces chunk {@code g % parts} of row {@code g / parts} into {@code partial[g]}.
+     */
+    public static void reduceRowsSplit(KernelContext kc, FloatArray x, FloatArray partial, int len, int parts, int chunk, int op) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int g = kc.groupIdx;
+        int l = kc.localIdx;
+        int row = g / parts;
+        int p = g - row * parts;
+        int start = p * chunk;
+        int end = start + chunk < len ? start + chunk : len;
+        int base = row * len;
+        float acc = identity(op);
+        for (int k = start + l; k < end; k += GROUP) {
+            acc = combine(op, acc, x.get(base + k));
+        }
+        buf[l] = acc;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = combine(op, buf[l], buf[l + s]);
+            }
+            kc.localBarrier();
+        }
+        if (l == 0) {
+            partial.set(g, buf[0]);
+        }
+    }
+
+    /**
+     * First pass of a split reduction over a strided axis ({@code inner > 1}): thread
+     * (p, o, j) reduces rows {@code [p * chunk, (p + 1) * chunk)} of column (o, j) into
+     * {@code partial[p * outer * inner + o * inner + j]}. Consecutive threads read consecutive
+     * columns, so loads are coalesced.
+     */
+    public static void reduceColumnsSplit(KernelContext kc, FloatArray x, FloatArray partial, int outer, int len, int inner, int parts, int chunk, int op) {
+        int id = kc.globalIdx;
+        int outputs = outer * inner;
+        if (id < outputs * parts) {
+            int p = id / outputs;
+            int rem = id - p * outputs;
+            int o = rem / inner;
+            int j = rem - o * inner;
+            int start = p * chunk;
+            int end = start + chunk < len ? start + chunk : len;
+            float acc = identity(op);
+            for (int k = start; k < end; k++) {
+                acc = combine(op, acc, x.get((o * len + k) * inner + j));
+            }
+            partial.set(id, acc);
+        }
+    }
+
     /** Index of the first maximum along the axis, one thread per output. */
     public static void argmaxThread(KernelContext kc, FloatArray x, IntArray out, int outer, int len, int inner) {
         int i = kc.globalIdx;
