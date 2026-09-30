@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.github.beehive-lab</groupId>
+    <artifactId>jitnn-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>jitNN</name>
+    <description>A machine-learning and deep-learning library for the JVM with every operator written as a TornadoVM kernel</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <modules>
+        <module>jitnn-core</module>
+        <module>jitnn-nn</module>
+    </modules>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>22</maven.compiler.release>
+        <!-- jitNN needs TornadoVM develop (7.0.2-dev): it uses the on-demand
+             TornadoExecutionPlan.transferToDevice(Object...) to move parameters between plans. -->
+        <tornadovm.version>7.0.2-jdk22plus-dev</tornadovm.version>
+        <junit.version>5.10.1</junit.version>
+        <!-- Device for accelerator tests, as <driver>:<device> listed by the tornado devices command. -->
+        <jitnn.test.device>0:0</jitnn.test.device>
+        <jitnn.test.verbose>false</jitnn.test.verbose>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.github.beehive-lab</groupId>
+                <artifactId>tornado-api</artifactId>
+                <version>${tornadovm.version}</version>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.github.beehive-lab</groupId>
+                <artifactId>jitnn-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-api</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-engine</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.13.0</version>
+                </plugin>
+                <!-- Default tests run on the CPU reference backend and need no accelerator.
+                     *AccelTest classes run under -Paccel-tests, on the TornadoVM SDK in TORNADOVM_HOME. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.5.2</version>
+                    <configuration>
+                        <excludes>
+                            <exclude>**/*AccelTest.java</exclude>
+                        </excludes>
+                        <trimStackTrace>false</trimStackTrace>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>accel-tests</id>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-surefire-plugin</artifactId>
+                            <configuration>
+                                <excludes combine.self="override"/>
+                                <!-- TornadoVM's Graal plugin checks fail under -ea on JDK 22+; the tornado launcher runs without it. -->
+                                <enableAssertions>false</enableAssertions>
+                                <includes>
+                                    <include>**/*AccelTest.java</include>
+                                </includes>
+                                <argLine>@${env.TORNADOVM_HOME}/tornado-argfile
+                                    -Dtornado.recover.bailout=False
+                                    -Djitnn.device=${jitnn.test.device}
+                                    -Djitnn.verbose=${jitnn.test.verbose}</argLine>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
+        </profile>
+    </profiles>
+</project>

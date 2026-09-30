@@ -1,0 +1,111 @@
+package org.beehive.jitnn.kernels;
+
+import uk.ac.manchester.tornado.api.KernelContext;
+import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.IntArray;
+
+/**
+ * Reductions along one axis. The input is viewed as {@code [outer, len, inner]} and the output as
+ * {@code [outer, inner]}. Two launch shapes:
+ *
+ * <ul>
+ * <li>{@link #reduceThread}: one thread per output, looping over the axis. Best when there are many
+ * outputs (e.g. the bias gradient, summing a batch).</li>
+ * <li>{@link #reduceGroup}: one work-group of 256 threads per output, with a tree reduction in
+ * local memory. Best for long axes and few outputs (e.g. a loss).</li>
+ * </ul>
+ */
+public final class ReduceKernels {
+
+    public static final int SUM = 0;
+    public static final int MAX = 1;
+    public static final int MIN = 2;
+
+    /** Must equal {@code Emitter.LOCAL}. */
+    private static final int GROUP = 256;
+
+    private ReduceKernels() {
+    }
+
+    public static float identity(int op) {
+        float r;
+        if (op == MAX) {
+            r = Float.NEGATIVE_INFINITY;
+        } else if (op == MIN) {
+            r = Float.POSITIVE_INFINITY;
+        } else {
+            r = 0.0f;
+        }
+        return r;
+    }
+
+    public static float combine(int op, float acc, float v) {
+        float r;
+        if (op == MAX) {
+            r = v > acc ? v : acc;
+        } else if (op == MIN) {
+            r = v < acc ? v : acc;
+        } else {
+            r = acc + v;
+        }
+        return r;
+    }
+
+    public static void reduceThread(KernelContext kc, FloatArray x, FloatArray out, int outer, int len, int inner, int op, float scale) {
+        int i = kc.globalIdx;
+        if (i < outer * inner) {
+            int o = i / inner;
+            int j = i - o * inner;
+            int base = o * len * inner + j;
+            float acc = identity(op);
+            for (int k = 0; k < len; k++) {
+                acc = combine(op, acc, x.get(base + k * inner));
+            }
+            out.set(i, op == SUM ? acc * scale : acc);
+        }
+    }
+
+    public static void reduceGroup(KernelContext kc, FloatArray x, FloatArray out, int outer, int len, int inner, int op, float scale) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int g = kc.groupIdx;
+        int l = kc.localIdx;
+        int o = g / inner;
+        int j = g - o * inner;
+        int base = o * len * inner + j;
+        float acc = identity(op);
+        for (int k = l; k < len; k += GROUP) {
+            acc = combine(op, acc, x.get(base + k * inner));
+        }
+        buf[l] = acc;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = combine(op, buf[l], buf[l + s]);
+            }
+            kc.localBarrier();
+        }
+        if (l == 0) {
+            out.set(g, op == SUM ? buf[0] * scale : buf[0]);
+        }
+    }
+
+    /** Index of the first maximum along the axis, one thread per output. */
+    public static void argmaxThread(KernelContext kc, FloatArray x, IntArray out, int outer, int len, int inner) {
+        int i = kc.globalIdx;
+        if (i < outer * inner) {
+            int o = i / inner;
+            int j = i - o * inner;
+            int base = o * len * inner + j;
+            float best = x.get(base);
+            int bestK = 0;
+            for (int k = 1; k < len; k++) {
+                float v = x.get(base + k * inner);
+                if (v > best) {
+                    best = v;
+                    bestK = k;
+                }
+            }
+            out.set(i, bestK);
+        }
+    }
+}

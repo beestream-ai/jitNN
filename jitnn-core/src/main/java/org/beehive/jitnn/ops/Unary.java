@@ -1,0 +1,103 @@
+package org.beehive.jitnn.ops;
+
+import org.beehive.jitnn.DType;
+import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.engine.Emitter;
+import org.beehive.jitnn.engine.Node;
+import org.beehive.jitnn.engine.Op;
+import org.beehive.jitnn.kernels.ElementwiseKernels;
+
+import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+
+/** Element-wise unary operators with up to two scalar parameters. */
+public final class Unary implements Op {
+
+    public enum Kind {
+        NEG(ElementwiseKernels.NEG),
+        EXP(ElementwiseKernels.EXP),
+        LOG(ElementwiseKernels.LOG),
+        SQRT(ElementwiseKernels.SQRT),
+        ABS(ElementwiseKernels.ABS),
+        RELU(ElementwiseKernels.RELU),
+        AFFINE(ElementwiseKernels.AFFINE),
+        POW_SCALAR(ElementwiseKernels.POW_SCALAR),
+        CLAMP(ElementwiseKernels.CLAMP),
+        RECIPROCAL(ElementwiseKernels.RECIPROCAL),
+        SQUARE(ElementwiseKernels.SQUARE),
+        FILL(ElementwiseKernels.FILL);
+
+        final int code;
+
+        Kind(int code) {
+            this.code = code;
+        }
+    }
+
+    private static final Kind[] BY_CODE = new Kind[Kind.values().length];
+
+    static {
+        for (Kind k : Kind.values()) {
+            BY_CODE[k.code] = k;
+        }
+    }
+
+    static final Unary OP = new Unary();
+
+    private Unary() {
+    }
+
+    public static Tensor apply(Kind kind, Tensor x, float alpha, float beta) {
+        Checks.f32(x);
+        Tensor out = Tensor.result(x.shape(), DType.F32);
+        Tensor.record(OP, new Tensor[] { x }, new Tensor[] { out }, new int[] { kind.code }, new float[] { alpha, beta }, true);
+        return out;
+    }
+
+    @Override
+    public String name() {
+        return "unary";
+    }
+
+    @Override
+    public void emit(Emitter e, Node n) {
+        FloatArray x = e.f32(n.in(0));
+        FloatArray out = e.f32(n.out(0));
+        int code = n.iattr[0];
+        float alpha = n.fattr[0];
+        float beta = n.fattr[1];
+        int count = n.out(0).numel();
+        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::unary, e.context(), x, out, code, alpha, beta, count));
+    }
+
+    @Override
+    public void reference(Node n) {
+        FloatArray x = (FloatArray) n.in(0).storage().host();
+        FloatArray o = (FloatArray) n.out(0).storage().host();
+        for (int i = 0; i < n.out(0).numel(); i++) {
+            o.set(i, (float) RefMath.unary(n.iattr[0], x.get(i), n.fattr[0], n.fattr[1]));
+        }
+    }
+
+    @Override
+    public Tensor[] backward(Node n, Tensor gy) {
+        Tensor x = n.in(0);
+        Tensor y = n.out(0);
+        float alpha = n.fattr[0];
+        float beta = n.fattr[1];
+        Tensor gx = switch (BY_CODE[n.iattr[0]]) {
+            case NEG -> gy.neg();
+            case EXP -> gy.mul(y);
+            case LOG -> gy.div(x);
+            case SQRT -> gy.div(y).mul(0.5f);
+            case ABS -> Binary.apply(Binary.Kind.SIGN_MUL, x, gy);
+            case RELU -> Binary.apply(Binary.Kind.RELU_GRAD, x, gy);
+            case AFFINE -> gy.mul(alpha);
+            case POW_SCALAR -> gy.mul(x.pow(alpha - 1.0f).mul(alpha));
+            case CLAMP -> Binary.apply(Binary.Kind.CLAMP_GRAD, x, gy, alpha, beta);
+            case RECIPROCAL -> gy.mul(y.square()).neg();
+            case SQUARE -> gy.mul(x.mul(2.0f));
+            case FILL -> null;
+        };
+        return new Tensor[] { gx };
+    }
+}

@@ -1,0 +1,145 @@
+package org.beehive.jitnn;
+
+import static org.beehive.jitnn.Checks.close;
+import static org.beehive.jitnn.Checks.seq;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+
+import java.util.function.Supplier;
+
+import org.beehive.jitnn.engine.Engine;
+import org.beehive.jitnn.engine.Engine.Backend;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Every wave 1 operator on the TornadoVM device against the host reference. Run with
+ * {@code -Paccel-tests}; the device is {@code -Djitnn.test.device=<driver>:<device>}.
+ */
+class OpsAccelTest {
+
+    private static final double RTOL = 1e-5;
+    private static final double ATOL = 1e-6;
+
+    @AfterAll
+    static void release() {
+        Engine.reset();
+    }
+
+    static float[] on(Backend backend, Supplier<Tensor> f) {
+        return Engine.with(backend, () -> f.get().toFloatArray());
+    }
+
+    static void same(String what, Supplier<Tensor> f, double rtol, double atol) {
+        float[] expected = on(Backend.REFERENCE, f);
+        float[] actual = on(Backend.TORNADO, f);
+        close(expected, actual, rtol, atol, what);
+    }
+
+    static void same(String what, Supplier<Tensor> f) {
+        same(what, f, RTOL, ATOL);
+    }
+
+    static Tensor t(int n, float scale, float offset, int... dims) {
+        return Tensor.of(seq(n, scale, offset), dims);
+    }
+
+    @Test
+    void binary() {
+        same("add", () -> t(1003, 2, 0, 1003).add(t(1003, 1, 0.5f, 1003)));
+        same("mul row broadcast", () -> t(2006, 2, 0, 2, 1003).mul(t(1003, 1, 0.5f, 1003)));
+        same("div col broadcast", () -> t(2006, 2, 0, 2, 1003).div(t(2, 1, 3, 2, 1)));
+        same("sub scalar", () -> t(777, 3, 1, 777).sub(Tensor.scalar(0.25f)));
+        same("3-d broadcast", () -> t(60, 1, 0, 3, 4, 5).add(t(4, 1, 0, 4, 1).reshape(1, 4, 1)).mul(t(5, 1, 2, 5)));
+        same("maximum/minimum", () -> t(999, 2, 0, 999).maximum(t(999, 1.5f, 0.2f, 999)).minimum(Tensor.scalar(0.8f)));
+        same("comparisons", () -> t(500, 1, 0, 500).gt(t(500, 1, 0.1f, 500)).add(t(500, 1, 0, 500).eq(t(500, 1, 0, 500))));
+    }
+
+    @Test
+    void unary() {
+        Supplier<Tensor> x = () -> t(1029, 2, 0, 1029);
+        Supplier<Tensor> pos = () -> t(1029, 1, 2, 1029);
+        same("neg", () -> x.get().neg());
+        same("exp", () -> x.get().exp(), 2e-6, 1e-6);
+        same("log", () -> pos.get().log(), 2e-6, 1e-6);
+        same("sqrt", () -> pos.get().sqrt(), 2e-6, 1e-6);
+        same("abs", () -> x.get().abs());
+        same("relu", () -> x.get().relu());
+        same("affine", () -> x.get().mul(1.5f).add(-0.25f));
+        same("pow", () -> pos.get().pow(1.7f), 1e-5, 1e-6);
+        same("clamp", () -> x.get().clamp(-0.7f, 0.9f));
+        same("reciprocal", () -> pos.get().reciprocal(), 2e-6, 1e-6);
+        same("square", () -> x.get().square());
+    }
+
+    @Test
+    void reductions() {
+        same("sum axis1 group", () -> t(3000, 1, 0, 3, 1000).sum(1, false), 1e-5, 1e-4);
+        same("sum axis0 group", () -> t(3000, 1, 0, 1000, 3).sum(0, false), 1e-5, 1e-4);
+        same("mean axis1 thread", () -> t(21000, 1, 0, 300, 70).mean(1, false), 1e-5, 1e-5);
+        same("sum all", () -> t(100_003, 1, 0.01f, 100_003).sum(), 1e-4, 1e-2);
+        same("max group", () -> t(4000, 1, 0, 4, 1000).max(1, false));
+        same("min thread", () -> t(2000, 1, 0, 200, 10).min(1, true));
+        same("argmax", () -> t(5000, 1, 0, 50, 100).argmax(1));
+    }
+
+    @Test
+    void matmul() {
+        for (boolean ta : new boolean[] { false, true }) {
+            for (boolean tb : new boolean[] { false, true }) {
+                int m = 37;
+                int n = 53;
+                int k = 29;
+                int[] da = ta ? new int[] { k, m } : new int[] { m, k };
+                int[] db = tb ? new int[] { n, k } : new int[] { k, n };
+                same("gemm tA=" + ta + " tB=" + tb, () -> t(m * k, 1, 0, da).matmul(t(k * n, 1, 0.1f, db), ta, tb), 1e-5, 1e-4);
+            }
+        }
+        same("gemm 128", () -> t(128 * 128, 1, 0, 128, 128).matmul(t(128 * 128, 0.5f, 0, 128, 128)), 1e-4, 1e-3);
+        same("permute", () -> t(2 * 3 * 50, 1, 0, 2, 3, 50).permute(2, 0, 1));
+        same("transpose", () -> t(33 * 65, 1, 0, 33, 65).t());
+    }
+
+    @Test
+    void softmaxAndLoss() {
+        same("softmax long rows", () -> t(5000, 3, 0, 5, 1000).softmax(), 1e-5, 1e-7);
+        same("logSoftmax short rows", () -> t(640, 3, 0, 64, 10).logSoftmax(), 1e-5, 1e-5);
+        int[] labels = new int[64];
+        for (int i = 0; i < labels.length; i++) {
+            labels[i] = (i * 7) % 10;
+        }
+        same("crossEntropy", () -> F.crossEntropy(t(640, 3, 0, 64, 10), Tensor.of(labels, 64)), 1e-5, 1e-6);
+    }
+
+    @Test
+    void philoxMatchesHost() {
+        float[] host = on(Backend.REFERENCE, () -> Tensor.uniform(7, -2, 2, 4099));
+        float[] device = on(Backend.TORNADO, () -> Tensor.uniform(7, -2, 2, 4099));
+        assertArrayEquals(host, device, "uniform is bit-exact");
+        same("normal", () -> Tensor.normal(7, 1, 2, 4099), 1e-5, 1e-5);
+    }
+
+    @Test
+    void backwardOnDevice() {
+        int[] labels = { 1, 0, 2, 1, 2 };
+        Supplier<float[]> grads = () -> {
+            Tensor x = t(5 * 8, 1, 0, 5, 8);
+            Tensor w1 = t(16 * 8, 0.5f, 0, 16, 8).requiresGrad(true);
+            Tensor b1 = t(16, 0.1f, 0, 16).requiresGrad(true);
+            Tensor w2 = t(3 * 16, 0.5f, 0.1f, 3, 16).requiresGrad(true);
+            Tensor loss = F.crossEntropy(F.linear(F.linear(x, w1, b1).relu(), w2, null), Tensor.of(labels, 5));
+            loss.backward();
+            float[] a = w1.grad().toFloatArray();
+            float[] b = b1.grad().toFloatArray();
+            float[] c = w2.grad().toFloatArray();
+            float[] all = new float[a.length + b.length + c.length + 1];
+            System.arraycopy(a, 0, all, 0, a.length);
+            System.arraycopy(b, 0, all, a.length, b.length);
+            System.arraycopy(c, 0, all, a.length + b.length, c.length);
+            all[all.length - 1] = loss.item();
+            return all;
+        };
+        float[] expected = Engine.with(Backend.REFERENCE, grads::get);
+        float[] actual = Engine.with(Backend.TORNADO, grads::get);
+        close(expected, actual, 1e-4, 1e-6, "mlp gradients");
+    }
+}

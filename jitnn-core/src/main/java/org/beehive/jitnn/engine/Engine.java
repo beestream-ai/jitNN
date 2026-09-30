@@ -1,0 +1,119 @@
+package org.beehive.jitnn.engine;
+
+import java.util.List;
+import java.util.function.Supplier;
+
+import org.beehive.jitnn.Tensor;
+
+/**
+ * Where operators run.
+ *
+ * <ul>
+ * <li>{@link Backend#TORNADO}: operators are recorded lazily; a sync point compiles everything
+ * recorded since the last one into one TornadoVM task graph, caches the compiled plan by the
+ * trace's structure, and replays it when the same structure comes back (a training step).</li>
+ * <li>{@link Backend#REFERENCE}: operators run eagerly on the host with the Java reference
+ * implementations. Tests use it as the oracle; it needs no TornadoVM runtime.</li>
+ * </ul>
+ *
+ * <p>The default is TORNADO when a TornadoVM runtime is on the class path, else REFERENCE; the
+ * {@code jitnn.backend} system property ({@code tornado} or {@code reference}) overrides it.
+ */
+public final class Engine {
+
+    public enum Backend {
+        TORNADO,
+        REFERENCE
+    }
+
+    private static final ThreadLocal<Backend> BACKEND = ThreadLocal.withInitial(Engine::defaultBackend);
+
+    private Engine() {
+    }
+
+    private static Backend defaultBackend() {
+        String p = System.getProperty("jitnn.backend");
+        if (p != null) {
+            return Backend.valueOf(p.trim().toUpperCase());
+        }
+        try {
+            Class.forName("uk.ac.manchester.tornado.runtime.TornadoCoreRuntime", false, Engine.class.getClassLoader());
+            return Backend.TORNADO;
+        } catch (ClassNotFoundException e) {
+            return Backend.REFERENCE;
+        }
+    }
+
+    public static Backend backend() {
+        return BACKEND.get();
+    }
+
+    /** Switches this thread's backend, first running anything recorded on the old one. */
+    public static void setBackend(Backend backend) {
+        sync();
+        BACKEND.set(backend);
+    }
+
+    /** Runs {@code body} on {@code backend} and restores the previous backend. */
+    public static <T> T with(Backend backend, Supplier<T> body) {
+        Backend previous = backend();
+        setBackend(backend);
+        try {
+            T result = body.get();
+            sync();
+            return result;
+        } finally {
+            BACKEND.set(previous);
+        }
+    }
+
+    /** Records a node: executes it now on REFERENCE, defers it on TORNADO. */
+    public static void record(Node node) {
+        if (backend() == Backend.REFERENCE) {
+            ReferenceExecutor.run(node);
+        } else {
+            Trace.record(node);
+        }
+    }
+
+    /** Runs everything recorded on this thread, fetching {@code wanted} to the host. */
+    public static void sync(Tensor... wanted) {
+        List<Node> nodes = Trace.drain();
+        if (!nodes.isEmpty()) {
+            TornadoExecutor.run(nodes, wanted);
+        }
+        for (Tensor t : wanted) {
+            ensureHost(t.storage());
+        }
+    }
+
+    /** Number of operators recorded and not yet run on this thread. */
+    public static int pending() {
+        return Trace.size();
+    }
+
+    static void ensureHost(Storage s) {
+        if (s.stale) {
+            throw new IllegalStateException("tensor data was reused by a later execution of the same trace; "
+                    + "copy what you need (toFloatArray) before the next step");
+        }
+        if (s.hostValid) {
+            return;
+        }
+        if (Trace.size() > 0) {
+            sync();
+            if (s.hostValid) {
+                return;
+            }
+        }
+        TornadoExecutor.fetch(s);
+    }
+
+    /** Closes every cached compiled plan, first saving persistent storages to the host. */
+    public static void reset() {
+        sync();
+        if (TornadoExecutor.isLoaded()) {
+            TornadoExecutor.closeAll();
+        }
+    }
+}
