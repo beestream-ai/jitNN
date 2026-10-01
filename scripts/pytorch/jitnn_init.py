@@ -42,6 +42,15 @@ def linear(in_features, out_features, seed):
     return w, b
 
 
+def conv2d(in_channels, out_channels, kernel, seed, groups=1, bias=True):
+    """Weight [out, in/groups, k, k] and bias [out] exactly as jitnn.nn.Conv2d creates them."""
+    fan_in = in_channels // groups * kernel * kernel
+    bound = np.float32(1.0 / np.sqrt(fan_in))
+    w = uniform(seed, -bound, bound, out_channels * fan_in).reshape(out_channels, in_channels // groups, kernel, kernel)
+    b = uniform(seed + 0x9E3779B97F4A7C15, -bound, bound, out_channels) if bias else None
+    return w, b
+
+
 if __name__ == "__main__":
     assert [hex(int(x)) for x in philox(0, 0, 0, 0, 0, 0)] == ["0x6627e8d5", "0xe169c58d", "0xbc57ac4c", "0x9b00dbd8"]
     assert [hex(int(x)) for x in philox(0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344, 0xa4093822, 0x299f31d0)] == \

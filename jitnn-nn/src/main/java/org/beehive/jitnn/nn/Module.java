@@ -22,6 +22,24 @@ public abstract class Module {
         return p;
     }
 
+    private final List<Tensor> buffers = new ArrayList<>();
+
+    /** Registers persistent state that is not trained (running statistics). */
+    protected Tensor buffer(Tensor init) {
+        Tensor b = Tensor.persistent(init);
+        buffers.add(b);
+        return b;
+    }
+
+    /** This module's buffers and its children's. */
+    public List<Tensor> buffers() {
+        List<Tensor> all = new ArrayList<>(buffers);
+        for (Module m : children) {
+            all.addAll(m.buffers());
+        }
+        return Collections.unmodifiableList(all);
+    }
+
     protected <M extends Module> M child(M module) {
         children.add(module);
         return module;
