@@ -46,8 +46,40 @@ fused cross-entropy with a one-kernel backward. On CUDA, CUDA-graph replay took 
 | Fused linear and cross-entropy | 31 to 22 kernels per MLP step; Metal and OpenCL steps 22-34% faster |
 | CUDA graphs | CUDA MLP step 16% faster |
 
+## Wave 2 kernels (M4 Pro, Metal; batch 64)
+
+| Kernel | Forward | Input gradient | Weight gradient | PyTorch MPS forward |
+|---|---|---|---|---|
+| conv 3x3, 64 channels, 28x28 | 1.9 TFLOP/s | 1.8 TFLOP/s | 1.4 TFLOP/s | 6.1 TFLOP/s |
+| conv 3x3, 128 channels, 14x14 | 1.6 | 1.6 | 1.6 | 6.1 |
+| conv 3x3, 256 channels, 7x7 | 1.6 | 1.8 | 1.9 | 5.0 |
+| conv 1x1, 96 to 576 channels, 7x7 | 1.7 | 1.2 | 1.3 | |
+| depthwise 3x3, 576 channels, 7x7 | 0.32 | 0.30 | 0.09 | |
+
+BatchNorm training runs at 196 GB/s and max pooling at 240 GB/s (kernel time).
+
+## CNN training steps (MNIST, batch 64, Adam)
+
+| | Metal | OpenCL (M4 Pro) | CUDA | PyTorch MPS |
+|---|---|---|---|---|
+| ResNet-18 (11.2M parameters, 268 kernels) | 165 ms | 162 ms | 160 ms | 54 ms |
+| MobileNetV2 (2.2M parameters, 515 kernels) | 148 ms | 138 ms | | 62 ms |
+
+Device memory for intermediates, with and without buffer reuse:
+
+| Plan | Without reuse | With reuse |
+|---|---|---|
+| ResNet-18 training step | 819 MB | 463 MB |
+| MobileNetV2 training step | 1,965 MB | 1,091 MB |
+| MobileNetV2 evaluation, batch 250 (`Grad.inference`) | 3,810 MB | 427 MB |
+
 ## Known gaps
 
+- Convolutions run on the same register-blocked tiles as the GEMM and share its ceiling: about
+  30% of MPS on Metal.
+- A CNN step is dominated on Apple GPUs by TornadoVM's per-kernel dispatch cost.
+- On CUDA, multi-graph plans pay a full copy-out of every other graph on each result read until a
+  pending TornadoVM fix lands.
 - Metal GEMM is about 42% of MPS. Every tile shape, and the simdgroup path, plateaus at 2.2-2.3
   TFLOP/s; getting further needs vector loads, double buffering and larger SIMD-group tiles.
 - Metal transpose and strided reductions sit at 100-140 GB/s.

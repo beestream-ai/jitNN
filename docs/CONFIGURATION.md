@@ -14,6 +14,8 @@ System properties, read once at start-up.
 | `jitnn.profile` | `false` | enable TornadoVM's profiler (`Engine.lastProfile()` gives kernel time) |
 | `jitnn.gemm` | `auto` | force a GEMM kernel: `simdgroup`, `128`, `64`, `16` |
 | `jitnn.transpose` | `32` | transpose kernel: `32` (32x32 tiles), `16`, or `naive` |
+| `jitnn.graph.maxTasks` | `40` | tasks per TornadoVM task graph; longer traces become a chain of graphs (a graph holds at most 256 tasks and 8 KiB of bytecode) |
+| `jitnn.reuseBuffers` | `true` | reuse dead backward-pass and inference buffers inside a compiled step |
 
 ## GEMM selection (`auto`)
 
@@ -38,3 +40,7 @@ Maven properties of the `accel-tests` profile.
 | `jitnn.test.gemm` | `auto` | passes `jitnn.gemm` |
 | `jitnn.mnist` | empty | MNIST directory; the MNIST gate is skipped when empty |
 | `jitnn.test.extra` | empty | extra JVM arguments, e.g. `-Dtornado.printKernel=True` |
+| `jitnn.test.deviceMemory` | `12GB` | TornadoVM's device-memory budget (`tornado.device.memory`, whose own default is 4GB) |
+
+TornadoVM's device-memory budget also applies to applications: pass `-Dtornado.device.memory=<N>GB`
+for large models. When a plan runs out of it, jitNN closes the other cached plans and recompiles.

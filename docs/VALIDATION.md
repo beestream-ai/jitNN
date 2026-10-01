@@ -9,24 +9,39 @@ Four layers of checks run on the host and on every device.
    broadcasting binaries, every unary, reductions, all four GEMM transposes, permute, reshape,
    softmax, log-softmax, cross-entropy, fused linear and an MLP chain. This currently runs in FP32
    with a loose tolerance, until jitNN has an FP64 type.
-3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 87 operator cases in FP64 (inputs,
+3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 104 operator cases (wave 1 and the
+   convolution, BatchNorm, pooling and ReLU6 cases of wave 2), in FP64 (inputs,
    output and every input gradient, on odd, size-1 and broadcast shapes), plus 5 optimiser cases
    (three `torch.optim` steps each), and Philox values reproduced in numpy. `GoldenTest` checks the
    reference against them; `GoldenAccelTest` and `OptimGoldenAccelTest` check every device.
-4. **Model parity.** The MNIST gate trains a 784-256-128-10 MLP for 2 epochs and runs PyTorch from
-   bit-identical initial weights (`scripts/pytorch/jitnn_init.py` reimplements jitNN's Philox
-   initialisation) on the same batches.
+4. **Model parity.** Models start from bit-identical initial weights (`scripts/pytorch/jitnn_init.py`
+   reimplements jitNN's Philox initialisation; `models.py` builds ResNet-18 and MobileNetV2 with the
+   same seeds) and train on the same batches as PyTorch.
+   - **MNIST gates** (MLP, 2 epochs; LeNet-5, 1 epoch): losses of steps 0-9 within 1e-4, steps
+     0-49 within 1%, the mean of the last 100 within 5%, accuracy within 0.3 points.
+   - **CNN gates** (ResNet-18 and MobileNetV2, 200 steps): step-by-step loss curves of deep
+     BatchNorm networks drift apart within a few Adam steps from FP32 rounding alone, so the gate
+     compares every parameter's step-0 gradient with PyTorch in FP64 (`cnn_grad64.py`). A parameter
+     passes within three times PyTorch's own FP32 error on it, relative to its gradient or, for
+     gradients that nearly cancel to zero, against the model's median absolute FP32 error. Then
+     the step-0 loss (1e-5), the mean loss of the last 50 steps (10%) and the evaluation accuracy
+     (3 points).
 
 ## Results
 
 | Check | Reference | OpenCL (M4 Pro) | Metal (M4 Pro) | CUDA (RTX 5070 Ti) |
 |---|---|---|---|---|
-| Operator goldens (87) | pass | pass | pass | pass |
+| Operator goldens (104) | pass | pass | pass | pass |
 | Optimiser goldens (5) | pass | pass | pass | pass |
 | Philox against numpy | bit-exact | bit-exact | bit-exact | bit-exact |
 | MLP gate: loss vs reference at every step, 1e-3 | | pass | pass | pass |
 | MNIST: worst relative loss gap, steps 0-49 | | 5.0e-7 | 7.0e-7 | 6.0e-7 |
-| MNIST: test accuracy (PyTorch: 96.24%) | | 96.15% | 96.14% | 96.14% |
+| MNIST MLP: test accuracy (PyTorch: 96.24%) | | 96.15% | 96.14% | 96.25% |
+| LeNet-5: test accuracy (PyTorch: 96.87%) | | 96.93% | 97.02% | 97.00% |
+| ResNet-18: worst step-0 gradient, fraction of its bound | | 0.38 | 0.33 | 0.85 |
+| ResNet-18: accuracy after 200 steps (PyTorch: 93.2%) | | 93.0% | 92.7% | 93.9% |
+| MobileNetV2: worst step-0 gradient, fraction of its bound | | 0.64 | 0.60 | |
+| MobileNetV2: accuracy after 200 steps (PyTorch: 92.3%) | | 94.0% | 91.5% | |
 
 Tolerances: element-wise ops 2e-6 relative; reductions, GEMM, softmax and losses 1e-4; gradients
 ten times those.

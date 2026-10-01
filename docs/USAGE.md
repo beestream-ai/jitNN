@@ -64,6 +64,20 @@ register their parameters:
 | `ReLU` | |
 | `Sequential(...)` | runs `Linear` then `ReLU` as one fused GEMM |
 
+### CNN layers and models
+
+| Module | Notes |
+|---|---|
+| `Conv2d(in, out, k, stride, padding, seed)` and the full constructor with dilation, groups, bias | NCHW, square kernels; PyTorch initialisation |
+| `BatchNorm2d(channels)` | batch statistics in training mode, running statistics in evaluation mode |
+| `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `Flatten` | |
+| `Dropout(p, seed)` | a new mask every step without recompiling |
+| `ReLU6`, `Add(main, shortcut, relu)` | `Add` is a residual connection |
+| `ResNet.resnet18(in, classes, small, seed)`, `MobileNetV2.mobilenetV2(in, classes, small, dropout, seed)` | torchvision layouts; `small` adapts the stem to 28-32 pixel inputs |
+
+`Sequential` fuses a ReLU into the Linear, Conv2d or BatchNorm2d before it. Switch modes with
+`model.train(false)` for evaluation.
+
 ## Optimisers
 
 | Optimiser | Constructor |
@@ -75,6 +89,9 @@ register their parameters:
 
 Updates are in place on the device. The learning rate and Adam's bias corrections are uploaded
 with each step, so schedules work without recompiling (`setLearningRate`).
+
+Learning-rate schedules (`LRScheduler.step`, `multiStep`, `cosine`) adjust the optimiser once per
+epoch, like PyTorch's.
 
 ## The training loop
 
@@ -88,6 +105,17 @@ for (int step = 0; step < steps; step++) {
 }
 float acc = F.accuracy(model.forward(Tensor.of(testX, n, 784)), Tensor.of(testY, n));
 ```
+
+## Inference and memory
+
+```java
+Tensor logits = Grad.inference(() -> model.forward(x));
+```
+
+Inside `Grad.inference` no gradients are recorded, and every intermediate except the returned
+tensor gives its buffer back as soon as the computation no longer needs it (an evaluation pass of
+MobileNetV2 needs 89% less device memory). Gradient temporaries inside `backward()` are reused the
+same way. Forward activations of a training step are kept, so they can still be read after the step.
 
 ## Backends
 

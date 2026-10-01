@@ -19,6 +19,12 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 - **Autograd** adds gradient nodes to the same trace, so forward, backward and the optimiser step
   compile together.
 - **Reference backend**: `ReferenceExecutor` runs each node eagerly with `Op.reference`.
+- **Graph chaining**: a trace longer than `jitnn.graph.maxTasks` tasks is cut at node boundaries
+  into several task graphs in one plan. Each array is owned by the first graph that uses it, which
+  uploads and persists it; later graphs `consumeFromDevice` it.
+- **Buffer reuse**: storages created inside `backward()` (except leaf gradients) or inside
+  `Grad.inference` are internal; the compiler gives a dead internal buffer to later outputs of the
+  same type and size or smaller, and marks it stale after execution.
 
 ## Code layout
 
@@ -30,7 +36,7 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 | `jitnn-core/.../kernels` | the KernelContext kernels |
 | `jitnn-nn/.../nn` | `Module`, `Linear`, `ReLU`, `Sequential`, `optim/` |
 | `jitnn-nn/.../data` | `Mnist`, `Blobs` |
-| `scripts/codegen` | GEMM kernel generators (Java has no macros; accumulators must be scalars) |
+| `scripts/codegen` | GEMM, simdgroup GEMM and implicit-GEMM convolution generators (Java has no macros; accumulators must be scalars) |
 | `scripts/pytorch` | golden tensors, the MNIST reference run, jitNN's Philox in numpy |
 
 ## Adding an operator
@@ -54,4 +60,8 @@ Kernels tagged `WORKAROUND(...)` avoid these:
 | Sketches are built for the graph's device when a task is added, so `withDevice` is too late for Metal intrinsics | `Devices.pin` sets `<graph>.device` first |
 | Metal cannot pass a local-memory array to a helper method | the cross-entropy kernels inline their row reductions |
 | Graal plugin checks fail under `-ea` on JDK 22+ | the accelerator tests run without assertions |
+| A task graph holds at most 256 tasks and 8 KiB of high-level bytecode | traces are chained into several graphs |
+| Metal cannot pass a local-memory array to a helper method | the cross-entropy kernels inline their row statistics |
+| A plan whose execution ran out of memory is not safe to run again | it is dropped and the trace recompiled after evicting other plans |
+| Reading one result of a multi-graph plan syncs every other graph's buffers (fix pending) | none yet; it costs time on large models |
 | Short-circuit operators inside loops can drop a branch | non-short-circuit AND and OR operators in every kernel |
