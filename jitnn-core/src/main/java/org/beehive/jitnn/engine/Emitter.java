@@ -64,11 +64,32 @@ public final class Emitter {
         });
     }
 
+    private FloatArray dummy;
+
+    /** A one-element array for optional array arguments that a kernel does not read. */
+    public FloatArray dummyF32() {
+        if (dummy == null) {
+            dummy = new FloatArray(1);
+            constants.add(dummy);
+        }
+        return dummy;
+    }
+
     /** A device work buffer owned by the compiled plan (partial results between two passes). */
     public FloatArray scratch(int numel) {
         FloatArray a = new FloatArray(Math.max(numel, 1));
         scratch.add(a);
         return a;
+    }
+
+    /** True when the plan runs on Metal (simdgroup matrix kernels are available). */
+    public boolean isMetal() {
+        return Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.METAL;
+    }
+
+    /** True when the plan runs on CUDA. */
+    public boolean isCuda() {
+        return Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA;
     }
 
     public KernelContext context() {
@@ -95,6 +116,20 @@ public final class Emitter {
     public static WorkerGrid grid2D(int x, int y, int tile) {
         WorkerGrid g = new WorkerGrid2D(ceilDiv(Math.max(x, 1), tile) * tile, ceilDiv(Math.max(y, 1), tile) * tile);
         g.setLocalWork(tile, tile, 1);
+        return g;
+    }
+
+    /** {@code groups} work-groups of {@code local} threads. */
+    public static WorkerGrid blocks1D(int groups, int local) {
+        WorkerGrid g = new WorkerGrid1D(Math.max(groups, 1) * local);
+        g.setLocalWork(local, 1, 1);
+        return g;
+    }
+
+    /** {@code gx * gy} work-groups of {@code lx * ly} threads. */
+    public static WorkerGrid blocks2D(int gx, int gy, int lx, int ly) {
+        WorkerGrid g = new WorkerGrid2D(Math.max(gx, 1) * lx, Math.max(gy, 1) * ly);
+        g.setLocalWork(lx, ly, 1);
         return g;
     }
 

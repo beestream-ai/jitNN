@@ -80,6 +80,9 @@ add("softmax_long", "softmax", [], [rnd(3, 1000, lo=-5, hi=5)])
 add("log_softmax", "log_softmax", [], [rnd(6, 10, lo=-5, hi=5)])
 add("cross_entropy", "cross_entropy", [], [rnd(16, 10, lo=-4, hi=4), rng.integers(0, 10, 16).astype(np.int32)])
 add("linear", "linear", [], [rnd(8, 20), rnd(12, 20), rnd(12)])
+add("linear_relu", "linear_relu", [], [rnd(8, 20), rnd(12, 20), rnd(12)])
+add("linear_relu_big", "linear_relu", [], [rnd(128, 96), rnd(72, 96), rnd(72)])
+add("linear_nobias", "linear_nobias", [], [rnd(16, 24), rnd(8, 24)])
 
 
 def forward(op, attrs, t):
@@ -121,6 +124,10 @@ def forward(op, attrs, t):
         return torch.nn.functional.cross_entropy(t[0], t[1].long())
     if op == "linear":
         return torch.nn.functional.linear(t[0], t[1], t[2])
+    if op == "linear_relu":
+        return torch.relu(torch.nn.functional.linear(t[0], t[1], t[2]))
+    if op == "linear_nobias":
+        return torch.nn.functional.linear(t[0], t[1])
     raise ValueError(op)
 
 

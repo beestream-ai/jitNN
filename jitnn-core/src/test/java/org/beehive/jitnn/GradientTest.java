@@ -80,6 +80,7 @@ class GradientTest {
         float[] b1 = { 0.1f, -0.2f, 0.3f };
         float[] w2 = seq(6, 0.8f, -0.1f);
         Tensor labels = Tensor.of(new int[] { 1, 0 }, 2);
+        gradCheck("fused linearRelu", t -> F.linearRelu(t[0], t[1], t[2]).square().sum(), new float[][] { x, w1, b1 }, new int[][] { { 2, 4 }, { 3, 4 }, { 3 } });
         gradCheck("mlp", t -> F.crossEntropy(F.linear(F.linear(t[0], t[1], t[2]).relu(), t[3], null), labels),
                 new float[][] { x, w1, b1, w2 }, new int[][] { { 2, 4 }, { 3, 4 }, { 3 }, { 2, 3 } });
     }

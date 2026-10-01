@@ -8,6 +8,7 @@ import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.GemmKernels;
 
+import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
 /** 2-D matrix product with optional transposes of either operand. iattr = [M, N, K, tA, tB]. */
@@ -49,7 +50,36 @@ public final class MatMul implements Op {
         int k = node.iattr[2];
         int ta = node.iattr[3];
         int tb = node.iattr[4];
-        e.task(Emitter.grid2D(n, m, GemmKernels.TILE), (g, id) -> g.task(id, GemmKernels::gemm, e.context(), a, b, c, m, n, k, ta, tb));
+        emitGemm(e, a, b, c, null, m, n, k, ta, tb, 0);
+    }
+
+    /**
+     * Adds C = op(A) op(B) (+ bias, + ReLU per {@code epilogue}, see GemmKernels) to the graph,
+     * picking the kernel for the backend and shape: simdgroup matrix units on Metal (the epilogue
+     * then runs as a separate kernel), 128x128 register blocks for large outputs, 64x64 blocks
+     * otherwise, and the 16x16 tiled kernel for small or thin products. {@code -Djitnn.gemm=}
+     * {@code auto|simdgroup|128|64|16} overrides the choice.
+     */
+    static void emitGemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        FloatArray biasArg = bias != null ? bias : e.dummyF32();
+        String variant = System.getProperty("jitnn.gemm", "auto");
+        boolean auto = variant.equals("auto");
+        boolean big = (long) m * n >= 64L * 64 && k >= 16;
+        if ((variant.equals("simdgroup") || (auto && big)) && e.isMetal() && m % 8 == 0 && n % 8 == 0) {
+            WorkerGrid grid = Emitter.blocks1D(Emitter.ceilDiv(n, 64) * Emitter.ceilDiv(m, 64), 128);
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemmSimdgroup, e.context(), a, b, c, m, n, k, ta, tb));
+            if (epilogue != 0) {
+                e.task(Emitter.grid1D(m * n), (g, id) -> g.task(id, GemmKernels::biasActivation, e.context(), c, biasArg, m, n, epilogue));
+            }
+        } else if (variant.equals("128") || (auto && m >= 1024 && n >= 1024 && k >= 64)) {
+            WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, 128), Emitter.ceilDiv(m, 128), 16, 16);
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128, e.context(), a, b, c, biasArg, m, n, k, ta, tb, epilogue));
+        } else if (variant.equals("64") || (auto && big)) {
+            WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), Emitter.ceilDiv(m, GemmKernels.BM), 16, 16);
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64, e.context(), a, b, c, biasArg, m, n, k, ta, tb, epilogue));
+        } else {
+            e.task(Emitter.grid2D(n, m, GemmKernels.TILE), (g, id) -> g.task(id, GemmKernels::gemm, e.context(), a, b, c, biasArg, m, n, k, ta, tb, epilogue));
+        }
     }
 
     @Override

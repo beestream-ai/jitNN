@@ -37,6 +37,13 @@ final class TornadoExecutor {
 
     private static final int CACHE_SIZE = Integer.getInteger("jitnn.plan.cache", 16);
     private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose");
+    private static final boolean PROFILE = Boolean.getBoolean("jitnn.profile");
+    /** On CUDA, capture each plan as a CUDA graph and replay it (default on). */
+    private static final boolean CUDA_GRAPH = Boolean.parseBoolean(System.getProperty("jitnn.cudaGraph", "true"));
+    private static long lastKernelNanos;
+    private static long hostNanos;
+    private static long executeNanos;
+    private static long lastTotalNanos;
     private static final AtomicInteger GRAPHS = new AtomicInteger();
     private static volatile boolean loaded;
 
@@ -62,6 +69,8 @@ final class TornadoExecutor {
     }
 
     static synchronized void run(List<Node> nodes, Tensor[] wanted) {
+        long start = System.nanoTime();
+        long before = executeNanos;
         loaded = true;
         // Slot table over storages, in order of first appearance.
         IdentityHashMap<Storage, Integer> slotOf = new IdentityHashMap<>();
@@ -122,6 +131,7 @@ final class TornadoExecutor {
                 fetch(s);
             }
         }
+        hostNanos += System.nanoTime() - start - (executeNanos - before);
     }
 
     private static int add(List<Storage> slots, Storage s) {
@@ -151,6 +161,7 @@ final class TornadoExecutor {
             n.op.emit(e, n);
         }
 
+        Devices.pin(name);
         TaskGraph graph = new TaskGraph(name);
         List<Object> inputs = new ArrayList<>();
         List<Object> once = new ArrayList<>(e.constants);
@@ -183,7 +194,13 @@ final class TornadoExecutor {
         CompiledTrace ct = new CompiledTrace(key, name, kinds, arrays, written, bound, e.tasks.size());
         TornadoExecutionPlan plan = new TornadoExecutionPlan(graph.snapshot());
         plan.withGridScheduler(scheduler);
+        if (PROFILE) {
+            plan.withProfiler(uk.ac.manchester.tornado.api.enums.ProfilerMode.SILENT);
+        }
         Devices.apply(plan);
+        if (CUDA_GRAPH && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA) {
+            plan.withCUDAGraph();
+        }
         ct.plan = plan;
         ct.compileNanos = System.nanoTime() - t0;
         if (VERBOSE) {
@@ -234,8 +251,14 @@ final class TornadoExecutor {
             s.array = (TornadoNativeArray) ct.arrays[i];
             ct.bound[i] = s;
         }
+        long t0 = System.nanoTime();
         ct.last = ct.plan.execute();
+        executeNanos += System.nanoTime() - t0;
         ct.executions++;
+        if (PROFILE) {
+            lastKernelNanos = ct.last.getProfilerResult().getDeviceKernelTime();
+            lastTotalNanos = ct.last.getProfilerResult().getTotalTime();
+        }
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
             if (ct.kinds[i] == CompiledTrace.PERSISTENT) {
@@ -320,6 +343,16 @@ final class TornadoExecutor {
             close(ct);
         }
         CACHE.clear();
+    }
+
+    /** With -Djitnn.profile=true: [device kernel ns, TornadoVM total ns] of the last execution. */
+    static synchronized long[] lastProfile() {
+        return new long[] { lastKernelNanos, lastTotalNanos };
+    }
+
+    /** Cumulative [jitNN host ns outside plan.execute, ns inside plan.execute] of run(). */
+    static synchronized long[] timeSplit() {
+        return new long[] { hostNanos, executeNanos };
     }
 
     /** Compile and replay counts, for tests and benchmarks. */

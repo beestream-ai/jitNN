@@ -24,27 +24,37 @@ class BaselineBenchAccelTest {
         return Tensor.persistent(Tensor.uniform(3, -1, 1, dims));
     }
 
+    private static double kernelSeconds;
+
+    /** Wall seconds per execution; also records the median device kernel time when profiling. */
     static double seconds(Supplier<Tensor> op) {
         for (int i = 0; i < 3; i++) {
             op.get();
             Engine.sync();
         }
+        long[] kernel = new long[REPS];
         long t0 = System.nanoTime();
         for (int i = 0; i < REPS; i++) {
             op.get();
             Engine.sync();
+            kernel[i] = Engine.lastProfile()[0];
         }
-        return (System.nanoTime() - t0) / 1e9 / REPS;
+        double wall = (System.nanoTime() - t0) / 1e9 / REPS;
+        java.util.Arrays.sort(kernel);
+        kernelSeconds = kernel[REPS / 2] / 1e9;
+        return wall;
     }
 
     static void bandwidth(String name, double bytes, Supplier<Tensor> op) {
         double s = seconds(op);
-        System.out.printf("[bench] %-28s %8.3f ms  %7.1f GB/s%n", name, s * 1e3, bytes / s / 1e9);
+        System.out.printf("[bench] %-28s %8.3f ms  %7.1f GB/s   kernel %8.3f ms  %7.1f GB/s%n", name, s * 1e3, bytes / s / 1e9, kernelSeconds * 1e3,
+                kernelSeconds > 0 ? bytes / kernelSeconds / 1e9 : 0);
     }
 
     static void compute(String name, double flops, Supplier<Tensor> op) {
         double s = seconds(op);
-        System.out.printf("[bench] %-28s %8.3f ms  %7.1f GFLOP/s%n", name, s * 1e3, flops / s / 1e9);
+        System.out.printf("[bench] %-28s %8.3f ms  %7.1f GFLOP/s kernel %8.3f ms  %7.1f GFLOP/s%n", name, s * 1e3, flops / s / 1e9, kernelSeconds * 1e3,
+                kernelSeconds > 0 ? flops / kernelSeconds / 1e9 : 0);
     }
 
     @Test

@@ -114,6 +114,22 @@ public final class Engine {
         return TornadoExecutor.isLoaded() ? TornadoExecutor.stats() : new long[2];
     }
 
+    /**
+     * With {@code -Djitnn.profile=true}: {@code [device kernel ns, TornadoVM total ns]} of the
+     * last plan execution, from TornadoVM's profiler. Zeros otherwise.
+     */
+    public static long[] lastProfile() {
+        return TornadoExecutor.isLoaded() ? TornadoExecutor.lastProfile() : new long[2];
+    }
+
+    /**
+     * Cumulative nanoseconds spent in jitNN's executor outside TornadoVM ({@code [0]}, tracing
+     * excluded) and inside {@code TornadoExecutionPlan.execute()} ({@code [1]}).
+     */
+    public static long[] timeSplit() {
+        return TornadoExecutor.isLoaded() ? TornadoExecutor.timeSplit() : new long[2];
+    }
+
     /** Closes every cached compiled plan, first saving persistent storages to the host. */
     public static void reset() {
         sync();

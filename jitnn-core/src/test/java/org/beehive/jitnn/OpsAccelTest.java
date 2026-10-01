@@ -97,11 +97,15 @@ class OpsAccelTest {
         same("gemm 128", () -> t(128 * 128, 1, 0, 128, 128).matmul(t(128 * 128, 0.5f, 0, 128, 128)), 1e-4, 1e-3);
         same("permute", () -> t(2 * 3 * 50, 1, 0, 2, 3, 50).permute(2, 0, 1));
         same("transpose", () -> t(33 * 65, 1, 0, 33, 65).t());
+        same("batched transpose", () -> t(3 * 17 * 40, 1, 0, 3, 17, 40).transpose(1, 2));
+        same("permute last two of 4-d", () -> t(2 * 3 * 5 * 7, 1, 0, 2, 3, 5, 7).permute(0, 1, 3, 2));
     }
 
     @Test
     void softmaxAndLoss() {
         same("softmax long rows", () -> t(5000, 3, 0, 5, 1000).softmax(), 1e-5, 1e-7);
+        same("softmax uncached rows", () -> t(3 * 5000, 3, 0, 3, 5000).softmax(), 1e-5, 1e-7);
+        same("logSoftmax cached 4096", () -> t(2 * 4096, 3, 0, 2, 4096).logSoftmax(), 1e-5, 1e-5);
         same("logSoftmax short rows", () -> t(640, 3, 0, 64, 10).logSoftmax(), 1e-5, 1e-5);
         int[] labels = new int[64];
         for (int i = 0; i < labels.length; i++) {

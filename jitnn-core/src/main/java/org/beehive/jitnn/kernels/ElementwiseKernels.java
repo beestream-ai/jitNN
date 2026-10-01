@@ -179,4 +179,62 @@ public final class ElementwiseKernels {
             out.set(i, x.get(src));
         }
     }
+
+    /** Tile edge of {@link #transposeTiled}; the local tile is padded to TT + 1 columns. */
+    public static final int TT = 16;
+
+    /**
+     * Batched matrix transpose out[b, c, r] = x[b, r, c] through a padded local-memory tile, so
+     * both the reads and the writes are coalesced. 16x16 threads per tile; groups cover
+     * ceil(cols/16) x ceil(rows/16) tiles per batch, with the batch folded into the y dimension.
+     */
+    public static void transposeTiled(KernelContext kc, FloatArray x, FloatArray out, int rows, int cols, int tilesY) {
+        float[] tile = kc.allocateFloatLocalArray(TT * (TT + 1));
+        int tx = kc.localIdx;
+        int ty = kc.localIdy;
+        int gy = kc.groupIdy;
+        int batch = gy / tilesY;
+        int tileRow = gy - batch * tilesY;
+        int r = tileRow * TT + ty;
+        int c = kc.groupIdx * TT + tx;
+        int base = batch * rows * cols;
+        if ((r < rows) & (c < cols)) {
+            tile[ty * (TT + 1) + tx] = x.get(base + r * cols + c);
+        }
+        kc.localBarrier();
+        int orow = kc.groupIdx * TT + ty;
+        int ocol = tileRow * TT + tx;
+        if ((orow < cols) & (ocol < rows)) {
+            out.set(base + orow * rows + ocol, tile[tx * (TT + 1) + ty]);
+        }
+    }
+
+    /**
+     * Batched transpose with 32x32 tiles and 32x8 threads, each moving four rows (the classic
+     * shape for 32-wide SIMD groups). Groups cover ceil(cols/32) x ceil(rows/32) * batch tiles.
+     */
+    public static void transposeTiled32(KernelContext kc, FloatArray x, FloatArray out, int rows, int cols, int tilesY) {
+        float[] tile = kc.allocateFloatLocalArray(32 * 33);
+        int tx = kc.localIdx;
+        int ty = kc.localIdy;
+        int gy = kc.groupIdy;
+        int batch = gy / tilesY;
+        int tileRow = gy - batch * tilesY;
+        int base = batch * rows * cols;
+        int c = kc.groupIdx * 32 + tx;
+        for (int j = 0; j < 32; j += 8) {
+            int r = tileRow * 32 + ty + j;
+            if ((r < rows) & (c < cols)) {
+                tile[(ty + j) * 33 + tx] = x.get(base + r * cols + c);
+            }
+        }
+        kc.localBarrier();
+        int ocol = tileRow * 32 + tx;
+        for (int j = 0; j < 32; j += 8) {
+            int orow = kc.groupIdx * 32 + ty + j;
+            if ((orow < cols) & (ocol < rows)) {
+                out.set(base + orow * rows + ocol, tile[tx * 33 + ty + j]);
+            }
+        }
+    }
 }

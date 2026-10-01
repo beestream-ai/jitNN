@@ -67,6 +67,66 @@ public final class SoftmaxKernels {
         }
     }
 
+    /** Longest row {@link #softmaxRowsCached} keeps in local memory (16 KB). */
+    public static final int CACHED_COLS = 4096;
+
+    /**
+     * Softmax / log-softmax for rows of at most {@link #CACHED_COLS}: the row is read from global
+     * memory once into local memory, and exp(x - max) is kept there between the sum and the write.
+     */
+    public static void softmaxRowsCached(KernelContext kc, FloatArray x, FloatArray y, int cols, int logMode) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        float[] row = kc.allocateFloatLocalArray(CACHED_COLS);
+        int r = kc.groupIdx;
+        int l = kc.localIdx;
+        int base = r * cols;
+        float m = Float.NEGATIVE_INFINITY;
+        for (int c = l; c < cols; c += GROUP) {
+            float v = x.get(base + c);
+            row[c] = v;
+            m = v > m ? v : m;
+        }
+        buf[l] = m;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                float o = buf[l + s];
+                buf[l] = o > buf[l] ? o : buf[l];
+            }
+            kc.localBarrier();
+        }
+        float rowMax = buf[0];
+        kc.localBarrier();
+        float sum = 0.0f;
+        for (int c = l; c < cols; c += GROUP) {
+            float ex = TornadoMath.exp(row[c] - rowMax);
+            if (logMode == 0) {
+                row[c] = ex;
+            }
+            sum += ex;
+        }
+        buf[l] = sum;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        float total = buf[0];
+        if (logMode != 0) {
+            float shift = rowMax + TornadoMath.log(total);
+            for (int c = l; c < cols; c += GROUP) {
+                y.set(base + c, row[c] - shift);
+            }
+        } else {
+            float inv = 1.0f / total;
+            for (int c = l; c < cols; c += GROUP) {
+                y.set(base + c, row[c] * inv);
+            }
+        }
+    }
+
     /**
      * Gradient of softmax (dx = y * (dy - sum(dy * y))) or of log-softmax
      * (dx = dy - exp(y) * sum(dy)), per row. {@code y} is the forward output.
@@ -120,6 +180,96 @@ public final class SoftmaxKernels {
             int r = i / cols;
             int c = i - r * cols;
             dlogp.set(i, c == labels.get(r) ? -dloss.get(r) : 0.0f);
+        }
+    }
+
+    // WORKAROUND(TornadoVM J12): the row statistics are written out in each kernel. Passing the
+    // local-memory array to a shared helper method fails to sketch on Metal ("-1|LocalArray").
+
+    /** Fused cross-entropy, per row: loss[r] = logsumexp(x[r]) - x[r, label[r]]. One work-group per row. */
+    public static void crossEntropyRows(KernelContext kc, FloatArray x, IntArray labels, FloatArray loss, int cols) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int row = kc.groupIdx;
+        int l = kc.localIdx;
+        int base = row * cols;
+        float max = Float.NEGATIVE_INFINITY;
+        for (int c = l; c < cols; c += GROUP) {
+            float v = x.get(base + c);
+            max = v > max ? v : max;
+        }
+        buf[l] = max;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                float o = buf[l + s];
+                buf[l] = o > buf[l] ? o : buf[l];
+            }
+            kc.localBarrier();
+        }
+        max = buf[0];
+        kc.localBarrier();
+        float sum = 0.0f;
+        for (int c = l; c < cols; c += GROUP) {
+            sum += TornadoMath.exp(x.get(base + c) - max);
+        }
+        buf[l] = sum;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        sum = buf[0];
+        if (l == 0) {
+            loss.set(row, TornadoMath.log(sum) + max - x.get(base + labels.get(row)));
+        }
+    }
+
+    /**
+     * Gradient of the mean cross-entropy: dx[r, c] = (softmax(x)[r, c] - [c == label[r]]) * g[0] * scale,
+     * with scale = 1 / rows. One work-group per row.
+     */
+    public static void crossEntropyBackwardRows(KernelContext kc, FloatArray x, IntArray labels, FloatArray g, FloatArray dx, int cols, float scale) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int row = kc.groupIdx;
+        int l = kc.localIdx;
+        int base = row * cols;
+        float max = Float.NEGATIVE_INFINITY;
+        for (int c = l; c < cols; c += GROUP) {
+            float v = x.get(base + c);
+            max = v > max ? v : max;
+        }
+        buf[l] = max;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                float o = buf[l + s];
+                buf[l] = o > buf[l] ? o : buf[l];
+            }
+            kc.localBarrier();
+        }
+        max = buf[0];
+        kc.localBarrier();
+        float sum = 0.0f;
+        for (int c = l; c < cols; c += GROUP) {
+            sum += TornadoMath.exp(x.get(base + c) - max);
+        }
+        buf[l] = sum;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        sum = buf[0];
+        float inv = 1.0f / sum;
+        float gs = g.get(0) * scale;
+        int label = labels.get(row);
+        for (int c = l; c < cols; c += GROUP) {
+            float p = TornadoMath.exp(x.get(base + c) - max) * inv;
+            dx.set(base + c, (p - (c == label ? 1.0f : 0.0f)) * gs);
         }
     }
 }

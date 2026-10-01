@@ -145,6 +145,8 @@ public final class Golden {
             case "log_softmax" -> in[0].logSoftmax();
             case "cross_entropy" -> F.crossEntropy(in[0], in[1]);
             case "linear" -> F.linear(in[0], in[1], in[2]);
+            case "linear_relu" -> F.linearRelu(in[0], in[1], in[2]);
+            case "linear_nobias" -> F.linear(in[0], in[1], null);
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
     }
@@ -152,7 +154,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

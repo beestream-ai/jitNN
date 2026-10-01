@@ -14,11 +14,17 @@ public final class Sequential extends Module {
         }
     }
 
+    /** Applies the layers; a Linear directly followed by a ReLU runs as one fused GEMM. */
     @Override
     public Tensor forward(Tensor x) {
         Tensor y = x;
-        for (Module m : layers) {
-            y = m.forward(y);
+        for (int i = 0; i < layers.length; i++) {
+            if (layers[i] instanceof Linear lin && i + 1 < layers.length && layers[i + 1] instanceof ReLU) {
+                y = lin.forwardRelu(y);
+                i++;
+            } else {
+                y = layers[i].forward(y);
+            }
         }
         return y;
     }

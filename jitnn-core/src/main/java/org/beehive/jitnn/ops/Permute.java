@@ -65,10 +65,43 @@ public final class Permute implements Op {
         return "permute";
     }
 
+    /** True when the permutation only swaps the last two axes (a batched matrix transpose). */
+    static boolean isLastTwoSwap(int[] order) {
+        int r = order.length;
+        if (r < 2 || order[r - 1] != r - 2 || order[r - 2] != r - 1) {
+            return false;
+        }
+        for (int i = 0; i < r - 2; i++) {
+            if (order[i] != i) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     @Override
     public void emit(Emitter e, Node n) {
         FloatArray x = e.f32(n.in(0));
         FloatArray out = e.f32(n.out(0));
+        if (isLastTwoSwap(n.iattr)) {
+            int rows = n.in(0).dim(-2);
+            int cols = n.in(0).dim(-1);
+            int batch = n.in(0).numel() / Math.max(rows * cols, 1);
+            String variant = System.getProperty("jitnn.transpose", "32");
+            if (variant.equals("32")) {
+                int tilesY = Emitter.ceilDiv(rows, 32);
+                e.task(Emitter.blocks2D(Emitter.ceilDiv(cols, 32), tilesY * batch, 32, 8),
+                        (g, id) -> g.task(id, ElementwiseKernels::transposeTiled32, e.context(), x, out, rows, cols, tilesY));
+                return;
+            }
+            if (variant.equals("16")) {
+                int tilesY = Emitter.ceilDiv(rows, ElementwiseKernels.TT);
+                int tilesX = Emitter.ceilDiv(cols, ElementwiseKernels.TT);
+                e.task(Emitter.blocks2D(tilesX, tilesY * batch, ElementwiseKernels.TT, ElementwiseKernels.TT),
+                        (g, id) -> g.task(id, ElementwiseKernels::transposeTiled, e.context(), x, out, rows, cols, tilesY));
+                return;
+            }
+        }
         IntArray meta = e.constant(meta(n.in(0).shape(), n.iattr));
         int count = n.out(0).numel();
         e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::permute, e.context(), x, out, meta, count));

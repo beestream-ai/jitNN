@@ -42,7 +42,11 @@ public final class Softmax implements Op {
         int rows = n.iattr[0];
         int cols = n.iattr[1];
         int log = n.iattr[2];
-        e.task(Emitter.groups(rows), (g, id) -> g.task(id, SoftmaxKernels::softmaxRows, e.context(), x, y, cols, log));
+        if (cols <= SoftmaxKernels.CACHED_COLS) {
+            e.task(Emitter.groups(rows), (g, id) -> g.task(id, SoftmaxKernels::softmaxRowsCached, e.context(), x, y, cols, log));
+        } else {
+            e.task(Emitter.groups(rows), (g, id) -> g.task(id, SoftmaxKernels::softmaxRows, e.context(), x, y, cols, log));
+        }
     }
 
     @Override

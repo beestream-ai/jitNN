@@ -35,6 +35,9 @@
         <!-- Device for accelerator tests, as <driver>:<device> listed by the tornado devices command. -->
         <jitnn.test.device>0:0</jitnn.test.device>
         <jitnn.test.verbose>false</jitnn.test.verbose>
+        <jitnn.test.profile>false</jitnn.test.profile>
+        <jitnn.test.gemm>auto</jitnn.test.gemm>
+        <jitnn.test.extra></jitnn.test.extra>
         <!-- Directory with the MNIST IDX files; the MNIST gate test is skipped when empty. -->
         <jitnn.mnist></jitnn.mnist>
     </properties>
@@ -112,7 +115,9 @@
                                     -Dtornado.recover.bailout=False
                                     -Djitnn.device=${jitnn.test.device}
                                     -Djitnn.verbose=${jitnn.test.verbose}
-                                    -Djitnn.mnist=${jitnn.mnist}</argLine>
+                                    -Djitnn.mnist=${jitnn.mnist}
+                                    -Djitnn.profile=${jitnn.test.profile}
+                                    -Djitnn.gemm=${jitnn.test.gemm} ${jitnn.test.extra}</argLine>
                             </configuration>
                         </plugin>
                     </plugins>

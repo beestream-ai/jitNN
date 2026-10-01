@@ -34,4 +34,9 @@ public final class Linear extends Module {
     public Tensor forward(Tensor x) {
         return F.linear(x, weight, bias);
     }
+
+    /** relu(forward(x)) as one fused GEMM; {@link Sequential} uses it for a Linear followed by ReLU. */
+    public Tensor forwardRelu(Tensor x) {
+        return F.linearRelu(x, weight, bias);
+    }
 }

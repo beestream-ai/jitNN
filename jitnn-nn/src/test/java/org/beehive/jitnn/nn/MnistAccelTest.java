@@ -38,6 +38,7 @@ class MnistAccelTest {
         Adam opt = new Adam(model.parameters(), 1e-3f);
         float[] xb = new float[batch * Mnist.PIXELS];
         int[] yb = new int[batch];
+        long[] split0 = Engine.timeSplit();
         long t0 = System.nanoTime();
         int steps = 0;
         java.util.List<Float> losses = new java.util.ArrayList<>();
@@ -53,6 +54,14 @@ class MnistAccelTest {
             }
         }
         double seconds = (System.nanoTime() - t0) / 1e9;
+        long[] split1 = Engine.timeSplit();
+        long[] prof = Engine.lastProfile();
+        if (prof[1] > 0) {
+            System.out.printf("[jitnn] last step (TornadoVM profiler): device kernels %.3f ms of %.3f ms total%n", prof[0] / 1e6, prof[1] / 1e6);
+        }
+        System.out.printf("[jitnn] per step: %.3f ms total, %.3f ms jitNN executor, %.3f ms TornadoVM execute, %.3f ms tracing/autograd/data%n", seconds * 1e3 / steps,
+                (split1[0] - split0[0]) / 1e6 / steps, (split1[1] - split0[1]) / 1e6 / steps,
+                seconds * 1e3 / steps - (split1[0] - split0[0] + split1[1] - split0[1]) / 1e6 / steps);
 
         int evalBatch = 1000;
         float[] xe = new float[evalBatch * Mnist.PIXELS];
