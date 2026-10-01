@@ -4,3 +4,4 @@ target/
 *.iml
 .DS_Store
 .vscode/
+hs_err_pid*.log

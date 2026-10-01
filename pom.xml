@@ -38,6 +38,8 @@
         <jitnn.test.profile>false</jitnn.test.profile>
         <jitnn.test.gemm>auto</jitnn.test.gemm>
         <jitnn.test.extra></jitnn.test.extra>
+        <!-- TornadoVM's device-memory budget for the accelerator tests (its default is 4GB). -->
+        <jitnn.test.deviceMemory>12GB</jitnn.test.deviceMemory>
         <!-- Directory with the MNIST IDX files; the MNIST gate test is skipped when empty. -->
         <jitnn.mnist></jitnn.mnist>
     </properties>
@@ -113,6 +115,7 @@
                                 </includes>
                                 <argLine>@${env.TORNADOVM_HOME}/tornado-argfile
                                     -Dtornado.recover.bailout=False
+                                    -Dtornado.device.memory=${jitnn.test.deviceMemory}
                                     -Djitnn.device=${jitnn.test.device}
                                     -Djitnn.verbose=${jitnn.test.verbose}
                                     -Djitnn.mnist=${jitnn.mnist}

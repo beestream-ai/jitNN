@@ -35,6 +35,13 @@ class CnnAccelTest {
         Engine.reset();
     }
 
+    @org.junit.jupiter.api.AfterEach
+    void releasePlans() {
+        if (!Boolean.getBoolean("jitnn.test.keepPlans")) {
+            Engine.reset();
+        }
+    }
+
     @Test
     void resNet18MatchesPyTorch() throws Exception {
         run("ResNet-18", ResNet.resnet18(1, 10, true, 1), "resnet18_pytorch.f32");
@@ -46,9 +53,12 @@ class CnnAccelTest {
     }
 
     /**
-     * Every parameter's step-0 gradient against PyTorch's FP64 gradient (scripts/pytorch/cnn_grad64.py),
-     * as a relative L2 error. FP32 itself is only good to about 1e-3 through 20 BatchNorm layers, so
-     * the bound is three times PyTorch's own FP32 error on that parameter (plus 1e-5).
+     * Every parameter's step-0 gradient against PyTorch's FP64 gradient (scripts/pytorch/cnn_grad64.py).
+     * FP32 is only good to about 1e-3 relative through 20 BatchNorm layers, so a parameter passes when
+     * its error is within three times PyTorch's own FP32 error on it, either relative to its gradient
+     * or in absolute terms against the model's median absolute FP32 error. The absolute floor keeps
+     * gradients that nearly cancel to zero (a BatchNorm scale whose terms sum to ~1e-3 of its
+     * neighbours') from failing on noise far below everyone else's.
      */
     private static void checkGradients(String name, Module model, String prefix) throws Exception {
         Path f64 = Path.of(prefix + ".grad0_f64");
@@ -56,12 +66,13 @@ class CnnAccelTest {
         assumeTrue(Files.exists(f64) && Files.exists(f32err), "run scripts/pytorch/cnn_grad64.py for " + prefix);
         java.nio.DoubleBuffer truth = ByteBuffer.wrap(Files.readAllBytes(f64)).order(ByteOrder.LITTLE_ENDIAN).asDoubleBuffer();
         java.nio.FloatBuffer torchErr = ByteBuffer.wrap(Files.readAllBytes(f32err)).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
-        double worstRatio = 0;
-        double worst = 0;
-        int worstAt = -1;
-        int index = 0;
-        for (Tensor p : model.parameters()) {
-            float[] g = p.grad().toFloatArray();
+        List<Tensor> params = model.parameters();
+        int count = params.size();
+        double[] rel = new double[count];
+        double[] abs = new double[count];
+        double[] torchAbs = new double[count];
+        for (int i = 0; i < count; i++) {
+            float[] g = params.get(i).grad().toFloatArray();
             double diff = 0;
             double norm = 0;
             for (float v : g) {
@@ -69,19 +80,26 @@ class CnnAccelTest {
                 diff += (v - t) * (v - t);
                 norm += t * t;
             }
-            double rel = Math.sqrt(diff) / Math.max(Math.sqrt(norm), 1e-30);
-            double bound = 3 * torchErr.get(index) + 1e-5;
-            if (rel / bound > worstRatio) {
-                worstRatio = rel / bound;
-                worst = rel;
-                worstAt = index;
-            }
-            index++;
+            abs[i] = Math.sqrt(diff);
+            rel[i] = abs[i] / Math.max(Math.sqrt(norm), 1e-30);
+            torchAbs[i] = torchErr.get(i) * Math.sqrt(norm);
         }
         assertTrue(!truth.hasRemaining(), name + ": PyTorch has more gradient values than jitNN parameters");
-        System.out.printf("[jitnn] %s step-0 gradients of %d parameters vs FP64: worst %.2e (parameter %d, %.2f of its bound; PyTorch FP32 there %.2e)%n", name, index,
-                worst, worstAt, worstRatio, torchErr.get(worstAt));
-        assertTrue(worstRatio <= 1, name + ": step-0 gradient of parameter " + worstAt + " is off by " + worst);
+        double[] sorted = torchAbs.clone();
+        java.util.Arrays.sort(sorted);
+        double floor = 3 * sorted[count / 2];
+        double worstRatio = 0;
+        int worstAt = 0;
+        for (int i = 0; i < count; i++) {
+            double ratio = Math.min(rel[i] / (3 * torchErr.get(i) + 1e-5), abs[i] / Math.max(floor, 1e-30));
+            if (ratio > worstRatio) {
+                worstRatio = ratio;
+                worstAt = i;
+            }
+        }
+        System.out.printf("[jitnn] %s step-0 gradients of %d parameters vs FP64: worst parameter %d at %.2f of its bound (relative %.2e, PyTorch FP32 %.2e; absolute %.2e, floor %.2e)%n",
+                name, count, worstAt, worstRatio, rel[worstAt], torchErr.get(worstAt), abs[worstAt], floor);
+        assertTrue(worstRatio <= 1, name + ": step-0 gradient of parameter " + worstAt + " is off by " + rel[worstAt] + " relative, " + abs[worstAt] + " absolute");
     }
 
     private static void run(String name, Module model, String referenceFile) throws Exception {

@@ -127,7 +127,26 @@ final class TornadoExecutor {
         } else {
             replays++;
         }
-        execute(ct, slots);
+        try {
+            execute(ct, slots);
+        } catch (uk.ac.manchester.tornado.api.exceptions.TornadoOutOfMemoryException oom) {
+            // Device memory is shared by every cached plan. WORKAROUND(TornadoVM J17): a plan
+            // whose execution failed is not safe to execute again, so it is dropped, the other
+            // plans are closed (persistent storages saved to the host first), and the trace is
+            // compiled afresh.
+            if (CACHE.size() <= 1) {
+                throw oom;
+            }
+            CACHE.remove(k);
+            evictAllExcept(null);
+            if (VERBOSE) {
+                System.err.printf("[jitnn] out of device memory in %s: closed every cached plan and recompiled%n", ct.name);
+            }
+            ct = compile(k, nodes, slots, slotOf, kinds, written);
+            CACHE.put(k, ct);
+            compiles++;
+            execute(ct, slots);
+        }
         for (Node n : nodes) {
             n.executed = true;
         }
@@ -400,6 +419,21 @@ final class TornadoExecutor {
         } catch (TornadoExecutionPlanException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** Closes every cached plan except {@code keep}; false when there was nothing to close. */
+    private static boolean evictAllExcept(CompiledTrace keep) {
+        boolean any = false;
+        var it = CACHE.values().iterator();
+        while (it.hasNext()) {
+            CompiledTrace ct = it.next();
+            if (ct != keep) {
+                close(ct);
+                it.remove();
+                any = true;
+            }
+        }
+        return any;
     }
 
     static synchronized void closeAll() {
