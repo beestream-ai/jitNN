@@ -61,7 +61,6 @@ public final class MatMul implements Op {
      * {@code auto|simdgroup|128|64|16} overrides the choice.
      */
     static void emitGemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
-        FloatArray biasArg = bias != null ? bias : e.dummyF32();
         String variant = System.getProperty("jitnn.gemm", "auto");
         boolean auto = variant.equals("auto");
         boolean big = (long) m * n >= 64L * 64 && k >= 16;
@@ -69,9 +68,14 @@ public final class MatMul implements Op {
             WorkerGrid grid = Emitter.blocks1D(Emitter.ceilDiv(n, 64) * Emitter.ceilDiv(m, 64), 128);
             e.task(grid, (g, id) -> g.task(id, GemmKernels::gemmSimdgroup, e.context(), a, b, c, m, n, k, ta, tb));
             if (epilogue != 0) {
+                FloatArray biasArg = bias != null ? bias : e.dummyF32();
                 e.task(Emitter.grid1D(m * n), (g, id) -> g.task(id, GemmKernels::biasActivation, e.context(), c, biasArg, m, n, epilogue));
             }
-        } else if (variant.equals("128") || (auto && m >= 1024 && n >= 1024 && k >= 64)) {
+            return;
+        }
+        // Every kernel below takes the bias argument; it is only created when one does (J15).
+        FloatArray biasArg = bias != null ? bias : e.dummyF32();
+        if (variant.equals("128") || (auto && m >= 1024 && n >= 1024 && k >= 64)) {
             WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, 128), Emitter.ceilDiv(m, 128), 16, 16);
             e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128, e.context(), a, b, c, biasArg, m, n, k, ta, tb, epilogue));
         } else if (variant.equals("64") || (auto && big)) {

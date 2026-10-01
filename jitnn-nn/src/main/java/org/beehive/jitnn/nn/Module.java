@@ -40,6 +40,7 @@ public abstract class Module {
         return Collections.unmodifiableList(all);
     }
 
+    /** Adds a child module; returns it. */
     protected <M extends Module> M child(M module) {
         children.add(module);
         return module;

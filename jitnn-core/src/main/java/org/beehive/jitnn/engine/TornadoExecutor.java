@@ -38,6 +38,12 @@ final class TornadoExecutor {
     private static final int CACHE_SIZE = Integer.getInteger("jitnn.plan.cache", 16);
     private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose");
     private static final boolean PROFILE = Boolean.getBoolean("jitnn.profile");
+    /**
+     * Tasks per TornadoVM task graph before the trace is split into a chain of graphs. A graph's
+     * high-level bytecode buffer is 8 KiB and a task takes 15 + 5 bytes per argument (jitNN
+     * kernels take up to 19), next to the transfer declarations: 40 tasks stays inside it.
+     */
+    private static final int MAX_TASKS = Integer.getInteger("jitnn.graph.maxTasks", 40);
     /** On CUDA, capture each plan as a CUDA graph and replay it (default on). */
     private static final boolean CUDA_GRAPH = Boolean.parseBoolean(System.getProperty("jitnn.cudaGraph", "true"));
     private static long lastKernelNanos;
@@ -158,41 +164,99 @@ final class TornadoExecutor {
         }
         Emitter e = new Emitter(name, byStorage);
         for (Node n : nodes) {
+            e.beginNode();
             n.op.emit(e, n);
         }
 
-        Devices.pin(name);
-        TaskGraph graph = new TaskGraph(name);
-        List<Object> inputs = new ArrayList<>();
-        List<Object> once = new ArrayList<>(e.constants);
-        List<Object> keep = new ArrayList<>();
+        // Kind of each array the graph touches: inputs are uploaded every execution, persistent
+        // storages and constants once; everything is kept on the device for later reads.
+        IdentityHashMap<Object, Integer> arrayKind = new IdentityHashMap<>();
+        for (Object c : e.constants) {
+            arrayKind.put(c, CompiledTrace.PERSISTENT);
+        }
         for (int i = 0; i < slots.size(); i++) {
-            switch (kinds[i]) {
-                case CompiledTrace.INPUT -> inputs.add(arrays[i]);
-                case CompiledTrace.PERSISTENT -> {
-                    once.add(arrays[i]);
-                    keep.add(arrays[i]);
-                }
-                default -> keep.add(arrays[i]);
-            }
+            arrayKind.put(arrays[i], kinds[i]);
         }
-        if (!inputs.isEmpty()) {
-            graph.transferToDevice(DataTransferMode.EVERY_EXECUTION, inputs.toArray());
-        }
-        if (!once.isEmpty()) {
-            graph.transferToDevice(DataTransferMode.FIRST_EXECUTION, once.toArray());
-        }
+
+        // WORKAROUND(TornadoVM J9): a task graph holds at most 256 tasks (and 8 KiB of
+        // high-level bytecode), so long traces are cut at node boundaries into a chain of graphs
+        // in one plan. Each array belongs to the first graph that uses it, which uploads and
+        // persists it; later graphs consume it from the device.
+        List<int[]> ranges = new ArrayList<>();
+        int startNode = 0;
+        int count = 0;
+        int[] tasksPerNode = new int[nodes.size()];
         for (Emitter.Spec spec : e.tasks) {
-            spec.adder().add(graph, spec.id());
+            tasksPerNode[spec.node()]++;
         }
-        if (!keep.isEmpty()) {
-            graph.persistOnDevice(keep.toArray());
+        for (int i = 0; i < nodes.size(); i++) {
+            if (count > 0 && count + tasksPerNode[i] > MAX_TASKS) {
+                ranges.add(new int[] { startNode, i });
+                startNode = i;
+                count = 0;
+            }
+            count += tasksPerNode[i];
         }
+        ranges.add(new int[] { startNode, nodes.size() });
+
+        IdentityHashMap<Object, String> owner = new IdentityHashMap<>();
+        List<TaskGraph> graphs = new ArrayList<>();
         GridScheduler scheduler = new GridScheduler();
-        e.registerGrids(scheduler);
+        int specIndex = 0;
+        for (int gi = 0; gi < ranges.size(); gi++) {
+            String gname = ranges.size() == 1 ? name : name + "_" + gi;
+            Devices.pin(gname);
+            TaskGraph graph = new TaskGraph(gname);
+            List<Object> inputs = new ArrayList<>();
+            List<Object> once = new ArrayList<>();
+            List<Object> keep = new ArrayList<>();
+            java.util.Map<String, List<Object>> consumed = new LinkedHashMap<>();
+            for (int ni = ranges.get(gi)[0]; ni < ranges.get(gi)[1]; ni++) {
+                for (Object a : e.uses.get(ni)) {
+                    String o = owner.get(a);
+                    if (o == null) {
+                        owner.put(a, gname);
+                        Integer k = arrayKind.get(a);
+                        if (k != null && k == CompiledTrace.INPUT) {
+                            inputs.add(a);
+                        } else if (k != null && k == CompiledTrace.PERSISTENT) {
+                            once.add(a);
+                        }
+                        keep.add(a);
+                    } else if (!o.equals(gname)) {
+                        List<Object> list = consumed.computeIfAbsent(o, x -> new ArrayList<>());
+                        if (list.stream().noneMatch(x -> x == a)) {
+                            list.add(a);
+                        }
+                    }
+                }
+            }
+            if (!inputs.isEmpty()) {
+                graph.transferToDevice(DataTransferMode.EVERY_EXECUTION, inputs.toArray());
+            }
+            if (!once.isEmpty()) {
+                graph.transferToDevice(DataTransferMode.FIRST_EXECUTION, once.toArray());
+            }
+            for (var c : consumed.entrySet()) {
+                graph.consumeFromDevice(c.getKey(), c.getValue().toArray());
+            }
+            while (specIndex < e.tasks.size() && e.tasks.get(specIndex).node() < ranges.get(gi)[1]) {
+                Emitter.Spec spec = e.tasks.get(specIndex++);
+                spec.adder().add(graph, spec.id());
+                e.registerGrid(scheduler, gname, spec);
+            }
+            if (!keep.isEmpty()) {
+                graph.persistOnDevice(keep.toArray());
+            }
+            graphs.add(graph);
+        }
 
         CompiledTrace ct = new CompiledTrace(key, name, kinds, arrays, written, bound, e.tasks.size());
-        TornadoExecutionPlan plan = new TornadoExecutionPlan(graph.snapshot());
+        uk.ac.manchester.tornado.api.ImmutableTaskGraph[] snapshots = new uk.ac.manchester.tornado.api.ImmutableTaskGraph[graphs.size()];
+        for (int i = 0; i < snapshots.length; i++) {
+            snapshots[i] = graphs.get(i).snapshot();
+        }
+        TornadoExecutionPlan plan = new TornadoExecutionPlan(snapshots);
         plan.withGridScheduler(scheduler);
         if (PROFILE) {
             plan.withProfiler(uk.ac.manchester.tornado.api.enums.ProfilerMode.SILENT);
@@ -204,8 +268,8 @@ final class TornadoExecutor {
         ct.plan = plan;
         ct.compileNanos = System.nanoTime() - t0;
         if (VERBOSE) {
-            System.err.printf("[jitnn] compiled %s on %s: %d nodes, %d tasks, %d slots, %.1f ms%n", name, plan.getDevice(0).getTornadoVMBackend() + " " + plan.getDevice(0).getDeviceName(),
-                    nodes.size(), e.tasks.size(), slots.size(), ct.compileNanos / 1e6);
+            System.err.printf("[jitnn] compiled %s on %s: %d nodes, %d tasks in %d graph(s), %d slots, %.1f ms%n", name, plan.getDevice(0).getTornadoVMBackend() + " " + plan.getDevice(0).getDeviceName(),
+                    nodes.size(), e.tasks.size(), graphs.size(), slots.size(), ct.compileNanos / 1e6);
         }
         return ct;
     }

@@ -31,10 +31,32 @@ public final class Emitter {
     /** Work-group size for 1-D kernels and group reductions. Kernels assume this value. */
     public static final int LOCAL = 256;
 
-    record Spec(String id, WorkerGrid grid, TaskAdder adder) {
+    record Spec(String id, WorkerGrid grid, TaskAdder adder, int node) {
     }
 
-    private final String graphName;
+    private String graphName;
+    private int node = -1;
+    /** Per node, the arrays its tasks use (identity), in order of first use. */
+    final List<List<Object>> uses = new ArrayList<>();
+
+    /** Starts recording the tasks and arrays of the next node. */
+    void beginNode() {
+        node++;
+        uses.add(new ArrayList<>());
+    }
+
+    private <T> T use(T array) {
+        if (node >= 0) {
+            List<Object> u = uses.get(node);
+            for (Object o : u) {
+                if (o == array) {
+                    return array;
+                }
+            }
+            u.add(array);
+        }
+        return array;
+    }
     private final Map<Storage, Object> arrays;
     final List<Spec> tasks = new ArrayList<>();
     final List<Object> constants = new ArrayList<>();
@@ -47,21 +69,21 @@ public final class Emitter {
     }
 
     public FloatArray f32(Tensor t) {
-        return (FloatArray) arrays.get(t.storage());
+        return use((FloatArray) arrays.get(t.storage()));
     }
 
     public IntArray i32(Tensor t) {
-        return (IntArray) arrays.get(t.storage());
+        return use((IntArray) arrays.get(t.storage()));
     }
 
     /** A constant int array uploaded once with the graph (shape and stride metadata). */
     public IntArray constant(int... values) {
         String key = java.util.Arrays.toString(values);
-        return constantCache.computeIfAbsent(key, k -> {
+        return use(constantCache.computeIfAbsent(key, k -> {
             IntArray a = IntArray.fromArray(values.length == 0 ? new int[] { 0 } : values);
             constants.add(a);
             return a;
-        });
+        }));
     }
 
     private FloatArray dummy;
@@ -72,14 +94,14 @@ public final class Emitter {
             dummy = new FloatArray(1);
             constants.add(dummy);
         }
-        return dummy;
+        return use(dummy);
     }
 
     /** A device work buffer owned by the compiled plan (partial results between two passes). */
     public FloatArray scratch(int numel) {
         FloatArray a = new FloatArray(Math.max(numel, 1));
         scratch.add(a);
-        return a;
+        return use(a);
     }
 
     /** True when the plan runs on Metal (simdgroup matrix kernels are available). */
@@ -97,7 +119,7 @@ public final class Emitter {
     }
 
     public void task(WorkerGrid grid, TaskAdder adder) {
-        tasks.add(new Spec("t" + tasks.size(), grid, adder));
+        tasks.add(new Spec("t" + tasks.size(), grid, adder, node));
     }
 
     /** A 1-D grid of at least {@code n} threads, in groups of {@link #LOCAL}. */
@@ -141,9 +163,7 @@ public final class Emitter {
         return graphName;
     }
 
-    void registerGrids(GridScheduler scheduler) {
-        for (Spec s : tasks) {
-            scheduler.addWorkerGrid(graphName + "." + s.id(), s.grid());
-        }
+    void registerGrid(GridScheduler scheduler, String graph, Spec s) {
+        scheduler.addWorkerGrid(graph + "." + s.id(), s.grid());
     }
 }
