@@ -3,7 +3,7 @@ own FP32 gradients are from it per parameter. Writes <prefix>.grad0_f64 (float64
 parameters() order) and <prefix>.grad0_f32err (float32 relative L2 error of PyTorch FP32, per
 parameter).
 
-usage: python cnn_grad64.py <resnet18|mobilenetv2> <mnist dir> <prefix>
+usage: python cnn_grad64.py <resnet18|mobilenetv2> <data dir> <prefix> [mnist|cifar10]
 """
 import sys
 
@@ -16,16 +16,17 @@ import torch
 torch.backends.cudnn.allow_tf32 = False
 torch.backends.cuda.matmul.allow_tf32 = False
 
-from mnist_mlp import load
+from datasets import load
 from models import mobilenet_v2, resnet18
 
 
 def grads(kind, xtr, ytr, dtype):
-    net = resnet18(1, 10, True, 1) if kind == "resnet18" else mobilenet_v2(1, 10, True, 1)
+    c = xtr.shape[1]
+    net = resnet18(c, 10, True, 1) if kind == "resnet18" else mobilenet_v2(c, 10, True, 1)
     dev = torch.device(os.environ.get("JITNN_TORCH_DEVICE", "cpu"))
     net = net.to(dtype).to(dev)
     net.train()
-    x = torch.from_numpy(xtr[:64]).reshape(64, 1, 28, 28).to(dtype).to(dev)
+    x = torch.from_numpy(xtr[:64]).to(dtype).to(dev)
     y = torch.from_numpy(ytr[:64]).to(dev)
     torch.nn.functional.cross_entropy(net(x), y).backward()
     return [p.grad.detach().double().cpu().numpy().ravel() for p in net.parameters()]
@@ -33,7 +34,7 @@ def grads(kind, xtr, ytr, dtype):
 
 def main():
     kind, d, prefix = sys.argv[1], sys.argv[2], sys.argv[3]
-    xtr, ytr = load(d, "train")
+    xtr, ytr, _, _, _ = load(sys.argv[4] if len(sys.argv) > 4 else "mnist", d)
     g64 = grads(kind, xtr, ytr, torch.float64)
     g32 = grads(kind, xtr, ytr, torch.float32)
     err = [np.linalg.norm(a - b) / max(np.linalg.norm(a), 1e-30) for a, b in zip(g64, g32)]

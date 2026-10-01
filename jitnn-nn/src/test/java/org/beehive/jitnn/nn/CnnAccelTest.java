@@ -12,6 +12,7 @@ import java.util.List;
 
 import org.beehive.jitnn.F;
 import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.data.Dataset;
 import org.beehive.jitnn.data.Mnist;
 import org.beehive.jitnn.engine.Engine;
 import org.beehive.jitnn.nn.models.MobileNetV2;
@@ -44,12 +45,36 @@ class CnnAccelTest {
 
     @Test
     void resNet18MatchesPyTorch() throws Exception {
-        run("ResNet-18", ResNet.resnet18(1, 10, true, 1), "resnet18_pytorch.f32");
+        runMnist("ResNet-18", ResNet.resnet18(1, 10, true, 1), "resnet18_pytorch.f32");
     }
 
     @Test
     void mobileNetV2MatchesPyTorch() throws Exception {
-        run("MobileNetV2", MobileNetV2.mobilenetV2(1, 10, true, 0, 1), "mobilenetv2_pytorch.f32");
+        runMnist("MobileNetV2", MobileNetV2.mobilenetV2(1, 10, true, 0, 1), "mobilenetv2_pytorch.f32");
+    }
+
+    /** CIFAR-10, one epoch (781 steps of 64), evaluation on all 10,000 test images. Needs -Djitnn.cifar10=<dir>. */
+    @Test
+    void resNet18Cifar10MatchesPyTorch() throws Exception {
+        runCifar("ResNet-18 CIFAR-10", ResNet.resnet18(3, 10, true, 1), "resnet18_cifar10_pytorch.f32");
+    }
+
+    @Test
+    void mobileNetV2Cifar10MatchesPyTorch() throws Exception {
+        runCifar("MobileNetV2 CIFAR-10", MobileNetV2.mobilenetV2(3, 10, true, 0, 1), "mobilenetv2_cifar10_pytorch.f32");
+    }
+
+    private static void runMnist(String name, Module model, String referenceFile) throws Exception {
+        String dir = System.getProperty("jitnn.mnist", "");
+        assumeTrue(!dir.isEmpty() && Mnist.isPresent(Path.of(dir)), "set -Djitnn.mnist=<dir>");
+        run(name, model, Mnist.load(Path.of(dir), true), Mnist.load(Path.of(dir), false), STEPS, 1000, Path.of(dir, referenceFile));
+    }
+
+    private static void runCifar(String name, Module model, String referenceFile) throws Exception {
+        String dir = System.getProperty("jitnn.cifar10", "");
+        assumeTrue(!dir.isEmpty() && org.beehive.jitnn.data.Cifar10.isPresent(Path.of(dir)), "set -Djitnn.cifar10=<dir>");
+        Dataset train = org.beehive.jitnn.data.Cifar10.load(Path.of(dir), true);
+        run(name, model, train, org.beehive.jitnn.data.Cifar10.load(Path.of(dir), false), train.count() / BATCH, 10_000, Path.of(dir, referenceFile));
     }
 
     /**
@@ -102,27 +127,24 @@ class CnnAccelTest {
         assertTrue(worstRatio <= 1, name + ": step-0 gradient of parameter " + worstAt + " is off by " + rel[worstAt] + " relative, " + abs[worstAt] + " absolute");
     }
 
-    private static void run(String name, Module model, String referenceFile) throws Exception {
-        String dir = System.getProperty("jitnn.mnist", "");
-        assumeTrue(!dir.isEmpty() && Mnist.isPresent(Path.of(dir)), "set -Djitnn.mnist=<dir>");
-        Path reference = Path.of(dir, referenceFile);
+    private static void run(String name, Module model, Dataset train, Dataset test, int steps, int evalCount, Path reference) throws Exception {
         assumeTrue(Files.exists(reference), "run scripts/pytorch/cnn_train.py to write " + reference);
-        Mnist train = Mnist.load(Path.of(dir), true);
-        Mnist test = Mnist.load(Path.of(dir), false);
+        int[] shape = train.sampleShape();
+        int sample = train.sampleSize();
         Adam opt = new Adam(model.parameters(), 1e-3f);
-        float[] xb = new float[BATCH * Mnist.PIXELS];
+        float[] xb = new float[BATCH * sample];
         int[] yb = new int[BATCH];
         List<Float> losses = new ArrayList<>();
         long[] plans0 = Engine.planStats();
         long[] split0 = Engine.timeSplit();
         long t0 = System.nanoTime();
         long firstStep = 0;
-        for (int b = 0; b < STEPS; b++) {
+        for (int b = 0; b < steps; b++) {
             train.batch(b, BATCH, xb, yb);
-            Tensor loss = F.crossEntropy(model.forward(Tensor.of(xb, BATCH, 1, 28, 28)), Tensor.of(yb, BATCH));
+            Tensor loss = F.crossEntropy(model.forward(Tensor.of(xb, BATCH, shape[0], shape[1], shape[2])), Tensor.of(yb, BATCH));
             loss.backward();
             if (b == 0) {
-                checkGradients(name, model, Path.of(dir, referenceFile).toString());
+                checkGradients(name, model, reference.toString());
             }
             opt.step();
             losses.add(loss.item());
@@ -131,23 +153,20 @@ class CnnAccelTest {
                 firstStep = System.nanoTime() - t0;
             }
         }
-        double steady = (System.nanoTime() - t0 - firstStep) / 1e6 / (STEPS - 1);
+        double steady = (System.nanoTime() - t0 - firstStep) / 1e6 / (steps - 1);
         long[] plans1 = Engine.planStats();
         long[] split1 = Engine.timeSplit();
-        System.out.printf("[jitnn] %s per step: jitNN executor %.1f ms, TornadoVM execute %.1f ms%n", name, (split1[0] - split0[0]) / 1e6 / STEPS, (split1[1] - split0[1]) / 1e6 / STEPS);
+        System.out.printf("[jitnn] %s per step: jitNN executor %.1f ms, TornadoVM execute %.1f ms%n", name, (split1[0] - split0[0]) / 1e6 / steps, (split1[1] - split0[1]) / 1e6 / steps);
 
         model.train(false);
-        float[] xe = new float[1000 * Mnist.PIXELS];
-        int[] ye = new int[1000];
-        test.batch(0, 1000, xe, ye);
+        int chunk = 250;
+        float[] xs = new float[chunk * sample];
+        int[] ys = new int[chunk];
         double accuracy = 0;
-        for (int b = 0; b < 4; b++) {
-            float[] xs = new float[250 * Mnist.PIXELS];
-            int[] ys = new int[250];
-            System.arraycopy(xe, b * 250 * Mnist.PIXELS, xs, 0, xs.length);
-            System.arraycopy(ye, b * 250, ys, 0, 250);
-            Tensor input = Tensor.of(xs, 250, 1, 28, 28);
-            accuracy += F.accuracy(org.beehive.jitnn.Grad.inference(() -> model.forward(input)), Tensor.of(ys, 250)) / 4;
+        for (int b = 0; b < evalCount / chunk; b++) {
+            test.batch(b, chunk, xs, ys);
+            Tensor input = Tensor.of(xs, chunk, shape[0], shape[1], shape[2]);
+            accuracy += F.accuracy(org.beehive.jitnn.Grad.inference(() -> model.forward(input)), Tensor.of(ys, chunk)) * chunk / evalCount;
         }
 
         ByteBuffer buf = ByteBuffer.wrap(Files.readAllBytes(reference)).order(ByteOrder.LITTLE_ENDIAN);
@@ -155,15 +174,17 @@ class CnnAccelTest {
         float[] torchLosses = new float[buf.remaining() / 4];
         buf.asFloatBuffer().get(torchLosses);
         System.out.printf("[jitnn] %s first losses %s vs PyTorch %.5f %.5f %.5f %.5f%n", name, losses.subList(0, 4), torchLosses[0], torchLosses[1], torchLosses[2], torchLosses[3]);
+        assertTrue(torchLosses.length == steps, name + ": PyTorch ran " + torchLosses.length + " steps, jitNN " + steps);
         double first = 0;
         for (int i = 0; i < 10; i++) {
             first = Math.max(first, Math.abs(losses.get(i) - torchLosses[i]) / Math.abs(torchLosses[i]));
         }
         double meanJ = 0;
         double meanT = 0;
-        for (int i = STEPS - 50; i < STEPS; i++) {
-            meanJ += losses.get(i) / 50.0;
-            meanT += torchLosses[i] / 50.0;
+        int tail = Math.min(50, steps / 4);
+        for (int i = steps - tail; i < steps; i++) {
+            meanJ += losses.get(i) / tail;
+            meanT += torchLosses[i] / tail;
         }
         System.out.printf("[jitnn] %s: %d params, first step %.1f s, then %.1f ms/step (%.0f samples/s), %d plans compiled; vs PyTorch: steps 0-9 gap %.2e, "
                 + "mean loss of the last 50 steps %.4f vs %.4f, eval accuracy %.1f%% vs %.1f%%%n", name, model.parameterCount(), firstStep / 1e9, steady,

@@ -31,7 +31,8 @@ in the order real models use it.
 - **Validated against PyTorch.** Every operator is checked against PyTorch golden tensors, forward
   and gradients, on every device, and every gradient against finite differences. Models are
   trained from the same initial weights as PyTorch: an MNIST MLP tracks its loss to 1e-6, and
-  ResNet-18 and MobileNetV2 match PyTorch's FP64 gradients as closely as PyTorch's own FP32 does.
+  ResNet-18 and MobileNetV2 match PyTorch's FP64 gradients as closely as PyTorch's own FP32 does,
+  and after one CIFAR-10 epoch reach PyTorch's test accuracy (66-67% and 58-61%).
 - **Fused and frugal.** Bias and ReLU run in the GEMM and convolution epilogues, cross-entropy's
   backward is a single kernel, and dead backward-pass buffers are reused inside a compiled step
   (-43% memory on ResNet-18). On CUDA the element-wise, reduction and softmax kernels reach 83-88%

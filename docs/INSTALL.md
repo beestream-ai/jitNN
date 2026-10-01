@@ -49,6 +49,19 @@ python <jitnn>/scripts/pytorch/mnist_mlp.py ~/jitnn-data/mnist ~/jitnn-data/mnis
 ./mvnw test -Paccel-tests -Djitnn.mnist=$HOME/jitnn-data/mnist
 ```
 
+The CIFAR-10 gates need the binary version of CIFAR-10 (170 MB) and the PyTorch references, which
+take a while on a CPU (a GPU is much faster: set `JITNN_TORCH_DEVICE=cuda` or `mps`):
+
+```bash
+mkdir -p ~/jitnn-data/cifar10 && cd ~/jitnn-data/cifar10
+curl -fLO https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz && tar xzf cifar-10-binary.tar.gz
+for m in resnet18 mobilenetv2; do
+  python <jitnn>/scripts/pytorch/cnn_train.py $m . ${m}_cifar10_pytorch.f32 0 cifar10
+  python <jitnn>/scripts/pytorch/cnn_grad64.py $m . ${m}_cifar10_pytorch.f32 cifar10
+done
+./mvnw test -Paccel-tests -Djitnn.cifar10=$HOME/jitnn-data/cifar10 -Dtest='CnnAccelTest#*Cifar10*'
+```
+
 ## PyTorch environment
 
 ```bash

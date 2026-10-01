@@ -42,6 +42,8 @@
         <jitnn.test.deviceMemory>12GB</jitnn.test.deviceMemory>
         <!-- Directory with the MNIST IDX files; the MNIST gate test is skipped when empty. -->
         <jitnn.mnist></jitnn.mnist>
+        <!-- Directory with cifar-10-batches-bin; the CIFAR-10 gates are skipped when empty. -->
+        <jitnn.cifar10></jitnn.cifar10>
     </properties>
 
     <dependencyManagement>
@@ -119,6 +121,7 @@
                                     -Djitnn.device=${jitnn.test.device}
                                     -Djitnn.verbose=${jitnn.test.verbose}
                                     -Djitnn.mnist=${jitnn.mnist}
+                                    -Djitnn.cifar10=${jitnn.cifar10}
                                     -Djitnn.profile=${jitnn.test.profile}
                                     -Djitnn.gemm=${jitnn.test.gemm} ${jitnn.test.extra}</argLine>
                             </configuration>

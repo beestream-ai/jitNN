@@ -39,6 +39,7 @@ Maven properties of the `accel-tests` profile.
 | `jitnn.test.profile` | `false` | passes `jitnn.profile` |
 | `jitnn.test.gemm` | `auto` | passes `jitnn.gemm` |
 | `jitnn.mnist` | empty | MNIST directory; the MNIST gate is skipped when empty |
+| `jitnn.cifar10` | empty | directory holding `cifar-10-batches-bin`; the CIFAR-10 gates are skipped when empty |
 | `jitnn.test.extra` | empty | extra JVM arguments, e.g. `-Dtornado.printKernel=True` |
 | `jitnn.test.deviceMemory` | `12GB` | TornadoVM's device-memory budget (`tornado.device.memory`, whose own default is 4GB) |
 

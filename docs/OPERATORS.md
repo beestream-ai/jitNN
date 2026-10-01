@@ -23,7 +23,7 @@ TornadoVM features last.
 | uniform, normal (Philox4x32-10) | `RandomKernels.philox` | none |
 | SGD, SGD momentum and Nesterov, Adam, AdamW | `OptimKernels` | none |
 
-## Wave 2 (operators done; performance pass and CIFAR-10 gates open)
+## Wave 2 (operators and gates done; performance work open)
 
 | Operator | Kernels | Gradient |
 |---|---|---|
@@ -44,7 +44,7 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 
 | Wave | Contents | Gate |
 |---|---|---|
-| 2 (rest) | performance pass; CIFAR-10 training | ResNet-18 and MobileNetV2 on CIFAR-10 |
+| 2 (rest) | convolution and GEMM speed, dispatch overhead | ResNet-18 and MobileNetV2 steps against MPS and cuDNN |
 | 3 | embedding, LayerNorm, RMSNorm, GELU, SiLU, attention with masks, RoPE, AdamW schedules, FP16/BF16 | BERT, GPT-2, a Llama-style decoder |
 | 4 | sigmoid, LSTM, GRU, transposed conv, upsampling, BCE, MSE, KL | LSTM LM, U-Net, DCGAN, VAE |
 | 5 | the rest of the DL4J/DJL activations, losses, optimisers and norms, Conv1D/3D, sort, scatter | the DL4J and DJL example suites |

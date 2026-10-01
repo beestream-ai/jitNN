@@ -65,6 +65,13 @@ BatchNorm training runs at 196 GB/s and max pooling at 240 GB/s (kernel time).
 | ResNet-18 (11.2M parameters, 268 kernels) | 165 ms | 162 ms | 160 ms | 54 ms |
 | MobileNetV2 (2.2M parameters, 515 kernels) | 148 ms | 138 ms | | 62 ms |
 
+On CIFAR-10 (3x32x32 inputs, batch 64, one epoch), steady-state steps on the M4 Pro:
+
+| | Metal | OpenCL |
+|---|---|---|
+| ResNet-18 | 189 ms (339 samples/s) | 192 ms (333 samples/s) |
+| MobileNetV2 | 153 ms (418 samples/s) | 139 ms (462 samples/s) |
+
 Device memory for intermediates, with and without buffer reuse:
 
 | Plan | Without reuse | With reuse |

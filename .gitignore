@@ -5,3 +5,4 @@ target/
 .DS_Store
 .vscode/
 hs_err_pid*.log
+__pycache__/

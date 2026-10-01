@@ -19,7 +19,8 @@ Four layers of checks run on the host and on every device.
    same seeds) and train on the same batches as PyTorch.
    - **MNIST gates** (MLP, 2 epochs; LeNet-5, 1 epoch): losses of steps 0-9 within 1e-4, steps
      0-49 within 1%, the mean of the last 100 within 5%, accuracy within 0.3 points.
-   - **CNN gates** (ResNet-18 and MobileNetV2, 200 steps): step-by-step loss curves of deep
+   - **CNN gates** (ResNet-18 and MobileNetV2: 200 steps on MNIST, and one epoch of 781 steps on
+     CIFAR-10 with evaluation on all 10,000 test images): step-by-step loss curves of deep
      BatchNorm networks drift apart within a few Adam steps from FP32 rounding alone, so the gate
      compares every parameter's step-0 gradient with PyTorch in FP64 (`cnn_grad64.py`). A parameter
      passes within three times PyTorch's own FP32 error on it, relative to its gradient or, for
@@ -42,6 +43,12 @@ Four layers of checks run on the host and on every device.
 | ResNet-18: accuracy after 200 steps (PyTorch: 93.2%) | | 93.0% | 92.7% | 93.9% |
 | MobileNetV2: worst step-0 gradient, fraction of its bound | | 0.64 | 0.60 | |
 | MobileNetV2: accuracy after 200 steps (PyTorch: 92.3%) | | 94.0% | 91.5% | |
+| CIFAR-10 ResNet-18: worst step-0 gradient, fraction of its bound | | 0.23 | 0.26 | |
+| CIFAR-10 ResNet-18: mean loss of the last 50 steps (PyTorch: 0.946) | | 0.951 | 0.922 | |
+| CIFAR-10 ResNet-18: test accuracy after one epoch (PyTorch: 66.0%) | | 67.5% | 66.5% | |
+| CIFAR-10 MobileNetV2: worst step-0 gradient, fraction of its bound | | 0.19 | 0.22 | |
+| CIFAR-10 MobileNetV2: mean loss of the last 50 steps (PyTorch: 1.118) | | 1.120 | 1.144 | |
+| CIFAR-10 MobileNetV2: test accuracy after one epoch (PyTorch: 59.2%) | | 57.8% | 60.9% | |
 
 Tolerances: element-wise ops 2e-6 relative; reductions, GEMM, softmax and losses 1e-4; gradients
 ten times those.

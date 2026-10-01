@@ -11,7 +11,7 @@ import java.util.zip.GZIPInputStream;
  * Reads the MNIST IDX files ({@code train-images-idx3-ubyte[.gz]} and friends) from a directory.
  * Pixels are scaled to [0, 1] and normalised with the usual mean 0.1307 and std 0.3081.
  */
-public final class Mnist {
+public final class Mnist implements Dataset {
 
     public final float[] images;
     public final int[] labels;
@@ -73,7 +73,18 @@ public final class Mnist {
         }
     }
 
+    @Override
+    public int count() {
+        return count;
+    }
+
+    @Override
+    public int[] sampleShape() {
+        return new int[] { 1, 28, 28 };
+    }
+
     /** Copies batch {@code b} (of size {@code size}) of images into {@code x} and labels into {@code y}. */
+    @Override
     public void batch(int b, int size, float[] x, int[] y) {
         System.arraycopy(images, b * size * PIXELS, x, 0, size * PIXELS);
         System.arraycopy(labels, b * size, y, 0, size);
