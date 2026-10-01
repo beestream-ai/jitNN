@@ -45,10 +45,18 @@ class CnnAccelTest {
         run("MobileNetV2", MobileNetV2.mobilenetV2(1, 10, true, 0, 1), "mobilenetv2_pytorch.f32");
     }
 
-    /** Every parameter's step-0 gradient against PyTorch's, as a relative L2 error. */
-    private static void checkGradients(String name, Module model, Path file) throws Exception {
-        assumeTrue(Files.exists(file), "missing " + file);
-        java.nio.FloatBuffer ref = ByteBuffer.wrap(Files.readAllBytes(file)).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
+    /**
+     * Every parameter's step-0 gradient against PyTorch's FP64 gradient (scripts/pytorch/cnn_grad64.py),
+     * as a relative L2 error. FP32 itself is only good to about 1e-3 through 20 BatchNorm layers, so
+     * the bound is three times PyTorch's own FP32 error on that parameter (plus 1e-5).
+     */
+    private static void checkGradients(String name, Module model, String prefix) throws Exception {
+        Path f64 = Path.of(prefix + ".grad0_f64");
+        Path f32err = Path.of(prefix + ".grad0_f32err");
+        assumeTrue(Files.exists(f64) && Files.exists(f32err), "run scripts/pytorch/cnn_grad64.py for " + prefix);
+        java.nio.DoubleBuffer truth = ByteBuffer.wrap(Files.readAllBytes(f64)).order(ByteOrder.LITTLE_ENDIAN).asDoubleBuffer();
+        java.nio.FloatBuffer torchErr = ByteBuffer.wrap(Files.readAllBytes(f32err)).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
+        double worstRatio = 0;
         double worst = 0;
         int worstAt = -1;
         int index = 0;
@@ -57,20 +65,23 @@ class CnnAccelTest {
             double diff = 0;
             double norm = 0;
             for (float v : g) {
-                double t = ref.get();
+                double t = truth.get();
                 diff += (v - t) * (v - t);
                 norm += t * t;
             }
-            double rel = Math.sqrt(diff) / Math.max(Math.sqrt(norm), 1e-12);
-            if (rel > worst) {
+            double rel = Math.sqrt(diff) / Math.max(Math.sqrt(norm), 1e-30);
+            double bound = 3 * torchErr.get(index) + 1e-5;
+            if (rel / bound > worstRatio) {
+                worstRatio = rel / bound;
                 worst = rel;
                 worstAt = index;
             }
             index++;
         }
-        assertTrue(!ref.hasRemaining(), name + ": PyTorch has more gradient values than jitNN parameters");
-        System.out.printf("[jitnn] %s step-0 gradients of %d parameters: worst relative L2 error %.2e (parameter %d)%n", name, index, worst, worstAt);
-        assertTrue(worst < 1e-3, name + ": step-0 gradient of parameter " + worstAt + " differs by " + worst);
+        assertTrue(!truth.hasRemaining(), name + ": PyTorch has more gradient values than jitNN parameters");
+        System.out.printf("[jitnn] %s step-0 gradients of %d parameters vs FP64: worst %.2e (parameter %d, %.2f of its bound; PyTorch FP32 there %.2e)%n", name, index,
+                worst, worstAt, worstRatio, torchErr.get(worstAt));
+        assertTrue(worstRatio <= 1, name + ": step-0 gradient of parameter " + worstAt + " is off by " + worst);
     }
 
     private static void run(String name, Module model, String referenceFile) throws Exception {
@@ -92,7 +103,7 @@ class CnnAccelTest {
             Tensor loss = F.crossEntropy(model.forward(Tensor.of(xb, BATCH, 1, 28, 28)), Tensor.of(yb, BATCH));
             loss.backward();
             if (b == 0) {
-                checkGradients(name, model, Path.of(dir, referenceFile + ".grad0"));
+                checkGradients(name, model, Path.of(dir, referenceFile).toString());
             }
             opt.step();
             losses.add(loss.item());
