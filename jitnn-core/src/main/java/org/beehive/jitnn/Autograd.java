@@ -20,6 +20,16 @@ final class Autograd {
     }
 
     static void backward(Tensor root, Tensor seed) {
+        try {
+            backwardInner(root, seed);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static void backwardInner(Tensor root, Tensor seed) throws Exception {
         if (!root.requiresGrad()) {
             throw new IllegalStateException("tensor does not require grad");
         }
@@ -29,7 +39,7 @@ final class Autograd {
 
         Map<Tensor, Tensor> grads = new IdentityHashMap<>();
         grads.put(root, seed != null ? seed : Tensor.full(1.0f, root.shape().dims()));
-        try (Grad.Scope ignored = Grad.disabled()) {
+        try (Grad.Scope ignored = Grad.disabled(); AutoCloseable internal = org.beehive.jitnn.engine.Storage.internalScope()) {
             for (int i = order.size() - 1; i >= 0; i--) {
                 Node node = order.get(i);
                 Tensor gy = grads.remove(node.out(0));
@@ -47,6 +57,7 @@ final class Autograd {
                     }
                     if (x.gradFn() == null) {
                         x.accumulateGrad(gx[j]);
+                        x.grad().storage().markVisible();
                     } else {
                         grads.merge(x, gx[j], Tensor::add);
                     }

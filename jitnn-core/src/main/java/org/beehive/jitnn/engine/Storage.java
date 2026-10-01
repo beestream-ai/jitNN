@@ -31,6 +31,11 @@ public final class Storage {
 
     TornadoNativeArray array;
     boolean hostValid;
+    /**
+     * Created inside autograd's backward pass and not handed to the user as a leaf gradient: no
+     * user code can hold it, so its buffer may be reused once the trace no longer needs it.
+     */
+    boolean internal;
 
     // Persistent storages: the compiled traces whose device copy is current.
     final Set<CompiledTrace> validOn = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -44,6 +49,7 @@ public final class Storage {
         this.dtype = dtype;
         this.numel = numel;
         this.persistent = persistent;
+        this.internal = !persistent && INTERNAL.get();
     }
 
     public static Storage ofHost(TornadoNativeArray array, DType dtype, boolean persistent) {
@@ -51,6 +57,24 @@ public final class Storage {
         s.array = array;
         s.hostValid = true;
         return s;
+    }
+
+    private static final ThreadLocal<Boolean> INTERNAL = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    /** Marks storages created on this thread, until the scope closes, as internal (autograd). */
+    public static AutoCloseable internalScope() {
+        boolean previous = INTERNAL.get();
+        INTERNAL.set(Boolean.TRUE);
+        return () -> INTERNAL.set(previous);
+    }
+
+    static boolean inInternalScope() {
+        return INTERNAL.get();
+    }
+
+    /** The user can see this storage (a leaf gradient): never reuse its buffer. */
+    public void markVisible() {
+        internal = false;
     }
 
     public DType dtype() {

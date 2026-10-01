@@ -19,6 +19,10 @@ final class CompiledTrace {
     final Storage[] bound;
     final int tasks;
 
+    /** Per slot: an intermediate whose buffer is reused inside the trace (stale after execution). */
+    boolean[] recyclable;
+    long intermediateBytes;
+
     TornadoExecutionPlan plan;
     TornadoExecutionResult last;
     long executions;

@@ -44,6 +44,8 @@ final class TornadoExecutor {
      * kernels take up to 19), next to the transfer declarations: 40 tasks stays inside it.
      */
     private static final int MAX_TASKS = Integer.getInteger("jitnn.graph.maxTasks", 40);
+    /** Reuse dead intermediates' buffers within a compiled trace (default on). */
+    private static final boolean REUSE = Boolean.parseBoolean(System.getProperty("jitnn.reuseBuffers", "true"));
     /** On CUDA, capture each plan as a CUDA graph and replay it (default on). */
     private static final boolean CUDA_GRAPH = Boolean.parseBoolean(System.getProperty("jitnn.cudaGraph", "true"));
     private static long lastKernelNanos;
@@ -118,10 +120,42 @@ final class TornadoExecutor {
                 key.append('>').append(slotOf.get(t.storage())).append(t.shape());
             }
         }
+        // Buffer reuse (N4): an internal intermediate (a backward-pass temporary no user code can
+        // hold) that a later node consumes and that was not requested at this sync hands its
+        // buffer on once its last reader has run.
+        int[] lastUse = new int[slots.size()];
+        boolean[] consumed = new boolean[slots.size()];
+        Arrays.fill(lastUse, -1);
+        for (int ni = 0; ni < nodes.size(); ni++) {
+            Node n = nodes.get(ni);
+            for (Tensor t : n.inputs) {
+                int si = slotOf.get(t.storage());
+                lastUse[si] = ni;
+                consumed[si] = true;
+            }
+            for (Tensor t : n.outputs) {
+                int si = slotOf.get(t.storage());
+                lastUse[si] = Math.max(lastUse[si], ni);
+            }
+        }
+        boolean[] recyclable = new boolean[slots.size()];
+        Set<Storage> wantedSet = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Tensor t : wanted) {
+            wantedSet.add(t.storage());
+        }
+        if (REUSE) {
+            key.append("|R");
+            for (int i = 0; i < slots.size(); i++) {
+                recyclable[i] = kinds[i] == CompiledTrace.INTERMEDIATE && consumed[i] && slots.get(i).internal && !wantedSet.contains(slots.get(i));
+                if (kinds[i] == CompiledTrace.INTERMEDIATE && !recyclable[i]) {
+                    key.append(i).append(',');
+                }
+            }
+        }
         String k = key.toString();
         CompiledTrace ct = CACHE.get(k);
         if (ct == null) {
-            ct = compile(k, nodes, slots, slotOf, kinds, written);
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse);
             CACHE.put(k, ct);
             compiles++;
         } else {
@@ -142,7 +176,7 @@ final class TornadoExecutor {
             if (VERBOSE) {
                 System.err.printf("[jitnn] out of device memory in %s: closed every cached plan and recompiled%n", ct.name);
             }
-            ct = compile(k, nodes, slots, slotOf, kinds, written);
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse);
             CACHE.put(k, ct);
             compiles++;
             execute(ct, slots);
@@ -164,18 +198,54 @@ final class TornadoExecutor {
         return slots.size() - 1;
     }
 
-    private static CompiledTrace compile(String key, List<Node> nodes, List<Storage> slots, IdentityHashMap<Storage, Integer> slotOf, int[] kinds, boolean[] written) {
+    private static CompiledTrace compile(String key, List<Node> nodes, List<Storage> slots, IdentityHashMap<Storage, Integer> slotOf, int[] kinds, boolean[] written, boolean[] recyclable,
+            int[] lastUse) {
         long t0 = System.nanoTime();
         String name = "jitnn" + GRAPHS.incrementAndGet();
         Object[] arrays = new Object[slots.size()];
         Storage[] bound = new Storage[slots.size()];
         IdentityHashMap<Storage, Object> byStorage = new IdentityHashMap<>();
+        // Recyclable intermediates take a dead buffer of the same type and at least their size
+        // (smallest that fits); it returns to the pool after its last reader. A node's outputs
+        // are placed before its own inputs are released, so they never alias them.
+        List<TornadoNativeArray> pool = new ArrayList<>();
+        long freshBytes = 0;
+        for (int ni = 0; ni < nodes.size(); ni++) {
+            for (Tensor t : nodes.get(ni).outputs) {
+                int si = slotOf.get(t.storage());
+                if (arrays[si] != null || kinds[si] != CompiledTrace.INTERMEDIATE) {
+                    continue;
+                }
+                Storage s = slots.get(si);
+                TornadoNativeArray best = null;
+                if (recyclable[si]) {
+                    for (TornadoNativeArray a : pool) {
+                        boolean fits = a.getSize() >= Math.max(s.numel, 1) && (s.dtype == org.beehive.jitnn.DType.F32 ? a instanceof uk.ac.manchester.tornado.api.types.arrays.FloatArray
+                                : a instanceof uk.ac.manchester.tornado.api.types.arrays.IntArray);
+                        if (fits && (best == null || a.getSize() < best.getSize())) {
+                            best = a;
+                        }
+                    }
+                }
+                if (best != null) {
+                    pool.remove(best);
+                    arrays[si] = best;
+                } else {
+                    arrays[si] = Storage.newArray(s.dtype, s.numel);
+                    freshBytes += 4L * Math.max(s.numel, 1);
+                }
+            }
+            for (int si = 0; si < slots.size(); si++) {
+                if (recyclable[si] && lastUse[si] == ni && arrays[si] != null) {
+                    pool.add((TornadoNativeArray) arrays[si]);
+                }
+            }
+        }
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
-            arrays[i] = switch (kinds[i]) {
-                case CompiledTrace.PERSISTENT -> s.allocate();
-                default -> Storage.newArray(s.dtype, s.numel);
-            };
+            if (arrays[i] == null) {
+                arrays[i] = kinds[i] == CompiledTrace.PERSISTENT ? s.allocate() : Storage.newArray(s.dtype, s.numel);
+            }
             if (kinds[i] == CompiledTrace.PERSISTENT) {
                 bound[i] = s;
             }
@@ -271,6 +341,8 @@ final class TornadoExecutor {
         }
 
         CompiledTrace ct = new CompiledTrace(key, name, kinds, arrays, written, bound, e.tasks.size());
+        ct.recyclable = recyclable;
+        ct.intermediateBytes = freshBytes;
         uk.ac.manchester.tornado.api.ImmutableTaskGraph[] snapshots = new uk.ac.manchester.tornado.api.ImmutableTaskGraph[graphs.size()];
         for (int i = 0; i < snapshots.length; i++) {
             snapshots[i] = graphs.get(i).snapshot();
@@ -287,8 +359,9 @@ final class TornadoExecutor {
         ct.plan = plan;
         ct.compileNanos = System.nanoTime() - t0;
         if (VERBOSE) {
-            System.err.printf("[jitnn] compiled %s on %s: %d nodes, %d tasks in %d graph(s), %d slots, %.1f ms%n", name, plan.getDevice(0).getTornadoVMBackend() + " " + plan.getDevice(0).getDeviceName(),
-                    nodes.size(), e.tasks.size(), graphs.size(), slots.size(), ct.compileNanos / 1e6);
+            System.err.printf("[jitnn] compiled %s on %s: %d nodes, %d tasks in %d graph(s), %d slots, %.1f MB of intermediates, %.1f ms%n", name,
+                    plan.getDevice(0).getTornadoVMBackend() + " " + plan.getDevice(0).getDeviceName(), nodes.size(), e.tasks.size(), graphs.size(), slots.size(), freshBytes / 1e6,
+                    ct.compileNanos / 1e6);
         }
         return ct;
     }
@@ -354,7 +427,8 @@ final class TornadoExecutor {
                 s.boundTrace = ct;
                 s.boundExec = ct.executions;
                 s.hostValid = false;
-                s.stale = false;
+                // A recycled buffer holds a later tensor's data now.
+                s.stale = ct.recyclable != null && ct.recyclable[i];
             }
         }
     }

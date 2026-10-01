@@ -114,6 +114,7 @@ class CnnAccelTest {
         int[] yb = new int[BATCH];
         List<Float> losses = new ArrayList<>();
         long[] plans0 = Engine.planStats();
+        long[] split0 = Engine.timeSplit();
         long t0 = System.nanoTime();
         long firstStep = 0;
         for (int b = 0; b < STEPS; b++) {
@@ -132,6 +133,8 @@ class CnnAccelTest {
         }
         double steady = (System.nanoTime() - t0 - firstStep) / 1e6 / (STEPS - 1);
         long[] plans1 = Engine.planStats();
+        long[] split1 = Engine.timeSplit();
+        System.out.printf("[jitnn] %s per step: jitNN executor %.1f ms, TornadoVM execute %.1f ms%n", name, (split1[0] - split0[0]) / 1e6 / STEPS, (split1[1] - split0[1]) / 1e6 / STEPS);
 
         model.train(false);
         float[] xe = new float[1000 * Mnist.PIXELS];
@@ -143,7 +146,8 @@ class CnnAccelTest {
             int[] ys = new int[250];
             System.arraycopy(xe, b * 250 * Mnist.PIXELS, xs, 0, xs.length);
             System.arraycopy(ye, b * 250, ys, 0, 250);
-            accuracy += F.accuracy(model.forward(Tensor.of(xs, 250, 1, 28, 28)), Tensor.of(ys, 250)) / 4;
+            Tensor input = Tensor.of(xs, 250, 1, 28, 28);
+            accuracy += F.accuracy(org.beehive.jitnn.Grad.inference(() -> model.forward(input)), Tensor.of(ys, 250)) / 4;
         }
 
         ByteBuffer buf = ByteBuffer.wrap(Files.readAllBytes(reference)).order(ByteOrder.LITTLE_ENDIAN);

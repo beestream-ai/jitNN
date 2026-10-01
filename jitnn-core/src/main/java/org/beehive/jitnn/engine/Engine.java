@@ -94,8 +94,9 @@ public final class Engine {
 
     static void ensureHost(Storage s) {
         if (s.stale) {
-            throw new IllegalStateException("tensor data was reused by a later execution of the same trace; "
-                    + "copy what you need (toFloatArray) before the next step");
+            throw new IllegalStateException("tensor data is gone: its buffer was reused, by a later execution of the same trace or by a later "
+                    + "tensor of the same trace once nothing needed it; pass the tensor to the sync that runs it (Engine.sync(t), t.item()) or read it before "
+                    + "the next step");
         }
         if (s.hostValid) {
             return;
