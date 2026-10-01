@@ -341,6 +341,11 @@ public final class Tensor {
         return Unary.apply(Unary.Kind.RELU, this, 0, 0);
     }
 
+    /** min(max(x, 0), 6). */
+    public Tensor relu6() {
+        return clamp(0.0f, 6.0f);
+    }
+
     public Tensor pow(float exponent) {
         return Unary.apply(Unary.Kind.POW_SCALAR, this, exponent, 0);
     }

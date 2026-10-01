@@ -85,6 +85,23 @@ case linear linear
 case linear_relu linear_relu 
 case linear_relu_big linear_relu 
 case linear_nobias linear_nobias 
+case conv_3x3 conv2d 1 1 1 1
+case conv_stride2 conv2d 2 1 1 1
+case conv_7x7_s2 conv2d 2 3 1 1
+case conv_1x1 conv2d 1 0 1 1
+case conv_dilated conv2d 1 2 2 1
+case conv_groups conv2d 1 1 1 4
+case conv_depthwise conv2d 2 1 1 6
+case conv_big conv2d 1 1 1 1
+case conv_nobias conv2d_nobias 1 1 1 1
+case batch_norm batch_norm 
+case batch_norm_2d batch_norm 
+case max_pool_3s2p1 max_pool2d 3 2 1
+case max_pool_2s2 max_pool2d 2 2 0
+case avg_pool_3s2p1 avg_pool2d 3 2 1
+case avg_pool_2s2 avg_pool2d 2 2 0
+case global_avg_pool global_avg_pool 
+case relu6 relu6 
 case opt_sgd optim sgd
 case opt_sgd_momentum optim sgd_momentum
 case opt_sgd_nesterov optim sgd_nesterov
@@ -522,29 +539,143 @@ linear_nobias w f32 862128 16 8
 linear_nobias out f32 862640 16 8
 linear_nobias grad0 f32 863152 16 24
 linear_nobias grad1 f32 864688 8 24
-opt_sgd p0 f32 865456 37
-opt_sgd g0 f32 865604 37
-opt_sgd g1 f32 865752 37
-opt_sgd g2 f32 865900 37
-opt_sgd out f32 866048 37
-opt_sgd_momentum p0 f32 866196 37
-opt_sgd_momentum g0 f32 866344 37
-opt_sgd_momentum g1 f32 866492 37
-opt_sgd_momentum g2 f32 866640 37
-opt_sgd_momentum out f32 866788 37
-opt_sgd_nesterov p0 f32 866936 37
-opt_sgd_nesterov g0 f32 867084 37
-opt_sgd_nesterov g1 f32 867232 37
-opt_sgd_nesterov g2 f32 867380 37
-opt_sgd_nesterov out f32 867528 37
-opt_adam p0 f32 867676 37
-opt_adam g0 f32 867824 37
-opt_adam g1 f32 867972 37
-opt_adam g2 f32 868120 37
-opt_adam out f32 868268 37
-opt_adamw p0 f32 868416 37
-opt_adamw g0 f32 868564 37
-opt_adamw g1 f32 868712 37
-opt_adamw g2 f32 868860 37
-opt_adamw out f32 869008 37
-init_uniform out f32 869156 4099
+conv_3x3 in0 f32 865456 2 3 9 11
+conv_3x3 in1 f32 867832 8 3 3 3
+conv_3x3 in2 f32 868696 8
+conv_3x3 w f32 868728 2 8 9 11
+conv_3x3 out f32 875064 2 8 9 11
+conv_3x3 grad0 f32 881400 2 3 9 11
+conv_3x3 grad1 f32 883776 8 3 3 3
+conv_3x3 grad2 f32 884640 8
+conv_stride2 in0 f32 884672 2 4 10 10
+conv_stride2 in1 f32 887872 6 4 3 3
+conv_stride2 in2 f32 888736 6
+conv_stride2 w f32 888760 2 6 5 5
+conv_stride2 out f32 889960 2 6 5 5
+conv_stride2 grad0 f32 891160 2 4 10 10
+conv_stride2 grad1 f32 894360 6 4 3 3
+conv_stride2 grad2 f32 895224 6
+conv_7x7_s2 in0 f32 895248 1 3 17 17
+conv_7x7_s2 in1 f32 898716 5 3 7 7
+conv_7x7_s2 in2 f32 901656 5
+conv_7x7_s2 w f32 901676 1 5 9 9
+conv_7x7_s2 out f32 903296 1 5 9 9
+conv_7x7_s2 grad0 f32 904916 1 3 17 17
+conv_7x7_s2 grad1 f32 908384 5 3 7 7
+conv_7x7_s2 grad2 f32 911324 5
+conv_1x1 in0 f32 911344 3 16 5 5
+conv_1x1 in1 f32 916144 70 16 1 1
+conv_1x1 in2 f32 920624 70
+conv_1x1 w f32 920904 3 70 5 5
+conv_1x1 out f32 941904 3 70 5 5
+conv_1x1 grad0 f32 962904 3 16 5 5
+conv_1x1 grad1 f32 967704 70 16 1 1
+conv_1x1 grad2 f32 972184 70
+conv_dilated in0 f32 972464 1 2 12 12
+conv_dilated in1 f32 973616 3 2 3 3
+conv_dilated in2 f32 973832 3
+conv_dilated w f32 973844 1 3 12 12
+conv_dilated out f32 975572 1 3 12 12
+conv_dilated grad0 f32 977300 1 2 12 12
+conv_dilated grad1 f32 978452 3 2 3 3
+conv_dilated grad2 f32 978668 3
+conv_groups in0 f32 978680 2 8 7 7
+conv_groups in1 f32 981816 12 2 3 3
+conv_groups in2 f32 982680 12
+conv_groups w f32 982728 2 12 7 7
+conv_groups out f32 987432 2 12 7 7
+conv_groups grad0 f32 992136 2 8 7 7
+conv_groups grad1 f32 995272 12 2 3 3
+conv_groups grad2 f32 996136 12
+conv_depthwise in0 f32 996184 2 6 8 8
+conv_depthwise in1 f32 999256 6 1 3 3
+conv_depthwise in2 f32 999472 6
+conv_depthwise w f32 999496 2 6 4 4
+conv_depthwise out f32 1000264 2 6 4 4
+conv_depthwise grad0 f32 1001032 2 6 8 8
+conv_depthwise grad1 f32 1004104 6 1 3 3
+conv_depthwise grad2 f32 1004320 6
+conv_big in0 f32 1004344 4 32 16 16
+conv_big in1 f32 1135416 96 32 3 3
+conv_big in2 f32 1246008 96
+conv_big w f32 1246392 4 96 16 16
+conv_big out f32 1639608 4 96 16 16
+conv_big grad0 f32 2032824 4 32 16 16
+conv_big grad1 f32 2163896 96 32 3 3
+conv_big grad2 f32 2274488 96
+conv_nobias in0 f32 2274872 2 3 6 6
+conv_nobias in1 f32 2275736 4 3 3 3
+conv_nobias w f32 2276168 2 4 6 6
+conv_nobias out f32 2277320 2 4 6 6
+conv_nobias grad0 f32 2278472 2 3 6 6
+conv_nobias grad1 f32 2279336 4 3 3 3
+batch_norm rm f32 2279768 5
+batch_norm rv f32 2279788 5
+batch_norm in0 f32 2279808 4 5 6 7
+batch_norm in1 f32 2283168 5
+batch_norm in2 f32 2283188 5
+batch_norm w f32 2283208 4 5 6 7
+batch_norm out f32 2286568 4 5 6 7
+batch_norm grad0 f32 2289928 4 5 6 7
+batch_norm grad1 f32 2293288 5
+batch_norm grad2 f32 2293308 5
+batch_norm_2d rm f32 2293328 9
+batch_norm_2d rv f32 2293364 9
+batch_norm_2d in0 f32 2293400 32 9
+batch_norm_2d in1 f32 2294552 9
+batch_norm_2d in2 f32 2294588 9
+batch_norm_2d w f32 2294624 32 9
+batch_norm_2d out f32 2295776 32 9
+batch_norm_2d grad0 f32 2296928 32 9
+batch_norm_2d grad1 f32 2298080 9
+batch_norm_2d grad2 f32 2298116 9
+max_pool_3s2p1 in0 f32 2298152 2 3 11 11
+max_pool_3s2p1 w f32 2301056 2 3 6 6
+max_pool_3s2p1 out f32 2301920 2 3 6 6
+max_pool_3s2p1 grad0 f32 2302784 2 3 11 11
+max_pool_2s2 in0 f32 2305688 2 4 8 8
+max_pool_2s2 w f32 2307736 2 4 4 4
+max_pool_2s2 out f32 2308248 2 4 4 4
+max_pool_2s2 grad0 f32 2308760 2 4 8 8
+avg_pool_3s2p1 in0 f32 2310808 2 3 11 11
+avg_pool_3s2p1 w f32 2313712 2 3 6 6
+avg_pool_3s2p1 out f32 2314576 2 3 6 6
+avg_pool_3s2p1 grad0 f32 2315440 2 3 11 11
+avg_pool_2s2 in0 f32 2318344 2 4 8 8
+avg_pool_2s2 w f32 2320392 2 4 4 4
+avg_pool_2s2 out f32 2320904 2 4 4 4
+avg_pool_2s2 grad0 f32 2321416 2 4 8 8
+global_avg_pool in0 f32 2323464 3 7 5 5
+global_avg_pool w f32 2325564 3 7
+global_avg_pool out f32 2325648 3 7
+global_avg_pool grad0 f32 2325732 3 7 5 5
+relu6 in0 f32 2327832 17 13
+relu6 w f32 2328716 17 13
+relu6 out f32 2329600 17 13
+relu6 grad0 f32 2330484 17 13
+opt_sgd p0 f32 2331368 37
+opt_sgd g0 f32 2331516 37
+opt_sgd g1 f32 2331664 37
+opt_sgd g2 f32 2331812 37
+opt_sgd out f32 2331960 37
+opt_sgd_momentum p0 f32 2332108 37
+opt_sgd_momentum g0 f32 2332256 37
+opt_sgd_momentum g1 f32 2332404 37
+opt_sgd_momentum g2 f32 2332552 37
+opt_sgd_momentum out f32 2332700 37
+opt_sgd_nesterov p0 f32 2332848 37
+opt_sgd_nesterov g0 f32 2332996 37
+opt_sgd_nesterov g1 f32 2333144 37
+opt_sgd_nesterov g2 f32 2333292 37
+opt_sgd_nesterov out f32 2333440 37
+opt_adam p0 f32 2333588 37
+opt_adam g0 f32 2333736 37
+opt_adam g1 f32 2333884 37
+opt_adam g2 f32 2334032 37
+opt_adam out f32 2334180 37
+opt_adamw p0 f32 2334328 37
+opt_adamw g0 f32 2334476 37
+opt_adamw g1 f32 2334624 37
+opt_adamw g2 f32 2334772 37
+opt_adamw out f32 2334920 37
+init_uniform out f32 2335068 4099

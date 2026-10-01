@@ -84,4 +84,33 @@ class GradientTest {
         gradCheck("mlp", t -> F.crossEntropy(F.linear(F.linear(t[0], t[1], t[2]).relu(), t[3], null), labels),
                 new float[][] { x, w1, b1, w2 }, new int[][] { { 2, 4 }, { 3, 4 }, { 3 }, { 2, 3 } });
     }
+
+    @Test
+    void convolutionPoolingNorm() {
+        float[] x = seq(2 * 4 * 6 * 6, 1, 0);
+        float[] w = seq(6 * 4 * 3 * 3, 0.4f, 0.05f);
+        float[] wg = seq(6 * 2 * 3 * 3, 0.4f, 0.05f);
+        float[] wd = seq(4 * 3 * 3, 0.4f, 0.05f);
+        float[] b = { 0.1f, -0.2f, 0.3f, 0.0f, 0.5f, -0.4f };
+        int[] sx = { 2, 4, 6, 6 };
+        gradCheck("conv2d", t -> F.conv2d(t[0], t[1], t[2], 1, 1, 1, 1).square().mean(), new float[][] { x, w, b }, new int[][] { sx, { 6, 4, 3, 3 }, { 6 } });
+        gradCheck("conv2d strided relu", t -> F.conv2dRelu(t[0], t[1], t[2], 2, 1, 1, 1).square().mean(), new float[][] { x, w, b }, new int[][] { sx, { 6, 4, 3, 3 }, { 6 } });
+        gradCheck("conv2d groups dilated", t -> F.conv2d(t[0], t[1], null, 1, 2, 2, 2).square().mean(), new float[][] { x, wg }, new int[][] { sx, { 6, 2, 3, 3 } });
+        gradCheck("conv2d depthwise", t -> F.conv2d(t[0], t[1], null, 2, 1, 1, 4).square().mean(), new float[][] { x, wd }, new int[][] { sx, { 4, 1, 3, 3 } });
+        // Max pooling needs well-separated values: a finite-difference step must not change the argmax.
+        float[] distinct = new float[x.length];
+        for (int i = 0; i < distinct.length; i++) {
+            distinct[i] = ((i * 37) % distinct.length) * 0.05f - 7;
+        }
+        gradCheck("max pool", t -> F.maxPool2d(t[0], 3, 2, 1).square().sum(), new float[][] { distinct }, new int[][] { sx });
+        gradCheck("avg pool", t -> F.avgPool2d(t[0], 3, 2, 1).square().sum(), new float[][] { x }, new int[][] { sx });
+        gradCheck("global avg pool", t -> F.globalAvgPool2d(t[0]).square().sum(), new float[][] { x }, new int[][] { sx });
+        float[] gamma = { 1.2f, 0.8f, 1.0f, 0.6f };
+        float[] beta = { 0.1f, -0.1f, 0.2f, 0.0f };
+        float[] wsum = seq(2 * 4 * 6 * 6, 0.7f, 0.2f);
+        Tensor weights = Tensor.of(wsum, sx);
+        gradCheck("batch norm", t -> F.batchNorm(t[0], Tensor.persistent(Tensor.zeros(4)), Tensor.persistent(Tensor.ones(4)), t[1], t[2], true, 0.1f, 1e-5f).mul(weights).sum(),
+                new float[][] { x, gamma, beta }, new int[][] { sx, { 4 }, { 4 } });
+        gradCheck("relu6", t -> t[0].mul(4).relu6().square().sum(), new float[][] { A23 }, new int[][] { S23 });
+    }
 }

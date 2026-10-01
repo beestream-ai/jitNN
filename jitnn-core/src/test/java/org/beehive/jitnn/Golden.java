@@ -100,6 +100,9 @@ public final class Golden {
         return new ArrayList<>(byName.values());
     }
 
+    /** Tensors an operator created besides its output (batch norm's running statistics). */
+    public static final ThreadLocal<Map<String, Tensor>> EXTRAS = ThreadLocal.withInitial(LinkedHashMap::new);
+
     /** Applies a golden case's operator with jitNN. */
     public static Tensor apply(Case c, Tensor[] in) {
         return switch (c.op()) {
@@ -147,6 +150,20 @@ public final class Golden {
             case "linear" -> F.linear(in[0], in[1], in[2]);
             case "linear_relu" -> F.linearRelu(in[0], in[1], in[2]);
             case "linear_nobias" -> F.linear(in[0], in[1], null);
+            case "conv2d" -> F.conv2d(in[0], in[1], in[2], c.iattr(0), c.iattr(1), c.iattr(2), c.iattr(3));
+            case "conv2d_nobias" -> F.conv2d(in[0], in[1], null, c.iattr(0), c.iattr(1), c.iattr(2), c.iattr(3));
+            case "batch_norm" -> {
+                int ch = in[0].dim(1);
+                Tensor rm = Tensor.persistent(Tensor.zeros(ch));
+                Tensor rv = Tensor.persistent(Tensor.ones(ch));
+                EXTRAS.get().put("rm", rm);
+                EXTRAS.get().put("rv", rv);
+                yield F.batchNorm(in[0], rm, rv, in[1], in[2], true, 0.1f, 1e-5f);
+            }
+            case "max_pool2d" -> F.maxPool2d(in[0], c.iattr(0), c.iattr(1), c.iattr(2));
+            case "avg_pool2d" -> F.avgPool2d(in[0], c.iattr(0), c.iattr(1), c.iattr(2));
+            case "global_avg_pool" -> F.globalAvgPool2d(in[0]);
+            case "relu6" -> in[0].relu6();
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
     }
@@ -154,7 +171,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

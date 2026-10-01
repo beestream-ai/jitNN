@@ -83,6 +83,27 @@ add("linear", "linear", [], [rnd(8, 20), rnd(12, 20), rnd(12)])
 add("linear_relu", "linear_relu", [], [rnd(8, 20), rnd(12, 20), rnd(12)])
 add("linear_relu_big", "linear_relu", [], [rnd(128, 96), rnd(72, 96), rnd(72)])
 add("linear_nobias", "linear_nobias", [], [rnd(16, 24), rnd(8, 24)])
+# ---- wave 2: convolution (attrs: stride pad dilation groups), batch norm, pooling, relu6
+for (name, n, cin, h, w, cout, k, st, pd, dl, g) in [
+    ("conv_3x3", 2, 3, 9, 11, 8, 3, 1, 1, 1, 1),
+    ("conv_stride2", 2, 4, 10, 10, 6, 3, 2, 1, 1, 1),
+    ("conv_7x7_s2", 1, 3, 17, 17, 5, 7, 2, 3, 1, 1),
+    ("conv_1x1", 3, 16, 5, 5, 70, 1, 1, 0, 1, 1),
+    ("conv_dilated", 1, 2, 12, 12, 3, 3, 1, 2, 2, 1),
+    ("conv_groups", 2, 8, 7, 7, 12, 3, 1, 1, 1, 4),
+    ("conv_depthwise", 2, 6, 8, 8, 6, 3, 2, 1, 1, 6),
+    ("conv_big", 4, 32, 16, 16, 96, 3, 1, 1, 1, 1),
+]:
+    add(name, "conv2d", [st, pd, dl, g], [rnd(n, cin, h, w), rnd(cout, cin // g, k, k, lo=-0.5, hi=0.5), rnd(cout)])
+add("conv_nobias", "conv2d_nobias", [1, 1, 1, 1], [rnd(2, 3, 6, 6), rnd(4, 3, 3, 3, lo=-0.5, hi=0.5)])
+add("batch_norm", "batch_norm", [], [rnd(4, 5, 6, 7), rnd(5, lo=0.5, hi=1.5), rnd(5)])
+add("batch_norm_2d", "batch_norm", [], [rnd(32, 9), rnd(9, lo=0.5, hi=1.5), rnd(9)])
+add("max_pool_3s2p1", "max_pool2d", [3, 2, 1], [rnd(2, 3, 11, 11)])
+add("max_pool_2s2", "max_pool2d", [2, 2, 0], [rnd(2, 4, 8, 8)])
+add("avg_pool_3s2p1", "avg_pool2d", [3, 2, 1], [rnd(2, 3, 11, 11)])
+add("avg_pool_2s2", "avg_pool2d", [2, 2, 0], [rnd(2, 4, 8, 8)])
+add("global_avg_pool", "global_avg_pool", [], [rnd(3, 7, 5, 5)])
+add("relu6", "relu6", [], [rnd(17, 13, lo=-3, hi=9)])
 
 
 def forward(op, attrs, t):
@@ -128,15 +149,37 @@ def forward(op, attrs, t):
         return torch.relu(torch.nn.functional.linear(t[0], t[1], t[2]))
     if op == "linear_nobias":
         return torch.nn.functional.linear(t[0], t[1])
+    if op == "conv2d":
+        return torch.nn.functional.conv2d(t[0], t[1], t[2], stride=attrs[0], padding=attrs[1], dilation=attrs[2], groups=attrs[3])
+    if op == "conv2d_nobias":
+        return torch.nn.functional.conv2d(t[0], t[1], None, stride=attrs[0], padding=attrs[1], dilation=attrs[2], groups=attrs[3])
+    if op == "batch_norm":
+        c = t[0].shape[1]
+        rm, rv = torch.zeros(c), torch.ones(c)
+        y = torch.nn.functional.batch_norm(t[0], rm, rv, t[1], t[2], training=True, momentum=0.1, eps=1e-5)
+        extras["rm"], extras["rv"] = rm, rv
+        return y
+    if op == "max_pool2d":
+        return torch.nn.functional.max_pool2d(t[0], attrs[0], attrs[1], attrs[2])
+    if op == "avg_pool2d":
+        return torch.nn.functional.avg_pool2d(t[0], attrs[0], attrs[1], attrs[2])
+    if op == "global_avg_pool":
+        return torch.nn.functional.adaptive_avg_pool2d(t[0], 1).flatten(1)
+    if op == "relu6":
+        return torch.nn.functional.relu6(t[0])
     raise ValueError(op)
 
 
 arrays = []  # (case, role, np array)
+extras = {}
 lines = []
 
 for name, op, attrs, inputs, grads in cases:
     ts = [torch.tensor(a.astype(np.float64), requires_grad=g) if a.dtype == np.float32 else torch.tensor(a) for a, g in zip(inputs, grads)]
+    extras.clear()
     y = forward(op, attrs, ts)
+    for role, v in extras.items():
+        arrays.append((name, role, v.detach().numpy().astype(np.float32)))
     lines.append(f"case {name} {op} " + " ".join(str(a) for a in attrs))
     for i, a in enumerate(inputs):
         arrays.append((name, f"in{i}", a))

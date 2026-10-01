@@ -46,6 +46,7 @@ final class GoldenOps {
             in.add(t);
         }
         Tensor[] inputs = in.toArray(new Tensor[0]);
+        Golden.EXTRAS.get().clear();
         Tensor y = Golden.apply(c, inputs);
         if (y.dtype() == DType.I32) {
             assertArrayEquals(c.get("out").i(), y.toIntArray(), c.name());
@@ -56,6 +57,9 @@ final class GoldenOps {
         Tensor loss = y.mul(Tensor.of(w.f(), w.dims())).sum();
         loss.backward();
         close(c.get("out").f(), y.toFloatArray(), tf[0], tf[1], c.name() + " forward");
+        for (var extra : Golden.EXTRAS.get().entrySet()) {
+            close(c.get(extra.getKey()).f(), extra.getValue().toFloatArray(), tf[0], tf[1], c.name() + " " + extra.getKey());
+        }
         double[] tg = Golden.tolerance(c, true);
         for (int i = 0; i < inputs.length; i++) {
             if (c.get("grad" + i) != null) {

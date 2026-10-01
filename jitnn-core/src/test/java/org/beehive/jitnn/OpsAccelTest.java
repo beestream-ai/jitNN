@@ -146,4 +146,25 @@ class OpsAccelTest {
         float[] actual = Engine.with(Backend.TORNADO, grads::get);
         close(expected, actual, 1e-4, 1e-6, "mlp gradients");
     }
+
+    @Test
+    void dropoutMasksMatchAndScale() {
+        Supplier<Tensor> drop = () -> F.dropout(t(10_000, 1, 2, 10_000), 0.3f, Tensor.of(new int[] { 1234, 77 }, 2), 5);
+        float[] host = on(Backend.REFERENCE, drop);
+        float[] device = on(Backend.TORNADO, drop);
+        close(host, device, 1e-6, 1e-7, "same mask on host and device");
+        int zeros = 0;
+        for (float v : device) {
+            zeros += v == 0 ? 1 : 0;
+        }
+        org.junit.jupiter.api.Assertions.assertEquals(0.3, zeros / 10_000.0, 0.02, "drop rate");
+        float[] grad = Engine.with(Backend.TORNADO, () -> {
+            Tensor x = t(10_000, 1, 2, 10_000).requiresGrad(true);
+            F.dropout(x, 0.3f, Tensor.of(new int[] { 1234, 77 }, 2), 5).sum().backward();
+            return x.grad().toFloatArray();
+        });
+        for (int i = 0; i < grad.length; i++) {
+            org.junit.jupiter.api.Assertions.assertEquals(device[i] == 0 ? 0 : 1 / 0.7f, grad[i], 1e-5, "gradient uses the forward mask at " + i);
+        }
+    }
 }

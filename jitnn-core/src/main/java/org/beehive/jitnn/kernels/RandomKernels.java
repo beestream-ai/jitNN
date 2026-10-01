@@ -81,4 +81,40 @@ public final class RandomKernels {
             out.set(i, v);
         }
     }
+
+    /** Word {@code j} (0..3) of the Philox4x32 block for counter (c0, c1, 0, 0) and key (k0, k1). */
+    public static int philoxWord(int c0, int c1, int k0, int k1, int j, int rounds) {
+        int a = c0;
+        int b = c1;
+        int c = 0;
+        int d = 0;
+        int x = k0;
+        int y = k1;
+        for (int r = 0; r < rounds; r++) {
+            int hi0 = mulhi(M0, a);
+            int lo0 = M0 * a;
+            int hi1 = mulhi(M1, c);
+            int lo1 = M1 * c;
+            a = hi1 ^ b ^ x;
+            b = lo1;
+            c = hi0 ^ d ^ y;
+            d = lo0;
+            x = x + W0;
+            y = y + W1;
+        }
+        return j == 0 ? a : (j == 1 ? b : (j == 2 ? c : d));
+    }
+
+    /**
+     * Inverted dropout: keeps element i with probability 1 - p (Philox uniform >= p, keyed by the
+     * per-step seed in {@code seed[0..1]} and the layer's stream) and scales it by 1 / (1 - p).
+     * The backward pass calls the same kernel on dy: the mask is regenerated, not stored.
+     */
+    public static void dropout(KernelContext kc, FloatArray x, FloatArray out, uk.ac.manchester.tornado.api.types.arrays.IntArray seed, int stream, float p, float scale, int n, int rounds) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            int w = philoxWord(i >> 2, stream, seed.get(0), seed.get(1), i & 3, rounds);
+            out.set(i, toUnit(w) >= p ? x.get(i) * scale : 0.0f);
+        }
+    }
 }
