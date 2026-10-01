@@ -12,10 +12,12 @@ provide, built wave by wave in order of how often real models use each operator.
   last one (forward, backward and optimiser step) into one TornadoVM task graph, and caches it by
   structure: the second and later training steps replay the compiled plan. Parameters stay on the
   device between steps.
-- **Validated.** Every operator has a double-precision Java reference; tests compare the device
-  against it and check every gradient against finite differences.
+- **Validated.** Every operator has a double-precision Java reference. Tests check the reference
+  and every device against PyTorch golden tensors (forward and gradients), check every gradient
+  against finite differences, and train an MNIST MLP from the same initial weights as PyTorch.
 
-Status: wave 1 (core operators and the MLP) in progress. See the plan documents for the roadmap.
+Status: wave 1 (core operators and the MLP) done at the baseline; its performance pass is next.
+Validated on OpenCL and Metal (Apple M4 Pro) and CUDA (RTX 5070 Ti).
 
 ## Build and test
 
@@ -28,6 +30,19 @@ source <TornadoVM>/setvars.sh          # sets JAVA_HOME and TORNADOVM_HOME
 ./mvnw test -Paccel-tests              # device tests on TornadoVM device 0:0
 ./mvnw test -Paccel-tests -Djitnn.test.device=1:0   # another device (tornado --devices)
 ```
+
+### PyTorch references
+
+`scripts/pytorch` needs Python with `torch` and `numpy`.
+
+```bash
+python scripts/pytorch/goldens.py jitnn-core/src/test/resources/golden   # regenerate the golden set
+python scripts/pytorch/mnist_mlp.py <mnist dir> <mnist dir>/mnist_mlp_pytorch.f32
+./mvnw test -Paccel-tests -Djitnn.mnist=<mnist dir>   # MNIST gate against that PyTorch run
+```
+
+`jitnn_init.py` reproduces jitNN's Philox initialisation in numpy, so PyTorch starts from the same
+weights.
 
 ## Example
 

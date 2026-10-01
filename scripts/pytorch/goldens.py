@@ -1,0 +1,185 @@
+"""Golden tensors from PyTorch for jitNN's operator tests.
+
+Each case applies one operator to fixed random inputs, then back-propagates loss = sum(y * w)
+with a random upstream gradient w. Inputs, the output and every input gradient are written to
+jitnn-core/src/test/resources/golden/ as:
+
+  manifest.txt   one line per array:  <case> <role> <dtype> <offset> <dims...>
+                 and one line per case: case <name> <op> <attrs...>
+  data.bin       the arrays, little-endian float32 / int32, back to back
+
+Roles: in0, in1 ... (inputs), w (upstream gradient), out, grad0, grad1 ... (input gradients),
+and for optimiser cases p0 (start), g<k> (gradient at step k), out (final parameter).
+
+usage: python goldens.py <output dir>
+"""
+import os
+import sys
+
+import numpy as np
+import torch
+
+from jitnn_init import uniform
+
+rng = np.random.default_rng(1234)
+torch.set_default_dtype(torch.float64)  # compute goldens in FP64, store FP32
+
+cases = []  # (name, op, attrs, inputs[list of np arrays], grads_for[list of bool])
+
+
+def rnd(*shape, lo=-2.0, hi=2.0):
+    return rng.uniform(lo, hi, size=shape).astype(np.float32)
+
+
+def pos(*shape):
+    return rng.uniform(0.2, 3.0, size=shape).astype(np.float32)
+
+
+def add(name, op, attrs, inputs, grads=None):
+    cases.append((name, op, attrs, inputs, grads if grads is not None else [a.dtype == np.float32 for a in inputs]))
+
+
+# ---- binary with broadcasting, odd and size-1 shapes
+for op in ["add", "sub", "mul", "div", "maximum"]:
+    b = (lambda *s: pos(*s)) if op == "div" else rnd
+    add(f"{op}_same", op, [], [rnd(37, 5), b(37, 5)])
+    add(f"{op}_row", op, [], [rnd(7, 33), b(33)])
+    add(f"{op}_col", op, [], [rnd(7, 33), b(7, 1)])
+    add(f"{op}_3d", op, [], [rnd(3, 1, 5), b(4, 1)])
+    add(f"{op}_scalar", op, [], [rnd(1), b(9, 2)])
+# ---- unary
+for op, gen in [("neg", rnd), ("exp", rnd), ("log", pos), ("sqrt", pos), ("abs", rnd), ("relu", rnd), ("reciprocal", pos), ("square", rnd)]:
+    add(f"{op}", op, [], [gen(17, 13)])
+    add(f"{op}_1", op, [], [gen(1)])
+add("pow_2.5", "pow", [2.5], [pos(11, 7)])
+add("clamp", "clamp", [-0.7, 0.9], [rnd(11, 7)])
+add("affine", "affine", [1.5, -0.25], [rnd(11, 7)])
+# ---- reductions
+for op in ["sum", "mean", "max", "min"]:
+    add(f"{op}_ax0", op, [0, 0], [rnd(19, 23)])
+    add(f"{op}_ax1_keep", op, [1, 1], [rnd(19, 23)])
+    add(f"{op}_3d_mid", op, [1, 0], [rnd(3, 300, 5)])
+    add(f"{op}_long", op, [0, 0], [rnd(5000)])
+add("sum_all", "sum_all", [], [rnd(4, 5, 6)])
+add("mean_all", "mean_all", [], [rnd(101)])
+add("argmax", "argmax", [1], [rnd(13, 29)], [False])
+# ---- matmul, all transposes, odd sizes and 1x1
+for ta in (0, 1):
+    for tb in (0, 1):
+        for (m, n, k) in [(17, 33, 9), (1, 1, 1), (40, 3, 70)]:
+            a = rnd(k, m) if ta else rnd(m, k)
+            b = rnd(n, k) if tb else rnd(k, n)
+            add(f"matmul_t{ta}{tb}_{m}x{n}x{k}", "matmul", [ta, tb], [a, b])
+# ---- shape
+add("permute_201", "permute", [2, 0, 1], [rnd(2, 3, 4)])
+add("transpose", "permute", [1, 0], [rnd(9, 31)])
+add("reshape", "reshape", [6, 4], [rnd(2, 3, 4)])
+# ---- softmax family and losses
+add("softmax", "softmax", [], [rnd(6, 10, lo=-5, hi=5)])
+add("softmax_long", "softmax", [], [rnd(3, 1000, lo=-5, hi=5)])
+add("log_softmax", "log_softmax", [], [rnd(6, 10, lo=-5, hi=5)])
+add("cross_entropy", "cross_entropy", [], [rnd(16, 10, lo=-4, hi=4), rng.integers(0, 10, 16).astype(np.int32)])
+add("linear", "linear", [], [rnd(8, 20), rnd(12, 20), rnd(12)])
+
+
+def forward(op, attrs, t):
+    if op in ("add", "sub", "mul", "div"):
+        return getattr(torch, op)(t[0], t[1])
+    if op == "maximum":
+        return torch.maximum(t[0], t[1])
+    if op in ("neg", "exp", "log", "sqrt", "abs", "relu", "reciprocal", "square"):
+        return getattr(torch, op)(t[0])
+    if op == "pow":
+        return torch.pow(t[0], attrs[0])
+    if op == "clamp":
+        return torch.clamp(t[0], attrs[0], attrs[1])
+    if op == "affine":
+        return t[0] * attrs[0] + attrs[1]
+    if op in ("sum", "mean"):
+        return getattr(torch, op)(t[0], dim=attrs[0], keepdim=bool(attrs[1]))
+    if op in ("max", "min"):
+        return getattr(torch, "amax" if op == "max" else "amin")(t[0], dim=attrs[0], keepdim=bool(attrs[1]))
+    if op == "sum_all":
+        return t[0].sum()
+    if op == "mean_all":
+        return t[0].mean()
+    if op == "argmax":
+        return torch.argmax(t[0], dim=attrs[0])
+    if op == "matmul":
+        a = t[0].T if attrs[0] else t[0]
+        b = t[1].T if attrs[1] else t[1]
+        return a @ b
+    if op == "permute":
+        return t[0].permute(*attrs)
+    if op == "reshape":
+        return t[0].reshape(*attrs)
+    if op == "softmax":
+        return torch.softmax(t[0], dim=-1)
+    if op == "log_softmax":
+        return torch.log_softmax(t[0], dim=-1)
+    if op == "cross_entropy":
+        return torch.nn.functional.cross_entropy(t[0], t[1].long())
+    if op == "linear":
+        return torch.nn.functional.linear(t[0], t[1], t[2])
+    raise ValueError(op)
+
+
+arrays = []  # (case, role, np array)
+lines = []
+
+for name, op, attrs, inputs, grads in cases:
+    ts = [torch.tensor(a.astype(np.float64), requires_grad=g) if a.dtype == np.float32 else torch.tensor(a) for a, g in zip(inputs, grads)]
+    y = forward(op, attrs, ts)
+    lines.append(f"case {name} {op} " + " ".join(str(a) for a in attrs))
+    for i, a in enumerate(inputs):
+        arrays.append((name, f"in{i}", a))
+    if y.dtype == torch.int64:
+        arrays.append((name, "out", y.numpy().astype(np.int32)))
+        continue
+    w = rnd(*y.shape) if y.dim() > 0 else rnd(1).reshape(())
+    (y * torch.tensor(w.astype(np.float64))).sum().backward()
+    arrays.append((name, "w", w))
+    arrays.append((name, "out", y.detach().numpy().astype(np.float32)))
+    for i, tt in enumerate(ts):
+        if grads[i]:
+            arrays.append((name, f"grad{i}", tt.grad.numpy().astype(np.float32)))
+
+# ---- optimisers: three steps from a fixed start with fixed gradients
+for name, make in [
+    ("sgd", lambda p: torch.optim.SGD([p], lr=0.1, weight_decay=0.01)),
+    ("sgd_momentum", lambda p: torch.optim.SGD([p], lr=0.1, momentum=0.9, weight_decay=0.01)),
+    ("sgd_nesterov", lambda p: torch.optim.SGD([p], lr=0.1, momentum=0.9, nesterov=True)),
+    ("adam", lambda p: torch.optim.Adam([p], lr=0.01, weight_decay=0.01)),
+    ("adamw", lambda p: torch.optim.AdamW([p], lr=0.01, weight_decay=0.05)),
+]:
+    p0 = rnd(37)
+    p = torch.tensor(p0.astype(np.float64), requires_grad=True)
+    opt = make(p)
+    lines.append(f"case opt_{name} optim {name}")
+    arrays.append((f"opt_{name}", "p0", p0))
+    for k in range(3):
+        g = rnd(37)
+        arrays.append((f"opt_{name}", f"g{k}", g))
+        p.grad = torch.tensor(g.astype(np.float64))
+        opt.step()
+    arrays.append((f"opt_{name}", "out", p.detach().numpy().astype(np.float32)))
+
+# ---- jitNN's Philox init, reproduced independently in numpy
+lines.append("case init_uniform uniform 42 -1.0 3.0")
+arrays.append(("init_uniform", "out", uniform(42, -1.0, 3.0, 4099)))
+
+out = sys.argv[1]
+os.makedirs(out, exist_ok=True)
+offset = 0
+with open(os.path.join(out, "data.bin"), "wb") as f:
+    for case, role, a in arrays:
+        dt = "f32" if a.dtype == np.float32 else "i32"
+        dims = " ".join(str(d) for d in a.shape)
+        lines.append(f"{case} {role} {dt} {offset} {dims}".rstrip())
+        b = np.ascontiguousarray(a).astype("<f4" if dt == "f32" else "<i4").tobytes()
+        f.write(b)
+        offset += len(b)
+with open(os.path.join(out, "manifest.txt"), "w") as f:
+    f.write(f"# generated by scripts/pytorch/goldens.py with torch {torch.__version__}\n")
+    f.write("\n".join(lines) + "\n")
+print(f"{sum(1 for l in lines if l.startswith('case '))} cases, {len(arrays)} arrays, {offset} bytes")

@@ -14,8 +14,10 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Wave 1 gate: a 784-256-128-10 MLP on MNIST. Needs the IDX files in the directory given by
- * {@code -Djitnn.mnist=<dir>}; skipped otherwise.
+ * Wave 1 gate: a 784-256-128-10 MLP on MNIST, compared with PyTorch started from the same
+ * weights (jitNN's Philox init, reproduced in scripts/pytorch/jitnn_init.py) on the same batches.
+ * Needs the IDX files in {@code -Djitnn.mnist=<dir>}; the PyTorch run is read from
+ * {@code <dir>/mnist_mlp_pytorch.f32}, written by {@code scripts/pytorch/mnist_mlp.py}.
  */
 class MnistAccelTest {
 
@@ -25,7 +27,7 @@ class MnistAccelTest {
     }
 
     @Test
-    void mlpReaches97Percent() throws Exception {
+    void matchesPyTorch() throws Exception {
         String dir = System.getProperty("jitnn.mnist", "");
         assumeTrue(!dir.isEmpty() && Mnist.isPresent(Path.of(dir)), "set -Djitnn.mnist=<dir with the MNIST IDX files>");
         Mnist train = Mnist.load(Path.of(dir), true);
@@ -38,13 +40,14 @@ class MnistAccelTest {
         int[] yb = new int[batch];
         long t0 = System.nanoTime();
         int steps = 0;
+        java.util.List<Float> losses = new java.util.ArrayList<>();
         for (int epoch = 0; epoch < 2; epoch++) {
             for (int b = 0; b < train.count / batch; b++) {
                 train.batch(b, batch, xb, yb);
                 Tensor loss = F.crossEntropy(model.forward(Tensor.of(xb, batch, Mnist.PIXELS)), Tensor.of(yb, batch));
                 loss.backward();
                 opt.step();
-                loss.item();
+                losses.add(loss.item());
                 opt.zeroGrad();
                 steps++;
             }
@@ -61,6 +64,28 @@ class MnistAccelTest {
         }
         double accuracy = correct / test.count;
         System.out.printf("[jitnn] MNIST MLP: %d steps in %.1f s (%.0f samples/s), test accuracy %.2f%%%n", steps, seconds, steps * batch / seconds, 100 * accuracy);
-        assertTrue(accuracy > 0.97, "test accuracy " + accuracy);
+
+        Path reference = Path.of(dir, "mnist_mlp_pytorch.f32");
+        assumeTrue(java.nio.file.Files.exists(reference), "run scripts/pytorch/mnist_mlp.py to write " + reference);
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.wrap(java.nio.file.Files.readAllBytes(reference)).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        float torchAccuracy = buf.getFloat();
+        float[] torchLosses = new float[buf.remaining() / 4];
+        buf.asFloatBuffer().get(torchLosses);
+        assertTrue(torchLosses.length == losses.size(), "PyTorch ran " + torchLosses.length + " steps, jitNN " + losses.size());
+        // Early steps agree tightly; later ones drift apart as FP32 rounding differences compound.
+        double worstEarly = 0;
+        for (int i = 0; i < 50; i++) {
+            worstEarly = Math.max(worstEarly, Math.abs(losses.get(i) - torchLosses[i]) / Math.abs(torchLosses[i]));
+        }
+        double jitnnMean = 0;
+        double torchMean = 0;
+        for (int i = losses.size() - 100; i < losses.size(); i++) {
+            jitnnMean += losses.get(i) / 100.0;
+            torchMean += torchLosses[i] / 100.0;
+        }
+        System.out.printf("[jitnn] vs PyTorch: worst relative loss gap over steps 0-49 %.2e; mean loss of the last 100 steps %.4f vs %.4f; accuracy %.2f%% vs %.2f%%%n",
+                worstEarly, jitnnMean, torchMean, 100 * accuracy, 100 * torchAccuracy);
+        assertTrue(worstEarly < 1e-3, "early losses differ by " + worstEarly);
+        assertTrue(Math.abs(accuracy - torchAccuracy) <= 0.003, "accuracy " + accuracy + " vs PyTorch " + torchAccuracy);
     }
 }
