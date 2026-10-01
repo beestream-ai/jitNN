@@ -1,0 +1,57 @@
+# Development
+
+## Architecture
+
+```
+Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace (per thread)
+                                                                     │ sync point
+                                                                     ▼
+       TornadoExecutor: slot table over Storages ─▶ structural key ─▶ plan cache
+          miss: Emitter builds one TaskGraph (every op's KernelContext tasks) ─▶ ExecutionPlan
+          hit:  rebind inputs and intermediates, replay
+```
+
+- **Storage** is the memory behind a tensor and its views. A *persistent* storage (parameters,
+  optimiser state) records which compiled plans hold a valid device copy. When another plan needs
+  it, jitNN fetches it from a valid plan (`TornadoExecutionResult.transferToHost`) and uploads it
+  (`TornadoExecutionPlan.transferToDevice`). *Inputs* are host data, copied into the plan's own
+  arrays each execution. *Intermediates* live on the device and are fetched only when read.
+- **Autograd** adds gradient nodes to the same trace, so forward, backward and the optimiser step
+  compile together.
+- **Reference backend**: `ReferenceExecutor` runs each node eagerly with `Op.reference`.
+
+## Code layout
+
+| Path | Contents |
+|---|---|
+| `jitnn-core/.../jitnn` | `Tensor`, `Shape`, `DType`, `F`, `Grad`, `Autograd` |
+| `jitnn-core/.../engine` | `Engine`, `Trace`, `Node`, `Op`, `Storage`, `TornadoExecutor`, `Emitter`, `Devices` |
+| `jitnn-core/.../ops` | one class per operator: emission, host reference, gradient |
+| `jitnn-core/.../kernels` | the KernelContext kernels |
+| `jitnn-nn/.../nn` | `Module`, `Linear`, `ReLU`, `Sequential`, `optim/` |
+| `jitnn-nn/.../data` | `Mnist`, `Blobs` |
+| `scripts/codegen` | GEMM kernel generators (Java has no macros; accumulators must be scalars) |
+| `scripts/pytorch` | golden tensors, the MNIST reference run, jitNN's Philox in numpy |
+
+## Adding an operator
+
+1. Write the kernel in `kernels/` with `KernelContext` (never `@Parallel`). Use `&` and `|`, not
+   `&&` and `||`, in conditions.
+2. Add an `Op` in `ops/` with `emit` (tasks and grids), `reference` (double precision, written
+   independently) and `backward`.
+3. Expose it on `Tensor` or `F`.
+4. Add a finite-difference check to `GradientTest`, a case to `scripts/pytorch/goldens.py` (then
+   regenerate the goldens and map it in `Golden.apply`), and a device check to `OpsAccelTest`.
+
+## TornadoVM workarounds
+
+Kernels tagged `WORKAROUND(...)` avoid these:
+
+| Issue | Workaround |
+|---|---|
+| OpenCL crashes on a constant branch Graal proves after nested bounds checks (`LogicConstantNode` in `emitIf`) | Philox uses one thread per element |
+| Unsigned shift `>>>` miscompiles (TornadoVM#1140) | Philox's 32x32-bit multiply in `long`, signed shift |
+| Sketches are built for the graph's device when a task is added, so `withDevice` is too late for Metal intrinsics | `Devices.pin` sets `<graph>.device` first |
+| Metal cannot pass a local-memory array to a helper method | the cross-entropy kernels inline their row reductions |
+| Graal plugin checks fail under `-ea` on JDK 22+ | the accelerator tests run without assertions |
+| Short-circuit operators inside loops can drop a branch | non-short-circuit AND and OR operators in every kernel |

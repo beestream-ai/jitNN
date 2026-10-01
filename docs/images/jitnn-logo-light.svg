@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" role="img" aria-label="jitNN">
+  <title>jitNN</title>
+  <g transform="translate(8,8)">
+    <rect width="144" height="144" rx="32" fill="#0B1F33"/>
+    <line x1="26" y1="40" x2="72" y2="28" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="40" x2="72" y2="58" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="40" x2="72" y2="88" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="40" x2="72" y2="118" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="72" x2="72" y2="28" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="72" x2="72" y2="58" stroke="#22D3A6" stroke-opacity="1" stroke-width="4" stroke-linecap="round"/>
+    <line x1="26" y1="72" x2="72" y2="88" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="72" x2="72" y2="118" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="104" x2="72" y2="28" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="104" x2="72" y2="58" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="104" x2="72" y2="88" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="26" y1="104" x2="72" y2="118" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="72" y1="28" x2="118" y2="56" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="72" y1="28" x2="118" y2="92" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="72" y1="58" x2="118" y2="56" stroke="#22D3A6" stroke-opacity="1" stroke-width="4" stroke-linecap="round"/>
+    <line x1="72" y1="58" x2="118" y2="92" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="72" y1="88" x2="118" y2="56" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="72" y1="88" x2="118" y2="92" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="72" y1="118" x2="118" y2="56" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <line x1="72" y1="118" x2="118" y2="92" stroke="#E8F1FA" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="26" cy="40" r="6.5" fill="#0B1F33" stroke="#E8F1FA" stroke-width="3"/>
+    <circle cx="26" cy="72" r="8" fill="#22D3A6" stroke="#22D3A6" stroke-width="3"/>
+    <circle cx="26" cy="104" r="6.5" fill="#0B1F33" stroke="#E8F1FA" stroke-width="3"/>
+    <circle cx="72" cy="28" r="6.5" fill="#0B1F33" stroke="#E8F1FA" stroke-width="3"/>
+    <circle cx="72" cy="58" r="8" fill="#22D3A6" stroke="#22D3A6" stroke-width="3"/>
+    <circle cx="72" cy="88" r="6.5" fill="#0B1F33" stroke="#E8F1FA" stroke-width="3"/>
+    <circle cx="72" cy="118" r="6.5" fill="#0B1F33" stroke="#E8F1FA" stroke-width="3"/>
+    <circle cx="118" cy="56" r="8" fill="#22D3A6" stroke="#22D3A6" stroke-width="3"/>
+    <circle cx="118" cy="92" r="6.5" fill="#0B1F33" stroke="#E8F1FA" stroke-width="3"/>
+  </g>
+  <text x="180" y="92" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="84" letter-spacing="-2" fill="#0B1F33"><tspan font-weight="400">jit</tspan><tspan font-weight="800" fill="#22D3A6">NN</tspan></text>
+  <text x="186" y="140" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" letter-spacing="0.5" fill="#4A5B6C">Deep learning on TornadoVM</text>
+</svg>
