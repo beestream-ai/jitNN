@@ -40,6 +40,9 @@ class GradientTest {
         gradCheck("gelu", x -> x[0].gelu().square().sum(), new float[][] { A23 }, new int[][] { S23 });
         gradCheck("gelu tanh", x -> x[0].geluTanh().square().sum(), new float[][] { A23 }, new int[][] { S23 });
         gradCheck("silu", x -> x[0].silu().square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("narrow", x -> x[0].narrow(1, 1, 2).square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("cat", x -> Tensor.cat(1, x[0], x[1]).square().sum(), new float[][] { A23, B23 }, new int[][] { S23, S23 });
+        gradCheck("split", x -> x[0].split(1, 1, 2)[1].mul(x[0].split(1, 1, 2)[1]).sum(), new float[][] { A23 }, new int[][] { S23 });
         gradCheck("swiglu", x -> F.swiglu(x[0], x[1]).square().sum(), new float[][] { A23, B23 }, new int[][] { S23, S23 });
         gradCheck("affine+neg", x -> x[0].mul(3).add(1).neg().square().sum(), new float[][] { A23 }, new int[][] { S23 });
     }

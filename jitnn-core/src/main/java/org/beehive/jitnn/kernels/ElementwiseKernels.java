@@ -245,6 +245,28 @@ public final class ElementwiseKernels {
         }
     }
 
+    public static void fill(KernelContext kc, FloatArray out, float value, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            out.set(i, value);
+        }
+    }
+
+    /**
+     * Copies a block along one axis, with both tensors seen as [outer, length, inner]:
+     * out[o, outOff + j, t] = x[o, inOff + j, t] for j < len. {@code n} = outer * len * inner.
+     */
+    public static void copyBlock(KernelContext kc, FloatArray x, FloatArray out, int len, int inner, int inLen, int outLen, int inOff, int outOff, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            int t = i % inner;
+            int r = i / inner;
+            int j = r % len;
+            int o = r / len;
+            out.set((o * outLen + outOff + j) * inner + t, x.get((o * inLen + inOff + j) * inner + t));
+        }
+    }
+
     /**
      * Gathers {@code x} into {@code out} with permuted strides. {@code meta} = [rank,
      * outShape[rank], inStride[rank]] where inStride[d] is the input stride of output dimension d.

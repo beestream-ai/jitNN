@@ -170,6 +170,9 @@ public final class Golden {
             case "gelu_tanh" -> in[0].geluTanh();
             case "silu" -> in[0].silu();
             case "swiglu" -> F.swiglu(in[0], in[1]);
+            case "narrow" -> in[0].narrow(c.iattr(0), c.iattr(1), c.iattr(2));
+            case "concat" -> Tensor.cat(c.iattr(0), in);
+            case "stack" -> Tensor.stack(c.iattr(0), in);
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
     }

@@ -10,6 +10,7 @@ import org.beehive.jitnn.ops.Permute;
 import org.beehive.jitnn.ops.RandomFill;
 import org.beehive.jitnn.ops.Reduce;
 import org.beehive.jitnn.ops.Reshape;
+import org.beehive.jitnn.ops.Slice;
 import org.beehive.jitnn.ops.Softmax;
 import org.beehive.jitnn.ops.Unary;
 
@@ -463,6 +464,83 @@ public final class Tensor {
         order[x] = y;
         order[y] = x;
         return permute(order);
+    }
+
+    /** Elements {@code start .. start + length - 1} along {@code axis}, as a new tensor. */
+    public Tensor narrow(int axis, int start, int length) {
+        return Slice.narrow(this, axis, start, length);
+    }
+
+    /** Elements {@code start .. end - 1} along {@code axis}; negative indices count from the end. */
+    public Tensor slice(int axis, int start, int end) {
+        int size = dim(axis);
+        int s = start < 0 ? start + size : start;
+        int e = end < 0 ? end + size : Math.min(end, size);
+        return Slice.narrow(this, axis, s, Math.max(e - s, 0));
+    }
+
+    /** Splits {@code axis} into consecutive pieces of the given sizes. */
+    public Tensor[] split(int axis, int... sizes) {
+        Tensor[] parts = new Tensor[sizes.length];
+        int start = 0;
+        for (int i = 0; i < sizes.length; i++) {
+            parts[i] = Slice.narrow(this, axis, start, sizes[i]);
+            start += sizes[i];
+        }
+        if (start != dim(axis)) {
+            throw new IllegalArgumentException("split sizes add up to " + start + ", axis " + axis + " of " + shape + " has " + dim(axis));
+        }
+        return parts;
+    }
+
+    /** Splits {@code axis} into {@code chunks} equal pieces. */
+    public Tensor[] chunk(int chunks, int axis) {
+        if (dim(axis) % chunks != 0) {
+            throw new IllegalArgumentException("axis " + axis + " of " + shape + " does not split into " + chunks + " equal chunks");
+        }
+        int[] sizes = new int[chunks];
+        java.util.Arrays.fill(sizes, dim(axis) / chunks);
+        return split(axis, sizes);
+    }
+
+    /** Joins tensors along an existing axis. */
+    public static Tensor cat(int axis, Tensor... parts) {
+        return Slice.concat(axis, parts);
+    }
+
+    /** Joins same-shape tensors along a new axis. */
+    public static Tensor stack(int axis, Tensor... parts) {
+        Tensor[] expanded = new Tensor[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            expanded[i] = parts[i].unsqueeze(axis);
+        }
+        return Slice.concat(axis, expanded);
+    }
+
+    /** A view with a new size-1 axis at {@code axis} (negative counts from the end of the result). */
+    public Tensor unsqueeze(int axis) {
+        int r = rank() + 1;
+        int ax = axis < 0 ? axis + r : axis;
+        int[] dims = new int[r];
+        for (int d = 0, s = 0; d < r; d++) {
+            dims[d] = d == ax ? 1 : shape.dim(s++);
+        }
+        return reshape(dims);
+    }
+
+    /** A view without the size-1 axis {@code axis}. */
+    public Tensor squeeze(int axis) {
+        int ax = shape.axis(axis);
+        if (dim(ax) != 1) {
+            throw new IllegalArgumentException("axis " + axis + " of " + shape + " is not 1");
+        }
+        int[] dims = new int[rank() - 1];
+        for (int d = 0, o = 0; d < rank(); d++) {
+            if (d != ax) {
+                dims[o++] = shape.dim(d);
+            }
+        }
+        return reshape(dims);
     }
 
     /** Transpose of a matrix. */

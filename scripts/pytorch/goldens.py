@@ -109,6 +109,16 @@ for op in ["tanh", "sigmoid", "gelu", "gelu_tanh", "silu"]:
     add(op, op, [], [rnd(17, 13, lo=-6, hi=6)])
     add(f"{op}_tails", op, [], [rnd(64, lo=-12, hi=12)])
 add("swiglu", "swiglu", [], [rnd(9, 14, lo=-4, hi=4), rnd(9, 14)])
+# ---- wave 3: slicing and joining (attrs: axis start length / axis)
+add("narrow_mid", "narrow", [1, 2, 4], [rnd(4, 9, 5)])
+add("narrow_first", "narrow", [0, 1, 2], [rnd(3, 7)])
+add("narrow_last", "narrow", [2, 5, 3], [rnd(2, 3, 8)])
+add("narrow_size1", "narrow", [1, 0, 1], [rnd(1, 6, 1)])
+add("concat_mid", "concat", [1], [rnd(2, 3, 4), rnd(2, 1, 4), rnd(2, 5, 4)])
+add("concat_first", "concat", [0], [rnd(3, 6), rnd(4, 6)])
+add("concat_last", "concat", [-1], [rnd(5, 2), rnd(5, 7)])
+add("stack_0", "stack", [0], [rnd(3, 4), rnd(3, 4), rnd(3, 4)])
+add("stack_last", "stack", [2], [rnd(3, 4), rnd(3, 4)])
 
 
 def forward(op, attrs, t):
@@ -182,6 +192,12 @@ def forward(op, attrs, t):
         return torch.nn.functional.silu(t[0])
     if op == "swiglu":
         return torch.nn.functional.silu(t[0]) * t[1]
+    if op == "narrow":
+        return t[0].narrow(attrs[0], attrs[1], attrs[2])
+    if op == "concat":
+        return torch.cat(t, dim=attrs[0])
+    if op == "stack":
+        return torch.stack(t, dim=attrs[0])
     raise ValueError(op)
 
 
