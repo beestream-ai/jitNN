@@ -145,6 +145,11 @@ add("sdpa_padding", "sdpa_mask", [0, -1], [rnd(2, 3, 5, 8), rnd(2, 3, 7, 8), rnd
 # multi-head self-attention (attrs: heads causal); inputs x, Wqkv, bqkv, Wout, bout
 for name, causal in [("mha", 0), ("mha_causal", 1)]:
     add(name, "mha", [4, causal], [rnd(2, 6, 16), rnd(48, 16, lo=-0.5, hi=0.5), rnd(48), rnd(16, 16, lo=-0.5, hi=0.5), rnd(16)])
+# rotary position embedding (attrs: base offset interleaved), computed directly in FP64
+add("rope_half", "rope", [10000.0, 0, 0], [rnd(2, 3, 5, 8)])
+add("rope_interleaved", "rope", [10000.0, 0, 1], [rnd(2, 3, 5, 8)])
+add("rope_offset", "rope", [500000.0, 7, 0], [rnd(1, 2, 4, 16)])
+add("rope_long", "rope", [10000.0, 0, 0], [rnd(1, 1, 300, 64)])
 # ---- wave 3: LayerNorm and RMSNorm over the last axis; attrs: eps
 add("layer_norm", "layer_norm", [1e-5], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5), rnd(33)])
 add("layer_norm_3d", "layer_norm", [1e-5], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5), rnd(48)])
@@ -191,6 +196,19 @@ def forward(op, attrs, t):
             t[0].transpose(0, 1), t[0].transpose(0, 1), t[0].transpose(0, 1), t[0].shape[2], attrs[0], t[1], t[2],
             None, None, False, 0.0, t[3], t[4], training=False, need_weights=False, attn_mask=mask, is_causal=bool(attrs[1]))
         return y.transpose(0, 1)
+    if op == "rope":
+        base, offset, inter = attrs
+        T, D = t[0].shape[-2], t[0].shape[-1]
+        pos = torch.arange(offset, offset + T, dtype=torch.float64)
+        freq = torch.tensor([float(base) ** (-2.0 * i / D) for i in range(D // 2)], dtype=torch.float64)
+        ang = torch.outer(pos, freq)
+        c, s = torch.cos(ang), torch.sin(ang)
+        x = t[0]
+        if inter:
+            a, b = x[..., 0::2], x[..., 1::2]
+            return torch.stack([a * c - b * s, a * s + b * c], dim=-1).flatten(-2)
+        a, b = x[..., : D // 2], x[..., D // 2:]
+        return torch.cat([a * c - b * s, a * s + b * c], dim=-1)
     if op in ("sdpa", "sdpa_mask"):
         scale = None if attrs[1] < 0 else attrs[1]
         mask = t[3] if op == "sdpa_mask" else None

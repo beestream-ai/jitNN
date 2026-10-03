@@ -252,6 +252,37 @@ public final class ElementwiseKernels {
         }
     }
 
+    /**
+     * Rotary position embedding over x [..., T, D]: each pair (a, b) of a row at position
+     * t = row % T + offset is rotated by angle t * freq_i, using the tables cos/sin [maxT, D/2].
+     * Pairs are (i, i + D/2) when {@code interleaved} is 0 (rotate-half) or (2i, 2i + 1)
+     * otherwise. {@code sign} = -1 rotates backwards (the gradient). n = numel / 2.
+     */
+    public static void rope(KernelContext kc, FloatArray x, FloatArray out, FloatArray cos, FloatArray sin, int seq, int dim, int offset, int interleaved, float sign, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            int half = dim / 2;
+            int row = i / half;
+            int p = i - row * half;
+            int t = row % seq + offset;
+            int ia;
+            int ib;
+            if (interleaved != 0) {
+                ia = row * dim + 2 * p;
+                ib = ia + 1;
+            } else {
+                ia = row * dim + p;
+                ib = ia + half;
+            }
+            float c = cos.get(t * half + p);
+            float s = sign * sin.get(t * half + p);
+            float a = x.get(ia);
+            float b = x.get(ib);
+            out.set(ia, a * c - b * s);
+            out.set(ib, a * s + b * c);
+        }
+    }
+
     /** out[t, d] = table[index[t], d] for rows of {@code dim} elements; n = tokens * dim. */
     public static void gatherRows(KernelContext kc, FloatArray table, IntArray index, FloatArray out, int dim, int n) {
         int i = kc.globalIdx;

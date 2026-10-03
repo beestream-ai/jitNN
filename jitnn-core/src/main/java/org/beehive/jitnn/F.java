@@ -9,6 +9,7 @@ import org.beehive.jitnn.ops.Embedding;
 import org.beehive.jitnn.ops.Linear;
 import org.beehive.jitnn.ops.Nll;
 import org.beehive.jitnn.ops.Pool2d;
+import org.beehive.jitnn.ops.Rope;
 import org.beehive.jitnn.ops.RowNorm;
 
 /** Functional operators that are not methods of {@link Tensor}. */
@@ -149,6 +150,15 @@ public final class F {
         Tensor v = qkv[2].reshape(b, heads, t, hd);
         Tensor y = scaledDotProductAttention(q, k, v, mask, causal, -1.0f);
         return linear(y.permute(0, 2, 1, 3).reshape(b, t, dim), wout, bout);
+    }
+
+    /**
+     * Rotary position embedding of x [..., T, D] at positions offset .. offset + T - 1, frequency
+     * base^(-2i / D) for pair i. {@code interleaved} pairs (2i, 2i + 1) as GPT-J and Meta's Llama
+     * code; otherwise (i, i + D/2), the rotate-half form of Hugging Face's Llama.
+     */
+    public static Tensor rope(Tensor x, float base, int offset, boolean interleaved) {
+        return Rope.apply(x, base, offset, interleaved);
     }
 
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */
