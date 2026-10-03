@@ -58,10 +58,10 @@ Kernels tagged `WORKAROUND(...)` avoid these:
 | OpenCL crashes on a constant branch Graal proves after nested bounds checks (`LogicConstantNode` in `emitIf`) | Philox uses one thread per element |
 | Unsigned shift `>>>` miscompiles (TornadoVM#1140) | Philox's 32x32-bit multiply in `long`, signed shift |
 | Sketches are built for the graph's device when a task is added, so `withDevice` is too late for Metal intrinsics | `Devices.pin` sets `<graph>.device` first |
-| Metal cannot pass a local-memory array to a helper method | the cross-entropy kernels inline their row reductions |
+| Metal cannot pass a local-memory array to a helper method | the cross-entropy and LayerNorm/RMSNorm kernels inline their row reductions |
 | Graal plugin checks fail under `-ea` on JDK 22+ | the accelerator tests run without assertions |
 | A task graph holds at most 256 tasks and 8 KiB of high-level bytecode | traces are chained into several graphs |
-| Metal cannot pass a local-memory array to a helper method | the cross-entropy kernels inline their row statistics |
 | A plan whose execution ran out of memory is not safe to run again | it is dropped and the trace recompiled after evicting other plans |
-| Reading one result of a multi-graph plan syncs every other graph's buffers (fix pending) | none yet; it costs time on large models |
+| Metal's `tanh` returns NaN for large arguments | `ElementwiseKernels.tanh` goes through exp(-2abs(x)) |
+| TornadoMath has no erf, erfc, rsqrt, log1p, expm1 | `ElementwiseKernels.erfc`, a Chebyshev fit good to 1.2e-7, for exact GELU |
 | Short-circuit operators inside loops can drop a branch | non-short-circuit AND and OR operators in every kernel |

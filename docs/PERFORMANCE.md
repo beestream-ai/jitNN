@@ -75,6 +75,18 @@ On CIFAR-10 (3x32x32 inputs, batch 64, one epoch), steady-state steps:
 | ResNet-18 | 189 ms (339 samples/s) | 192 ms (333 samples/s) | 71.7 ms (892 samples/s) |
 | MobileNetV2 | 153 ms (418 samples/s) | 139 ms (462 samples/s) | 39.1 ms (1,639 samples/s) |
 
+## Transformer training steps (batch 16 x 128 tokens, 4 layers of 128, AdamW, clipping)
+
+| | Metal (M4 Pro) | OpenCL (M4 Pro) | CUDA (A10) |
+|---|---|---|---|
+| GPT-2 (0.84M parameters) | 95 ms (21.6k tokens/s) | 92 ms (22.2k tokens/s) | 21.7 ms (94k tokens/s) |
+| Llama-style (0.87M parameters) | 93 ms (22.0k tokens/s) | 85 ms (24.1k tokens/s) | 27.8 ms (74k tokens/s) |
+| BERT, masked LM (0.86M parameters) | 107 ms (19.2k tokens/s) | 96 ms (21.3k tokens/s) | 22.7 ms (90k tokens/s) |
+
+These models are small, so a step is dominated by kernel dispatch (several hundred kernels) rather
+than arithmetic. Attention runs as two batched GEMMs around a fused scaled, causal softmax; a fused
+attention kernel is the next step.
+
 Device memory for intermediates, with and without buffer reuse:
 
 | Plan | Without reuse | With reuse |

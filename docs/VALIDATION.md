@@ -9,11 +9,14 @@ Four layers of checks run on the host and on every device.
    broadcasting binaries, every unary, reductions, all four GEMM transposes, permute, reshape,
    softmax, log-softmax, cross-entropy, fused linear and an MLP chain. This currently runs in FP32
    with a loose tolerance, until jitNN has an FP64 type.
-3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 104 operator cases (wave 1 and the
-   convolution, BatchNorm, pooling and ReLU6 cases of wave 2), in FP64 (inputs,
-   output and every input gradient, on odd, size-1 and broadcast shapes), plus 5 optimiser cases
-   (three `torch.optim` steps each), and Philox values reproduced in numpy. `GoldenTest` checks the
-   reference against them; `GoldenAccelTest` and `OptimGoldenAccelTest` check every device.
+3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 157 operator cases (waves 1 to 3:
+   element-wise, reductions, GEMM, convolution, BatchNorm, pooling, the transformer activations,
+   slicing and joining, embedding, LayerNorm and RMSNorm, batched matmul, attention with causal and
+   padding masks, multi-head attention against `nn.MultiheadAttention`, RoPE and top-k), in FP64
+   (inputs, output and every input gradient, on odd, size-1 and broadcast shapes), plus 5
+   optimiser cases (three `torch.optim` steps each), and Philox values reproduced in numpy.
+   `GoldenTest` checks the reference against them; `GoldenAccelTest` and `OptimGoldenAccelTest`
+   check every device.
 4. **Model parity.** Models start from bit-identical initial weights (`scripts/pytorch/jitnn_init.py`
    reimplements jitNN's Philox initialisation; `models.py` builds ResNet-18 and MobileNetV2 with the
    same seeds) and train on the same batches as PyTorch.
@@ -27,12 +30,18 @@ Four layers of checks run on the host and on every device.
      gradients that nearly cancel to zero, against the model's median absolute FP32 error. Then
      the step-0 loss (1e-5), the mean loss of the last 50 steps (10%) and the evaluation accuracy
      (3 points).
+   - **Transformer gates** (`TransformerAccelTest`, 300 steps on a byte-level corpus, here
+     TornadoVM's documentation, 307 KB): GPT-2 and a Llama-style decoder as language models, and
+     BERT with masked language modelling and padding masks; 4 layers of 128 features, 4 heads,
+     sequences of 128, batch 16; AdamW with warm-up and cosine decay and gradient clipping at 1.
+     Step-0 gradients against FP64 with the same bound as the CNN gates, the step-0 loss (1e-5),
+     the mean of the last 50 losses (5%) and the evaluation loss (5%).
 
 ## Results
 
 | Check | Reference | OpenCL (M4 Pro) | Metal (M4 Pro) | CUDA (RTX 5070 Ti) | CUDA (A10) |
 |---|---|---|---|---|---|
-| Operator goldens (104) | pass | pass | pass | pass | pass |
+| Operator goldens (157; the RTX 5070 Ti ran the first 104) | pass | pass | pass | pass | pass |
 | Optimiser goldens (5) | pass | pass | pass | pass | pass |
 | Philox against numpy | bit-exact | bit-exact | bit-exact | bit-exact | bit-exact |
 | MLP gate: loss vs reference at every step, 1e-3 | | pass | pass | pass | pass |
@@ -49,8 +58,19 @@ Four layers of checks run on the host and on every device.
 | CIFAR-10 MobileNetV2: worst step-0 gradient, fraction of its bound | | 0.19 | 0.22 | | 0.24 |
 | CIFAR-10 MobileNetV2: mean loss of the last 50 steps (PyTorch: 1.118) | | 1.120 | 1.144 | | 1.137 |
 | CIFAR-10 MobileNetV2: test accuracy after one epoch (PyTorch: 59.2%) | | 57.8% | 60.9% | | 58.3% |
+| GPT-2: worst step-0 gradient, fraction of its bound | | 0.06 | 0.06 | | 0.06 |
+| GPT-2: mean loss of the last 50 steps (PyTorch: 3.0009) | | 3.0009 | 3.0009 | | 3.0009 |
+| GPT-2: evaluation loss (PyTorch: 3.1581) | | 3.1581 | 3.1581 | | 3.1581 |
+| Llama: worst step-0 gradient, fraction of its bound | | 0.07 | 0.07 | | 0.07 |
+| Llama: mean loss of the last 50 steps (PyTorch: 1.9951) | | 1.9951 | 1.9951 | | 1.9951 |
+| Llama: evaluation loss (PyTorch: 2.5854) | | 2.5854 | 2.5854 | | 2.5854 |
+| BERT: worst step-0 gradient, fraction of its bound | | 0.06 | 0.06 | | 0.06 |
+| BERT: mean loss of the last 50 steps (PyTorch: 3.7603) | | 3.7603 | 3.7603 | | 3.7603 |
+| BERT: evaluation loss (PyTorch: 3.4829) | | 3.4831 | 3.4831 | | 3.4831 |
 
-The RTX 5070 Ti column predates the CIFAR-10 gates; the A10 column runs every gate.
+The RTX 5070 Ti column predates the CIFAR-10 and transformer gates; the A10 column runs every gate.
+Without BatchNorm amplifying rounding differences, the transformer runs stay within 1e-7 of
+PyTorch for their first steps and end on the same losses to four digits.
 
 Tolerances: element-wise ops 2e-6 relative; reductions, GEMM, softmax and losses 1e-4; gradients
 ten times those.

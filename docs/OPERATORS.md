@@ -40,12 +40,31 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 `ReLU6`, `Add` (residual). Models in `nn.models`: `ResNet.resnet18` and `MobileNetV2.mobilenetV2`
 (torchvision layouts, plus a small-input variant).
 
+## Wave 3 (operators and gates done; FP16/BF16 open)
+
+| Operator | Kernels | Gradient |
+|---|---|---|
+| tanh, sigmoid, GELU (erf and tanh forms), SiLU; SwiGLU = silu(gate) * up | `ElementwiseKernels.unary` (own overflow-free tanh and an erfc approximation) | fused codes in `binary` (`TANH_GRAD`, `GELU_GRAD`, ...) |
+| narrow, slice, split, chunk, cat, stack, unsqueeze, squeeze | `copyBlock` (one copy per part), `fill` | narrow of the gradient; zero-fill plus copy back |
+| Embedding, with a padding index | `gatherRows` | deterministic segment sum `segmentSumRows` over indices grouped on the host (no atomics) |
+| LayerNorm, RMSNorm over the last axis | `NormKernels.rowNormForward` (one work-group per row) | `rowNormBackward`, parameter gradients by `rowNormParamPartials` + `sumPartials` (deterministic) |
+| Batched matmul: equal batch dimensions, or one shared matrix | `GemmKernels.gemm64Batched` (generated, batch folded into the grid's y) | batched products; a shared matrix's gradient summed over the batch |
+| Scaled dot-product attention: causal (PyTorch's top-left alignment) and additive masks; multi-head self-attention | batched GEMMs + `SoftmaxKernels.attentionSoftmaxRows` (scale and causal limit fused) | `attentionSoftmaxBackwardRows` and the GEMM gradients |
+| Rotary position embedding, rotate-half and interleaved, with a position offset | `ElementwiseKernels.rope` (cos/sin tables computed in double, cached on the device) | the same kernel rotating backwards |
+| Gradient clipping by global norm | composed, lazily on the device | |
+| Warm-up with linear or cosine decay | host | |
+| Top-k (values and indices), multinomial sampling | `SampleKernels.topkRows`, `multinomialRows` (Philox) | top-k: `topkBackward` |
+
+`F.linear` now takes inputs with any leading dimensions. Modules: `Embedding`, `LayerNorm`,
+`RMSNorm`, `MultiheadAttention`. Models in `nn.models`: `GPT2`, `Llama` (Llama-style decoder) and
+`Bert` (masked language modelling).
+
 ## Next waves
 
 | Wave | Contents | Gate |
 |---|---|---|
 | 2 (rest) | convolution and GEMM speed, dispatch overhead | ResNet-18 and MobileNetV2 steps against MPS and cuDNN |
-| 3 | embedding, LayerNorm, RMSNorm, GELU, SiLU, attention with masks, RoPE, AdamW schedules, FP16/BF16 | BERT, GPT-2, a Llama-style decoder |
+| 3 (rest) | FP16/BF16 casts, autocast and loss scaling; fused attention | the transformer gates in reduced precision |
 | 4 | sigmoid, LSTM, GRU, transposed conv, upsampling, BCE, MSE, KL | LSTM LM, U-Net, DCGAN, VAE |
 | 5 | the rest of the DL4J/DJL activations, losses, optimisers and norms, Conv1D/3D, sort, scatter | the DL4J and DJL example suites |
 | 6 | decompositions, sparse and graph ops, FFT, Word2Vec, classical ML | 1.0 |

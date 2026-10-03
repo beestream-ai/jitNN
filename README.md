@@ -9,7 +9,7 @@
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
   <img alt="Java 22+" src="https://img.shields.io/badge/java-22%2B-orange.svg">
   <img alt="TornadoVM" src="https://img.shields.io/badge/TornadoVM-7.0.2--dev-0B1F33.svg">
-  <img alt="Status" src="https://img.shields.io/badge/status-wave%202-22D3A6.svg">
+  <img alt="Status" src="https://img.shields.io/badge/status-wave%203-22D3A6.svg">
 </p>
 
 # jitNN
@@ -32,7 +32,9 @@ in the order real models use it.
   and gradients, on every device, and every gradient against finite differences. Models are
   trained from the same initial weights as PyTorch: an MNIST MLP tracks its loss to 1e-6, and
   ResNet-18 and MobileNetV2 match PyTorch's FP64 gradients as closely as PyTorch's own FP32 does,
-  and after one CIFAR-10 epoch reach PyTorch's test accuracy (66-67% and 58-61%).
+  and after one CIFAR-10 epoch reach PyTorch's test accuracy (66-67% and 58-61%). GPT-2, a
+  Llama-style decoder and BERT train for 300 steps on every backend and end on PyTorch's losses to
+  four digits.
 - **Fused and frugal.** Bias and ReLU run in the GEMM and convolution epilogues, cross-entropy's
   backward is a single kernel, and dead backward-pass buffers are reused inside a compiled step
   (-43% memory on ResNet-18). On CUDA the element-wise, reduction and softmax kernels reach 83-88%
@@ -61,7 +63,7 @@ git clone https://github.com/beehive-lab/jitnn && cd jitnn
 ./mvnw test -Paccel-tests -Djitnn.test.device=0:0    # a TornadoVM device (tornado --devices)
 ```
 
-Training a model from Java (an MLP here; `nn.models` has ResNet-18 and MobileNetV2):
+Training a model from Java (an MLP here; `nn.models` has ResNet-18, MobileNetV2, GPT-2, a Llama-style decoder and BERT):
 
 ```java
 Sequential model = new Sequential(
@@ -101,6 +103,7 @@ end (MNIST, Adam).
 | MLP training, batch 128 | 210k samples/s | 28.7k samples/s | |
 | ResNet-18 training, batch 64 | 160 ms/step | 165 ms/step | 54 ms/step |
 | MobileNetV2 training, batch 64 | | 148 ms/step | 62 ms/step |
+| GPT-2 style training, 16 x 128 tokens, 0.84M parameters | 21.7 ms/step (A10) | 95 ms/step | |
 
 On Apple GPUs a step is dominated by TornadoVM's per-kernel dispatch cost (about 0.15 ms per
 kernel, 268 kernels in a ResNet-18 step), and the convolutions share the scalar GEMM's ~2 TFLOP/s
@@ -116,8 +119,8 @@ TornadoVM fix for reading results from multi-graph plans; on an A10 with it, a R
 | [INSTALL.md](docs/INSTALL.md) | TornadoVM SDK, building, test data, the PyTorch environment for references |
 | [USAGE.md](docs/USAGE.md) | Tensors, lazy execution and sync points, autograd, modules, optimisers, the training loop |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Every `jitnn.*` option, kernel variants, test properties |
-| [OPERATORS.md](docs/OPERATORS.md) | The wave 1 and 2 operators, their kernels, and the roadmap of waves |
-| [VALIDATION.md](docs/VALIDATION.md) | Reference backend, finite differences, PyTorch goldens, the MNIST and CNN gates |
+| [OPERATORS.md](docs/OPERATORS.md) | The wave 1 to 3 operators, their kernels, and the roadmap of waves |
+| [VALIDATION.md](docs/VALIDATION.md) | Reference backend, finite differences, PyTorch goldens, the MNIST, CNN and transformer gates |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | Per-kernel and end-to-end results on CUDA, Metal and OpenCL, against vendor libraries |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Architecture, code layout, adding an operator, code generators, TornadoVM workarounds |
 

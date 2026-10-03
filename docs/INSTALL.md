@@ -62,6 +62,18 @@ done
 ./mvnw test -Paccel-tests -Djitnn.cifar10=$HOME/jitnn-data/cifar10 -Dtest='CnnAccelTest#*Cifar10*'
 ```
 
+The transformer gates train on a byte-level corpus; any text works, and the results in the docs
+use TornadoVM's documentation (`docs/source/*.rst` concatenated, 307 KB):
+
+```bash
+mkdir -p ~/jitnn-data/text && cat <TornadoVM>/docs/source/*.rst > ~/jitnn-data/text/corpus.txt
+for m in gpt2 llama bert; do
+  python <jitnn>/scripts/pytorch/transformers.py train  $m ~/jitnn-data/text/corpus.txt ~/jitnn-data/text/${m}_pytorch.f32 300
+  python <jitnn>/scripts/pytorch/transformers.py grad64 $m ~/jitnn-data/text/corpus.txt ~/jitnn-data/text/${m}_pytorch.f32
+done
+./mvnw test -Paccel-tests -Djitnn.text=$HOME/jitnn-data/text -Dtest=TransformerAccelTest
+```
+
 ## PyTorch environment
 
 ```bash
