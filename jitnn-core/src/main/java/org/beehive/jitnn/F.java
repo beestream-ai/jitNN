@@ -1,5 +1,6 @@
 package org.beehive.jitnn;
 
+import org.beehive.jitnn.ops.AttentionSoftmax;
 import org.beehive.jitnn.ops.BatchNorm2d;
 import org.beehive.jitnn.ops.Conv2d;
 import org.beehive.jitnn.ops.CrossEntropy;
@@ -16,14 +17,27 @@ public final class F {
     private F() {
     }
 
-    /** y = x W^T + b, with W stored [out, in] and b of shape [out] (b may be null); one fused GEMM. */
+    /**
+     * y = x W^T + b, with W stored [out, in] and b of shape [out] (b may be null); one fused GEMM.
+     * x may have any leading dimensions: [..., in] gives [..., out].
+     */
     public static Tensor linear(Tensor x, Tensor weight, Tensor bias) {
-        return Linear.apply(x, weight, bias, false);
+        return linear(x, weight, bias, false);
     }
 
     /** relu(x W^T + b), with the bias and ReLU fused into the GEMM epilogue. */
     public static Tensor linearRelu(Tensor x, Tensor weight, Tensor bias) {
-        return Linear.apply(x, weight, bias, true);
+        return linear(x, weight, bias, true);
+    }
+
+    private static Tensor linear(Tensor x, Tensor weight, Tensor bias, boolean relu) {
+        if (x.rank() <= 2) {
+            return Linear.apply(x, weight, bias, relu);
+        }
+        int[] dims = x.shape().dims();
+        Tensor y = Linear.apply(x.reshape(-1, dims[dims.length - 1]), weight, bias, relu);
+        dims[dims.length - 1] = weight.dim(0);
+        return y.reshape(dims);
     }
 
     /** Per-sample negative log-likelihood of INT32 {@code labels} under log-probabilities {@code logp}. */
@@ -95,6 +109,46 @@ public final class F {
     /** As {@link #embedding(Tensor, Tensor)}; row {@code paddingIdx} receives no gradient. */
     public static Tensor embedding(Tensor index, Tensor weight, int paddingIdx) {
         return Embedding.apply(index, weight, paddingIdx);
+    }
+
+    /**
+     * Scaled dot-product attention, PyTorch semantics: softmax(q k^T * scale + mask) v, for q
+     * [..., T, E], k [..., S, E], v [..., S, Ev]. {@code mask} is an additive mask broadcast to
+     * [..., T, S] (0 to keep, a large negative number to drop), or null; {@code causal} lets
+     * query t see keys 0 .. t (PyTorch's is_causal). A negative {@code scale} means 1 / sqrt(E).
+     */
+    public static Tensor scaledDotProductAttention(Tensor q, Tensor k, Tensor v, Tensor mask, boolean causal, float scale) {
+        float s = scale < 0 ? (float) (1.0 / Math.sqrt(q.dim(-1))) : scale;
+        Tensor scores = q.matmul(k, false, true);
+        Tensor p;
+        if (mask != null) {
+            p = AttentionSoftmax.apply(scores.mul(s).add(mask), 1.0f, causal);
+        } else {
+            p = AttentionSoftmax.apply(scores, s, causal);
+        }
+        return p.matmul(v);
+    }
+
+    /**
+     * Multi-head self-attention on x [B, T, D], as PyTorch's {@code nn.MultiheadAttention} with
+     * batch_first: q, k, v = split(x Wqkv^T + bqkv), {@code heads} heads, then the output projection.
+     * Wqkv is [3D, D] (rows q, then k, then v), Wout [D, D]; biases may be null.
+     */
+    public static Tensor multiHeadAttention(Tensor x, Tensor wqkv, Tensor bqkv, Tensor wout, Tensor bout, int heads, Tensor mask, boolean causal) {
+        int b = x.dim(0);
+        int t = x.dim(1);
+        int dim = x.dim(2);
+        int hd = dim / heads;
+        if (hd * heads != dim) {
+            throw new IllegalArgumentException(dim + " features do not split into " + heads + " heads");
+        }
+        // [B, T, 3, H, hd] -> [3, B, H, T, hd]
+        Tensor[] qkv = linear(x, wqkv, bqkv).reshape(b, t, 3, heads, hd).permute(2, 0, 3, 1, 4).chunk(3, 0);
+        Tensor q = qkv[0].reshape(b, heads, t, hd);
+        Tensor k = qkv[1].reshape(b, heads, t, hd);
+        Tensor v = qkv[2].reshape(b, heads, t, hd);
+        Tensor y = scaledDotProductAttention(q, k, v, mask, causal, -1.0f);
+        return linear(y.permute(0, 2, 1, 3).reshape(b, t, dim), wout, bout);
     }
 
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */

@@ -19,19 +19,48 @@ public final class MatMul implements Op {
     private MatMul() {
     }
 
+    /**
+     * op(a) op(b) for matrices, or batched: a [..., M, K] and b [..., K, N] (op applied to the last
+     * two axes) with equal batch dimensions, or with one side a plain matrix shared by every batch.
+     */
     public static Tensor apply(Tensor a, Tensor b, boolean transA, boolean transB) {
         Checks.f32(a, b);
-        Checks.rank(a, 2);
-        Checks.rank(b, 2);
-        int m = transA ? a.dim(1) : a.dim(0);
-        int ka = transA ? a.dim(0) : a.dim(1);
-        int kb = transB ? b.dim(1) : b.dim(0);
-        int n = transB ? b.dim(0) : b.dim(1);
+        if (a.rank() < 2 || b.rank() < 2) {
+            throw new IllegalArgumentException("matmul needs matrices, got " + a.shape() + " and " + b.shape());
+        }
+        int m = transA ? a.dim(-1) : a.dim(-2);
+        int ka = transA ? a.dim(-2) : a.dim(-1);
+        int kb = transB ? b.dim(-1) : b.dim(-2);
+        int n = transB ? b.dim(-2) : b.dim(-1);
         if (ka != kb) {
             throw new IllegalArgumentException("matmul inner dimensions differ: " + a.shape() + (transA ? "^T" : "") + " x " + b.shape() + (transB ? "^T" : ""));
         }
-        Tensor out = Tensor.result(Shape.of(m, n), DType.F32);
-        Tensor.record(OP, new Tensor[] { a, b }, new Tensor[] { out }, new int[] { m, n, ka, transA ? 1 : 0, transB ? 1 : 0 }, null, true);
+        int[] batchDims;
+        if (a.rank() == 2 && b.rank() == 2) {
+            batchDims = new int[0];
+        } else if (b.rank() == 2) {
+            batchDims = java.util.Arrays.copyOf(a.shape().dims(), a.rank() - 2);
+        } else if (a.rank() == 2) {
+            batchDims = java.util.Arrays.copyOf(b.shape().dims(), b.rank() - 2);
+        } else {
+            batchDims = java.util.Arrays.copyOf(a.shape().dims(), a.rank() - 2);
+            if (!java.util.Arrays.equals(batchDims, java.util.Arrays.copyOf(b.shape().dims(), b.rank() - 2))) {
+                throw new IllegalArgumentException("batched matmul needs equal batch dimensions: " + a.shape() + " x " + b.shape());
+            }
+        }
+        int batch = 1;
+        for (int d : batchDims) {
+            batch *= d;
+        }
+        int[] dims = java.util.Arrays.copyOf(batchDims, batchDims.length + 2);
+        dims[batchDims.length] = m;
+        dims[batchDims.length + 1] = n;
+        Tensor out = Tensor.result(Shape.of(dims), DType.F32);
+        int strideA = a.rank() == 2 ? 0 : m * ka;
+        int strideB = b.rank() == 2 ? 0 : ka * n;
+        int[] iattr = batchDims.length == 0 ? new int[] { m, n, ka, transA ? 1 : 0, transB ? 1 : 0 }
+                : new int[] { m, n, ka, transA ? 1 : 0, transB ? 1 : 0, batch, strideA, strideB };
+        Tensor.record(OP, new Tensor[] { a, b }, new Tensor[] { out }, iattr, null, true);
         return out;
     }
 
@@ -50,6 +79,16 @@ public final class MatMul implements Op {
         int k = node.iattr[2];
         int ta = node.iattr[3];
         int tb = node.iattr[4];
+        if (node.iattr.length > 5) {
+            int batch = node.iattr[5];
+            int strideA = node.iattr[6];
+            int strideB = node.iattr[7];
+            int tilesY = Emitter.ceilDiv(m, GemmKernels.BM);
+            WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), tilesY * batch, 16, 16);
+            FloatArray bias = e.dummyF32();
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64Batched, e.context(), a, b, c, bias, m, n, k, ta, tb, 0, strideA, strideB, tilesY));
+            return;
+        }
         emitGemm(e, a, b, c, null, m, n, k, ta, tb, 0);
     }
 
@@ -96,15 +135,23 @@ public final class MatMul implements Op {
         int k = node.iattr[2];
         boolean ta = node.iattr[3] != 0;
         boolean tb = node.iattr[4] != 0;
-        for (int i = 0; i < m; i++) {
-            for (int j = 0; j < n; j++) {
-                double acc = 0;
-                for (int q = 0; q < k; q++) {
-                    double av = ta ? a.get(q * m + i) : a.get(i * k + q);
-                    double bv = tb ? b.get(j * k + q) : b.get(q * n + j);
-                    acc += av * bv;
+        int batch = node.iattr.length > 5 ? node.iattr[5] : 1;
+        int strideA = node.iattr.length > 5 ? node.iattr[6] : 0;
+        int strideB = node.iattr.length > 5 ? node.iattr[7] : 0;
+        for (int z = 0; z < batch; z++) {
+            int oa = z * strideA;
+            int ob = z * strideB;
+            int oc = z * m * n;
+            for (int i = 0; i < m; i++) {
+                for (int j = 0; j < n; j++) {
+                    double acc = 0;
+                    for (int q = 0; q < k; q++) {
+                        double av = ta ? a.get(oa + q * m + i) : a.get(oa + i * k + q);
+                        double bv = tb ? b.get(ob + j * k + q) : b.get(ob + q * n + j);
+                        acc += av * bv;
+                    }
+                    c.set(oc + i * n + j, (float) acc);
                 }
-                c.set(i * n + j, (float) acc);
             }
         }
     }
@@ -132,6 +179,14 @@ public final class MatMul implements Op {
             ga = needA ? apply(b, gc, true, true) : null;
             gb = needB ? apply(gc, a, true, true) : null;
         }
-        return new Tensor[] { ga, gb };
+        return new Tensor[] { reduceBatch(ga, a), reduceBatch(gb, b) };
+    }
+
+    /** The gradient of an input shared by every batch is the sum over the batch. */
+    private static Tensor reduceBatch(Tensor g, Tensor input) {
+        if (g == null || g.rank() == input.rank()) {
+            return g;
+        }
+        return g.reshape(-1, input.dim(0), input.dim(1)).sum(0, false);
     }
 }

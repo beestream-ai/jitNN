@@ -174,6 +174,9 @@ public final class Golden {
             case "layer_norm" -> F.layerNorm(in[0], in[1], in[2], c.fattr(0));
             case "layer_norm_nobias" -> F.layerNorm(in[0], in[1], null, c.fattr(0));
             case "rms_norm" -> F.rmsNorm(in[0], in[1], c.fattr(0));
+            case "sdpa" -> F.scaledDotProductAttention(in[0], in[1], in[2], null, c.iattr(0) != 0, c.fattr(1));
+            case "sdpa_mask" -> F.scaledDotProductAttention(in[0], in[1], in[2], in[3], c.iattr(0) != 0, c.fattr(1));
+            case "mha" -> F.multiHeadAttention(in[0], in[1], in[2], in[3], in[4], c.iattr(0), null, c.iattr(1) != 0);
             case "narrow" -> in[0].narrow(c.iattr(0), c.iattr(1), c.iattr(2));
             case "concat" -> Tensor.cat(c.iattr(0), in);
             case "stack" -> Tensor.stack(c.iattr(0), in);
@@ -184,7 +187,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

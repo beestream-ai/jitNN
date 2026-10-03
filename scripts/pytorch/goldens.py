@@ -123,6 +123,28 @@ add("stack_last", "stack", [2], [rnd(3, 4), rnd(3, 4)])
 add("embedding", "embedding", [-1], [rng.integers(0, 11, (3, 5)).astype(np.int32), rnd(11, 6)])
 add("embedding_padding", "embedding", [2], [np.array([2, 0, 2, 5, 5, 5, 1], np.int32), rnd(7, 4)])
 add("embedding_wide", "embedding", [-1], [rng.integers(0, 50, 300).astype(np.int32), rnd(50, 33)])
+# ---- wave 3: batched matmul (equal batches, or one side shared) and attention
+for ta in (0, 1):
+    for tb in (0, 1):
+        a = rnd(2, 3, 7, 5) if ta else rnd(2, 3, 5, 7)
+        b = rnd(2, 3, 4, 7) if tb else rnd(2, 3, 7, 4)
+        add(f"bmm_t{ta}{tb}", "matmul", [ta, tb], [a, b])
+add("bmm_shared_b", "matmul", [0, 0], [rnd(3, 5, 7), rnd(7, 4)])
+add("bmm_shared_b_t", "matmul", [0, 1], [rnd(3, 5, 7), rnd(4, 7)])
+add("bmm_shared_a", "matmul", [0, 0], [rnd(5, 7), rnd(3, 7, 4)])
+add("bmm_big", "matmul", [0, 1], [rnd(4, 70, 32), rnd(4, 90, 32)])
+# attrs: causal, scale (-1: 1/sqrt(E))
+add("sdpa", "sdpa", [0, -1], [rnd(2, 3, 5, 8), rnd(2, 3, 7, 8), rnd(2, 3, 7, 6)])
+add("sdpa_causal", "sdpa", [1, -1], [rnd(2, 2, 6, 8), rnd(2, 2, 6, 8), rnd(2, 2, 6, 8)])
+add("sdpa_causal_rect", "sdpa", [1, 0.5], [rnd(1, 2, 4, 8), rnd(1, 2, 6, 8), rnd(1, 2, 6, 5)])
+add("sdpa_long", "sdpa", [1, -1], [rnd(1, 2, 300, 16), rnd(1, 2, 300, 16), rnd(1, 2, 300, 16)])
+pad = np.zeros((2, 1, 1, 7), np.float32)
+pad[0, 0, 0, 5:] = -1e9
+pad[1, 0, 0, 3:] = -1e9
+add("sdpa_padding", "sdpa_mask", [0, -1], [rnd(2, 3, 5, 8), rnd(2, 3, 7, 8), rnd(2, 3, 7, 6), pad], [True, True, True, False])
+# multi-head self-attention (attrs: heads causal); inputs x, Wqkv, bqkv, Wout, bout
+for name, causal in [("mha", 0), ("mha_causal", 1)]:
+    add(name, "mha", [4, causal], [rnd(2, 6, 16), rnd(48, 16, lo=-0.5, hi=0.5), rnd(48), rnd(16, 16, lo=-0.5, hi=0.5), rnd(16)])
 # ---- wave 3: LayerNorm and RMSNorm over the last axis; attrs: eps
 add("layer_norm", "layer_norm", [1e-5], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5), rnd(33)])
 add("layer_norm_3d", "layer_norm", [1e-5], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5), rnd(48)])
@@ -159,9 +181,26 @@ def forward(op, attrs, t):
     if op == "argmax":
         return torch.argmax(t[0], dim=attrs[0])
     if op == "matmul":
-        a = t[0].T if attrs[0] else t[0]
-        b = t[1].T if attrs[1] else t[1]
+        a = t[0].transpose(-1, -2) if attrs[0] else t[0]
+        b = t[1].transpose(-1, -2) if attrs[1] else t[1]
         return a @ b
+    if op == "mha":
+        T = t[0].shape[1]
+        mask = torch.ones(T, T, dtype=torch.bool).triu(1) if attrs[1] else None
+        y, _ = torch.nn.functional.multi_head_attention_forward(
+            t[0].transpose(0, 1), t[0].transpose(0, 1), t[0].transpose(0, 1), t[0].shape[2], attrs[0], t[1], t[2],
+            None, None, False, 0.0, t[3], t[4], training=False, need_weights=False, attn_mask=mask, is_causal=bool(attrs[1]))
+        return y.transpose(0, 1)
+    if op in ("sdpa", "sdpa_mask"):
+        scale = None if attrs[1] < 0 else attrs[1]
+        mask = t[3] if op == "sdpa_mask" else None
+        if attrs[0] and t[0].shape[-2] != t[1].shape[-2]:
+            # PyTorch's is_causal mask is tril(ones(T, S)), aligned to the top left
+            T, S = t[0].shape[-2], t[1].shape[-2]
+            keep = torch.ones(T, S, dtype=torch.bool).tril()
+            mask = torch.zeros(T, S).masked_fill(~keep, float("-inf"))
+            return torch.nn.functional.scaled_dot_product_attention(t[0], t[1], t[2], attn_mask=mask, scale=scale)
+        return torch.nn.functional.scaled_dot_product_attention(t[0], t[1], t[2], attn_mask=mask, is_causal=bool(attrs[0]), scale=scale)
     if op == "permute":
         return t[0].permute(*attrs)
     if op == "reshape":

@@ -165,6 +165,85 @@ public final class SoftmaxKernels {
         }
     }
 
+    /**
+     * Attention probabilities per row of scores: y = softmax(scale * x) over the first {@code valid}
+     * columns and 0 beyond, where valid = cols, or with {@code causal} the keys query t may see,
+     * 0 .. t (PyTorch's is_causal, aligned to the top left), t = row % queryLen. One work-group
+     * per row.
+     */
+    public static void attentionSoftmaxRows(KernelContext kc, FloatArray x, FloatArray y, int cols, float scale, int causal, int queryLen) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int row = kc.groupIdx;
+        int l = kc.localIdx;
+        int base = row * cols;
+        int valid = cols;
+        if (causal != 0) {
+            int limit = row % queryLen + 1;
+            valid = limit < cols ? limit : cols;
+        }
+        float m = Float.NEGATIVE_INFINITY;
+        for (int c = l; c < valid; c += GROUP) {
+            float v = scale * x.get(base + c);
+            m = v > m ? v : m;
+        }
+        buf[l] = m;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                float o = buf[l + s];
+                buf[l] = o > buf[l] ? o : buf[l];
+            }
+            kc.localBarrier();
+        }
+        float rowMax = buf[0];
+        kc.localBarrier();
+        float sum = 0.0f;
+        for (int c = l; c < valid; c += GROUP) {
+            sum += TornadoMath.exp(scale * x.get(base + c) - rowMax);
+        }
+        buf[l] = sum;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        float inv = 1.0f / buf[0];
+        for (int c = l; c < cols; c += GROUP) {
+            float p = 0.0f;
+            if (c < valid) {
+                p = TornadoMath.exp(scale * x.get(base + c) - rowMax) * inv;
+            }
+            y.set(base + c, p);
+        }
+    }
+
+    /** Gradient of {@link #attentionSoftmaxRows}: dx = scale * y * (dy - sum(dy * y)); masked entries have y = 0. */
+    public static void attentionSoftmaxBackwardRows(KernelContext kc, FloatArray y, FloatArray dy, FloatArray dx, int cols, float scale) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int row = kc.groupIdx;
+        int l = kc.localIdx;
+        int base = row * cols;
+        float acc = 0.0f;
+        for (int c = l; c < cols; c += GROUP) {
+            acc += dy.get(base + c) * y.get(base + c);
+        }
+        buf[l] = acc;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        float dot = buf[0];
+        for (int c = l; c < cols; c += GROUP) {
+            float v = y.get(base + c);
+            dx.set(base + c, scale * v * (dy.get(base + c) - dot));
+        }
+    }
+
     /** loss[r] = -logp[r, label[r]], one thread per row. */
     public static void nllRows(KernelContext kc, FloatArray logp, IntArray labels, FloatArray loss, int rows, int cols) {
         int r = kc.globalIdx;
