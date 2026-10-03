@@ -79,4 +79,19 @@ class ReferenceOpsTest {
         assertEquals(1.0f, F.accuracy(logits, labels));
         assertEquals(0.5f, F.accuracy(logits, Tensor.of(new int[] { 2, 1 }, 2)));
     }
+
+    @Test
+    void clipGradientNorm() {
+        Tensor p1 = Tensor.parameter(Tensor.of(new float[] { 1, 2 }, 2));
+        Tensor p2 = Tensor.parameter(Tensor.of(new float[] { 5 }, 1));
+        // gradients (3, 4) and (12): global norm 13
+        p1.mul(Tensor.of(new float[] { 3, 4 }, 2)).sum().add(p2.mul(12.0f).sum()).backward();
+        Tensor norm = Grad.clipNorm(java.util.List.of(p1, p2), 6.5f);
+        assertEquals(13.0f, norm.item(), 1e-5f);
+        close(new float[] { 1.5f, 2.0f }, p1.grad().toFloatArray(), 1e-6, 1e-6, "clipped p1");
+        close(new float[] { 6.0f }, p2.grad().toFloatArray(), 1e-6, 1e-6, "clipped p2");
+        // below the limit the gradients stay (the factor is clamped to 1)
+        Grad.clipNorm(java.util.List.of(p1, p2), 100.0f);
+        close(new float[] { 1.5f, 2.0f }, p1.grad().toFloatArray(), 1e-6, 1e-6, "unclipped p1");
+    }
 }

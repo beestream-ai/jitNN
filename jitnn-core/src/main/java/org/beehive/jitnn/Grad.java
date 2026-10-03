@@ -37,6 +37,34 @@ public final class Grad {
         return out;
     }
 
+    /**
+     * Rescales the gradients of {@code params} so that their global L2 norm is at most
+     * {@code maxNorm}, as PyTorch's {@code clip_grad_norm_}: every gradient is multiplied by
+     * min(1, maxNorm / (norm + 1e-6)). Runs lazily on the device with the rest of the step and
+     * returns the norm before clipping as a scalar tensor (reading it is a sync point).
+     */
+    public static Tensor clipNorm(java.util.List<Tensor> params, float maxNorm) {
+        java.util.List<Tensor> squares = new java.util.ArrayList<>();
+        try (Scope ignored = disabled()) {
+            for (Tensor p : params) {
+                if (p.grad() != null) {
+                    squares.add(p.grad().square().sum().reshape(1));
+                }
+            }
+            if (squares.isEmpty()) {
+                return Tensor.scalar(0.0f);
+            }
+            Tensor norm = Tensor.cat(0, squares.toArray(new Tensor[0])).sum().sqrt();
+            Tensor coef = norm.add(1e-6f).reciprocal().mul(maxNorm).clamp(0.0f, 1.0f);
+            for (Tensor p : params) {
+                if (p.grad() != null) {
+                    p.setGrad(p.grad().mul(coef));
+                }
+            }
+            return norm;
+        }
+    }
+
     /** A try-with-resources scope that restores the previous gradient mode. */
     public interface Scope extends AutoCloseable {
         @Override

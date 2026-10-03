@@ -151,6 +151,10 @@ public final class Tensor {
         grad = grad == null ? g : grad.add(g);
     }
 
+    void setGrad(Tensor g) {
+        grad = g;
+    }
+
     // ---------------------------------------------------------------- metadata
 
     public Shape shape() {

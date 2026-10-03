@@ -2,7 +2,9 @@ package org.beehive.jitnn.nn.optim;
 
 /**
  * Sets an optimiser's learning rate per epoch; call {@link #step()} once at the end of each
- * epoch, as with PyTorch's schedulers. The new rate takes effect without recompiling.
+ * epoch, as with PyTorch's schedulers. The new rate takes effect without recompiling. The
+ * warm-up schedules count optimiser steps instead: call {@link #step()} after every
+ * {@code optimizer.step()}.
  */
 public abstract class LRScheduler {
 
@@ -60,5 +62,45 @@ public abstract class LRScheduler {
                 return (float) (minLr + (baseLr - minLr) * (1 + Math.cos(Math.PI * Math.min(e, tMax) / tMax)) / 2);
             }
         };
+    }
+
+    /**
+     * Linear warm-up from 0 to the base rate over {@code warmup} steps, then linear decay to 0 at
+     * {@code total} steps (Hugging Face's get_linear_schedule_with_warmup). Sets the step-0 rate now.
+     */
+    public static LRScheduler warmupLinear(Optimizer optimizer, int warmup, int total) {
+        return start(new LRScheduler(optimizer) {
+            @Override
+            protected float rate(int s) {
+                if (s < warmup) {
+                    return baseLr * s / Math.max(1, warmup);
+                }
+                return baseLr * Math.max(0.0f, (float) (total - s) / Math.max(1, total - warmup));
+            }
+        });
+    }
+
+    /**
+     * Linear warm-up over {@code warmup} steps, then a half-cosine decay to {@code minRatio} times
+     * the base rate at {@code total} steps (Hugging Face's get_cosine_schedule_with_warmup when
+     * minRatio is 0). Sets the step-0 rate now.
+     */
+    public static LRScheduler warmupCosine(Optimizer optimizer, int warmup, int total, float minRatio) {
+        return start(new LRScheduler(optimizer) {
+            @Override
+            protected float rate(int s) {
+                if (s < warmup) {
+                    return baseLr * s / Math.max(1, warmup);
+                }
+                double progress = Math.min(1.0, (double) (s - warmup) / Math.max(1, total - warmup));
+                double cosine = 0.5 * (1 + Math.cos(Math.PI * progress));
+                return (float) (baseLr * (minRatio + (1 - minRatio) * cosine));
+            }
+        });
+    }
+
+    private static LRScheduler start(LRScheduler s) {
+        s.optimizer.setLearningRate(s.rate(0));
+        return s;
     }
 }
