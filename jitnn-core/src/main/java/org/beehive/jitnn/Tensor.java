@@ -10,6 +10,7 @@ import org.beehive.jitnn.ops.Permute;
 import org.beehive.jitnn.ops.RandomFill;
 import org.beehive.jitnn.ops.Reduce;
 import org.beehive.jitnn.ops.Reshape;
+import org.beehive.jitnn.ops.Sampling;
 import org.beehive.jitnn.ops.Slice;
 import org.beehive.jitnn.ops.Softmax;
 import org.beehive.jitnn.ops.Unary;
@@ -468,6 +469,11 @@ public final class Tensor {
         order[x] = y;
         order[y] = x;
         return permute(order);
+    }
+
+    /** The k largest values along the last axis and their INT32 indices (descending; ties: lower index first). */
+    public Tensor[] topk(int k) {
+        return Sampling.topk(this, k);
     }
 
     /** Elements {@code start .. start + length - 1} along {@code axis}, as a new tensor. */

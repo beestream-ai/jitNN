@@ -10,6 +10,7 @@ import org.beehive.jitnn.ops.Linear;
 import org.beehive.jitnn.ops.Nll;
 import org.beehive.jitnn.ops.Pool2d;
 import org.beehive.jitnn.ops.Rope;
+import org.beehive.jitnn.ops.Sampling;
 import org.beehive.jitnn.ops.RowNorm;
 
 /** Functional operators that are not methods of {@link Tensor}. */
@@ -159,6 +160,15 @@ public final class F {
      */
     public static Tensor rope(Tensor x, float base, int offset, boolean interleaved) {
         return Rope.apply(x, base, offset, interleaved);
+    }
+
+    /**
+     * One INT32 index per row of non-negative weights [..., V] (probabilities, or any unnormalised
+     * weights), drawn in proportion to the weight. {@code seed} is an INT32 [2] host tensor; a new
+     * seed draws new samples without recompiling.
+     */
+    public static Tensor multinomial(Tensor weights, Tensor seed, int stream) {
+        return Sampling.multinomial(weights, seed, stream);
     }
 
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */

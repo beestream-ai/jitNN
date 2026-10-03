@@ -150,6 +150,9 @@ add("rope_half", "rope", [10000.0, 0, 0], [rnd(2, 3, 5, 8)])
 add("rope_interleaved", "rope", [10000.0, 0, 1], [rnd(2, 3, 5, 8)])
 add("rope_offset", "rope", [500000.0, 7, 0], [rnd(1, 2, 4, 16)])
 add("rope_long", "rope", [10000.0, 0, 0], [rnd(1, 1, 300, 64)])
+# top-k values (attrs: k); random inputs have no ties
+add("topk", "topk", [3], [rnd(5, 11)])
+add("topk_long", "topk", [8], [rnd(2, 3, 900)])
 # ---- wave 3: LayerNorm and RMSNorm over the last axis; attrs: eps
 add("layer_norm", "layer_norm", [1e-5], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5), rnd(33)])
 add("layer_norm_3d", "layer_norm", [1e-5], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5), rnd(48)])
@@ -196,6 +199,8 @@ def forward(op, attrs, t):
             t[0].transpose(0, 1), t[0].transpose(0, 1), t[0].transpose(0, 1), t[0].shape[2], attrs[0], t[1], t[2],
             None, None, False, 0.0, t[3], t[4], training=False, need_weights=False, attn_mask=mask, is_causal=bool(attrs[1]))
         return y.transpose(0, 1)
+    if op == "topk":
+        return torch.topk(t[0], attrs[0], dim=-1).values
     if op == "rope":
         base, offset, inter = attrs
         T, D = t[0].shape[-2], t[0].shape[-1]

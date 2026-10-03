@@ -167,4 +167,37 @@ class OpsAccelTest {
             org.junit.jupiter.api.Assertions.assertEquals(device[i] == 0 ? 0 : 1 / 0.7f, grad[i], 1e-5, "gradient uses the forward mask at " + i);
         }
     }
+
+    @Test
+    void topkIndicesMatchReference() {
+        Supplier<int[]> f = () -> Tensor.uniform(5, -1.0f, 1.0f, 3, 700).topk(10)[1].toIntArray();
+        int[] expected = Engine.with(Backend.REFERENCE, f::get);
+        int[] actual = Engine.with(Backend.TORNADO, f::get);
+        assertArrayEquals(expected, actual, "top-k indices");
+    }
+
+    @Test
+    void multinomialMatchesReferenceAndDistribution() {
+        int rows = 20000;
+        float[] w = new float[rows * 5];
+        for (int r = 0; r < rows; r++) {
+            System.arraycopy(new float[] { 0.1f, 0.0f, 0.2f, 0.3f, 0.4f }, 0, w, r * 5, 5);
+        }
+        Supplier<int[]> f = () -> F.multinomial(Tensor.of(w, rows, 5), Tensor.of(new int[] { 1234, 99 }, 2), 7).toIntArray();
+        int[] expected = Engine.with(Backend.REFERENCE, f::get);
+        int[] actual = Engine.with(Backend.TORNADO, f::get);
+        int differ = 0;
+        int[] counts = new int[5];
+        for (int r = 0; r < rows; r++) {
+            differ += expected[r] != actual[r] ? 1 : 0;
+            counts[actual[r]]++;
+        }
+        // the device sums in float and the reference in double: draws may differ only at a boundary
+        org.junit.jupiter.api.Assertions.assertTrue(differ <= 2, differ + " draws differ from the reference");
+        org.junit.jupiter.api.Assertions.assertEquals(0, counts[1], "zero-weight index drawn");
+        float[] p = { 0.1f, 0.0f, 0.2f, 0.3f, 0.4f };
+        for (int c = 0; c < 5; c++) {
+            org.junit.jupiter.api.Assertions.assertEquals(p[c], counts[c] / (float) rows, 0.012f, "frequency of " + c);
+        }
+    }
 }
