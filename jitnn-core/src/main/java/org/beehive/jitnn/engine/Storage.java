@@ -77,6 +77,11 @@ public final class Storage {
         internal = false;
     }
 
+    /** True when the host array holds the current contents (reading it needs no sync). */
+    public boolean isHostValid() {
+        return hostValid;
+    }
+
     public DType dtype() {
         return dtype;
     }

@@ -122,6 +122,9 @@ case concat_first concat 0
 case concat_last concat -1
 case stack_0 stack 0
 case stack_last stack 2
+case embedding embedding -1
+case embedding_padding embedding 2
+case embedding_wide embedding -1
 case opt_sgd optim sgd
 case opt_sgd_momentum optim sgd_momentum
 case opt_sgd_nesterov optim sgd_nesterov
@@ -769,29 +772,44 @@ stack_last w f32 2363352 3 4 2
 stack_last out f32 2363448 3 4 2
 stack_last grad0 f32 2363544 3 4
 stack_last grad1 f32 2363592 3 4
-opt_sgd p0 f32 2363640 37
-opt_sgd g0 f32 2363788 37
-opt_sgd g1 f32 2363936 37
-opt_sgd g2 f32 2364084 37
-opt_sgd out f32 2364232 37
-opt_sgd_momentum p0 f32 2364380 37
-opt_sgd_momentum g0 f32 2364528 37
-opt_sgd_momentum g1 f32 2364676 37
-opt_sgd_momentum g2 f32 2364824 37
-opt_sgd_momentum out f32 2364972 37
-opt_sgd_nesterov p0 f32 2365120 37
-opt_sgd_nesterov g0 f32 2365268 37
-opt_sgd_nesterov g1 f32 2365416 37
-opt_sgd_nesterov g2 f32 2365564 37
-opt_sgd_nesterov out f32 2365712 37
-opt_adam p0 f32 2365860 37
-opt_adam g0 f32 2366008 37
-opt_adam g1 f32 2366156 37
-opt_adam g2 f32 2366304 37
-opt_adam out f32 2366452 37
-opt_adamw p0 f32 2366600 37
-opt_adamw g0 f32 2366748 37
-opt_adamw g1 f32 2366896 37
-opt_adamw g2 f32 2367044 37
-opt_adamw out f32 2367192 37
-init_uniform out f32 2367340 4099
+embedding in0 i32 2363640 3 5
+embedding in1 f32 2363700 11 6
+embedding w f32 2363964 3 5 6
+embedding out f32 2364324 3 5 6
+embedding grad1 f32 2364684 11 6
+embedding_padding in0 i32 2364948 7
+embedding_padding in1 f32 2364976 7 4
+embedding_padding w f32 2365088 7 4
+embedding_padding out f32 2365200 7 4
+embedding_padding grad1 f32 2365312 7 4
+embedding_wide in0 i32 2365424 300
+embedding_wide in1 f32 2366624 50 33
+embedding_wide w f32 2373224 300 33
+embedding_wide out f32 2412824 300 33
+embedding_wide grad1 f32 2452424 50 33
+opt_sgd p0 f32 2459024 37
+opt_sgd g0 f32 2459172 37
+opt_sgd g1 f32 2459320 37
+opt_sgd g2 f32 2459468 37
+opt_sgd out f32 2459616 37
+opt_sgd_momentum p0 f32 2459764 37
+opt_sgd_momentum g0 f32 2459912 37
+opt_sgd_momentum g1 f32 2460060 37
+opt_sgd_momentum g2 f32 2460208 37
+opt_sgd_momentum out f32 2460356 37
+opt_sgd_nesterov p0 f32 2460504 37
+opt_sgd_nesterov g0 f32 2460652 37
+opt_sgd_nesterov g1 f32 2460800 37
+opt_sgd_nesterov g2 f32 2460948 37
+opt_sgd_nesterov out f32 2461096 37
+opt_adam p0 f32 2461244 37
+opt_adam g0 f32 2461392 37
+opt_adam g1 f32 2461540 37
+opt_adam g2 f32 2461688 37
+opt_adam out f32 2461836 37
+opt_adamw p0 f32 2461984 37
+opt_adamw g0 f32 2462132 37
+opt_adamw g1 f32 2462280 37
+opt_adamw g2 f32 2462428 37
+opt_adamw out f32 2462576 37
+init_uniform out f32 2462724 4099

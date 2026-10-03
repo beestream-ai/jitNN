@@ -4,6 +4,7 @@ import org.beehive.jitnn.ops.BatchNorm2d;
 import org.beehive.jitnn.ops.Conv2d;
 import org.beehive.jitnn.ops.CrossEntropy;
 import org.beehive.jitnn.ops.Dropout;
+import org.beehive.jitnn.ops.Embedding;
 import org.beehive.jitnn.ops.Linear;
 import org.beehive.jitnn.ops.Nll;
 import org.beehive.jitnn.ops.Pool2d;
@@ -73,6 +74,16 @@ public final class F {
     /** Inverted dropout with a fresh mask per step: {@code seed} is an INT32 [2] host tensor. */
     public static Tensor dropout(Tensor x, float p, Tensor seed, int stream) {
         return Dropout.apply(x, p, seed, stream);
+    }
+
+    /** Rows of {@code weight} [V, D] picked by the INT32 {@code index}: shape index.shape + [D]. */
+    public static Tensor embedding(Tensor index, Tensor weight) {
+        return Embedding.apply(index, weight, -1);
+    }
+
+    /** As {@link #embedding(Tensor, Tensor)}; row {@code paddingIdx} receives no gradient. */
+    public static Tensor embedding(Tensor index, Tensor weight, int paddingIdx) {
+        return Embedding.apply(index, weight, paddingIdx);
     }
 
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */

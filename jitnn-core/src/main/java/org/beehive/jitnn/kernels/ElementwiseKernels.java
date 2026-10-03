@@ -252,6 +252,34 @@ public final class ElementwiseKernels {
         }
     }
 
+    /** out[t, d] = table[index[t], d] for rows of {@code dim} elements; n = tokens * dim. */
+    public static void gatherRows(KernelContext kc, FloatArray table, IntArray index, FloatArray out, int dim, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            int t = i / dim;
+            int d = i - t * dim;
+            out.set(i, table.get(index.get(t) * dim + d));
+        }
+    }
+
+    /**
+     * Deterministic segment sum for the embedding gradient: out[v, d] = sum of dy[positions[k], d]
+     * for k in offsets[v] .. offsets[v + 1] - 1, in order; n = rows * dim.
+     */
+    public static void segmentSumRows(KernelContext kc, FloatArray dy, IntArray offsets, IntArray positions, FloatArray out, int dim, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            int v = i / dim;
+            int d = i - v * dim;
+            float acc = 0.0f;
+            int end = offsets.get(v + 1);
+            for (int k = offsets.get(v); k < end; k++) {
+                acc += dy.get(positions.get(k) * dim + d);
+            }
+            out.set(i, acc);
+        }
+    }
+
     /**
      * Copies a block along one axis, with both tensors seen as [outer, length, inner]:
      * out[o, outOff + j, t] = x[o, inOff + j, t] for j < len. {@code n} = outer * len * inner.

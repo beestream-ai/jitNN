@@ -119,6 +119,10 @@ add("concat_first", "concat", [0], [rnd(3, 6), rnd(4, 6)])
 add("concat_last", "concat", [-1], [rnd(5, 2), rnd(5, 7)])
 add("stack_0", "stack", [0], [rnd(3, 4), rnd(3, 4), rnd(3, 4)])
 add("stack_last", "stack", [2], [rnd(3, 4), rnd(3, 4)])
+# ---- wave 3: embedding (repeated, unused and padding rows); attrs: padding index or -1
+add("embedding", "embedding", [-1], [rng.integers(0, 11, (3, 5)).astype(np.int32), rnd(11, 6)])
+add("embedding_padding", "embedding", [2], [np.array([2, 0, 2, 5, 5, 5, 1], np.int32), rnd(7, 4)])
+add("embedding_wide", "embedding", [-1], [rng.integers(0, 50, 300).astype(np.int32), rnd(50, 33)])
 
 
 def forward(op, attrs, t):
@@ -192,6 +196,8 @@ def forward(op, attrs, t):
         return torch.nn.functional.silu(t[0])
     if op == "swiglu":
         return torch.nn.functional.silu(t[0]) * t[1]
+    if op == "embedding":
+        return torch.nn.functional.embedding(t[0].long(), t[1], padding_idx=None if attrs[0] < 0 else attrs[0])
     if op == "narrow":
         return t[0].narrow(attrs[0], attrs[1], attrs[2])
     if op == "concat":
