@@ -5,6 +5,7 @@ import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.engine.Storage;
 import org.beehive.jitnn.ops.Binary;
+import org.beehive.jitnn.ops.Cast;
 import org.beehive.jitnn.ops.MatMul;
 import org.beehive.jitnn.ops.Permute;
 import org.beehive.jitnn.ops.RandomFill;
@@ -226,7 +227,7 @@ public final class Tensor {
             throw new IllegalStateException("item() needs a single element, shape is " + shape);
         }
         Engine.sync(this);
-        return storage.dtype() == DType.I32 ? ((IntArray) storage.host()).get(0) : ((FloatArray) storage.host()).get(0);
+        return storage.dtype() == DType.F32 ? ((FloatArray) storage.host()).get(0) : toFloatArray()[0];
     }
 
     public float[] toFloatArray() {
@@ -238,6 +239,22 @@ public final class Tensor {
                 f[i] = v[i];
             }
             return f;
+        }
+        if (storage.dtype() == DType.F16) {
+            uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray h = (uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray) storage.host();
+            float[] out = new float[numel()];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = h.get(i).getFloat32();
+            }
+            return out;
+        }
+        if (storage.dtype() == DType.BF16) {
+            uk.ac.manchester.tornado.api.types.arrays.ShortArray b = (uk.ac.manchester.tornado.api.types.arrays.ShortArray) storage.host();
+            float[] out = new float[numel()];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = Float.intBitsToFloat(((int) b.get(i)) << 16);
+            }
+            return out;
         }
         FloatArray a = (FloatArray) storage.host();
         float[] out = new float[numel()];
@@ -469,6 +486,23 @@ public final class Tensor {
         order[x] = y;
         order[y] = x;
         return permute(order);
+    }
+
+    /** This tensor converted to {@code dtype} (FP32, FP16 or BF16; round to nearest even); differentiable. */
+    public Tensor to(DType dtype) {
+        return Cast.apply(this, dtype);
+    }
+
+    public Tensor half() {
+        return Cast.apply(this, DType.F16);
+    }
+
+    public Tensor bfloat16() {
+        return Cast.apply(this, DType.BF16);
+    }
+
+    public Tensor toFloat() {
+        return Cast.apply(this, DType.F32);
     }
 
     /** The k largest values along the last axis and their INT32 indices (descending; ties: lower index first). */

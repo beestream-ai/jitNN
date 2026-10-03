@@ -110,6 +110,18 @@ public final class Storage {
         return switch (dtype) {
             case F32 -> new FloatArray(n);
             case I32 -> new IntArray(n);
+            case F16 -> new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(n);
+            case BF16 -> new uk.ac.manchester.tornado.api.types.arrays.ShortArray(n);
+        };
+    }
+
+    /** True when {@code a} is the array class that holds {@code dtype}. */
+    static boolean holds(TornadoNativeArray a, DType dtype) {
+        return switch (dtype) {
+            case F32 -> a instanceof FloatArray;
+            case I32 -> a instanceof IntArray;
+            case F16 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
+            case BF16 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.ShortArray;
         };
     }
 

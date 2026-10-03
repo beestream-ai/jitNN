@@ -220,8 +220,7 @@ final class TornadoExecutor {
                 TornadoNativeArray best = null;
                 if (recyclable[si]) {
                     for (TornadoNativeArray a : pool) {
-                        boolean fits = a.getSize() >= Math.max(s.numel, 1) && (s.dtype == org.beehive.jitnn.DType.F32 ? a instanceof uk.ac.manchester.tornado.api.types.arrays.FloatArray
-                                : a instanceof uk.ac.manchester.tornado.api.types.arrays.IntArray);
+                        boolean fits = a.getSize() >= Math.max(s.numel, 1) && Storage.holds(a, s.dtype);
                         if (fits && (best == null || a.getSize() < best.getSize())) {
                             best = a;
                         }

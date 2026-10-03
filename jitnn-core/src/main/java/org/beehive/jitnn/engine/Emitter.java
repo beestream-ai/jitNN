@@ -76,6 +76,15 @@ public final class Emitter {
         return use((IntArray) arrays.get(t.storage()));
     }
 
+    public uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray f16(Tensor t) {
+        return use((uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray) arrays.get(t.storage()));
+    }
+
+    /** bfloat16 tensors are stored as their raw 16-bit patterns. */
+    public uk.ac.manchester.tornado.api.types.arrays.ShortArray bf16(Tensor t) {
+        return use((uk.ac.manchester.tornado.api.types.arrays.ShortArray) arrays.get(t.storage()));
+    }
+
     /** A constant int array uploaded once with the graph (shape and stride metadata). */
     public IntArray constant(int... values) {
         String key = java.util.Arrays.toString(values);

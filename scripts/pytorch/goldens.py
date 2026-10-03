@@ -153,6 +153,10 @@ add("rope_long", "rope", [10000.0, 0, 0], [rnd(1, 1, 300, 64)])
 # top-k values (attrs: k); random inputs have no ties
 add("topk", "topk", [3], [rnd(5, 11)])
 add("topk_long", "topk", [8], [rnd(2, 3, 900)])
+# casts to FP16 / BF16 and back (round to nearest even); ties, subnormals and the extremes
+ties = np.array([1 + 2**-11, 1 + 3 * 2**-11, -(1 + 2**-11), 1 + 2**-8, 1 + 3 * 2**-8, 2**-20, -3e-7, 6e-8, 65504.0, 60000.0, 1e-3, 0.0], np.float32)
+add("cast_f16", "cast_f16", [], [np.concatenate([rnd(200, lo=-300, hi=300), ties])])
+add("cast_bf16", "cast_bf16", [], [np.concatenate([rnd(200, lo=-300, hi=300), ties, np.array([3e38, -1e-30], np.float32)])])
 # ---- wave 3: LayerNorm and RMSNorm over the last axis; attrs: eps
 add("layer_norm", "layer_norm", [1e-5], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5), rnd(33)])
 add("layer_norm_3d", "layer_norm", [1e-5], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5), rnd(48)])
@@ -199,6 +203,10 @@ def forward(op, attrs, t):
             t[0].transpose(0, 1), t[0].transpose(0, 1), t[0].transpose(0, 1), t[0].shape[2], attrs[0], t[1], t[2],
             None, None, False, 0.0, t[3], t[4], training=False, need_weights=False, attn_mask=mask, is_causal=bool(attrs[1]))
         return y.transpose(0, 1)
+    if op == "cast_f16":
+        return t[0].half().double()
+    if op == "cast_bf16":
+        return t[0].bfloat16().double()
     if op == "topk":
         return torch.topk(t[0], attrs[0], dim=-1).values
     if op == "rope":

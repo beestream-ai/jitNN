@@ -200,4 +200,17 @@ class OpsAccelTest {
             org.junit.jupiter.api.Assertions.assertEquals(p[c], counts[c] / (float) rows, 0.012f, "frequency of " + c);
         }
     }
+
+    @Test
+    void castsMatchReferenceBitForBit() {
+        float[] v = { 70000f, -65520f, 65519f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NaN, 3.4e38f, -1e-40f, 1e-8f, 0.1f, -0.0f, 1 + 0x1p-8f, 1 + 0x3p-8f };
+        for (DType d : new DType[] { DType.F16, DType.BF16 }) {
+            Supplier<float[]> f = () -> Tensor.of(v, v.length).to(d).toFloat().toFloatArray();
+            float[] expected = Engine.with(Backend.REFERENCE, f::get);
+            float[] actual = Engine.with(Backend.TORNADO, f::get);
+            for (int i = 0; i < v.length; i++) {
+                org.junit.jupiter.api.Assertions.assertEquals(Float.floatToIntBits(expected[i]), Float.floatToIntBits(actual[i]), d + " cast of " + v[i] + ": " + expected[i] + " vs " + actual[i]);
+            }
+        }
+    }
 }

@@ -179,6 +179,8 @@ public final class Golden {
             case "mha" -> F.multiHeadAttention(in[0], in[1], in[2], in[3], in[4], c.iattr(0), null, c.iattr(1) != 0);
             case "rope" -> F.rope(in[0], c.fattr(0), c.iattr(1), c.iattr(2) != 0);
             case "topk" -> in[0].topk(c.iattr(0))[0];
+            case "cast_f16" -> in[0].half().toFloat();
+            case "cast_bf16" -> in[0].bfloat16().toFloat();
             case "narrow" -> in[0].narrow(c.iattr(0), c.iattr(1), c.iattr(2));
             case "concat" -> Tensor.cat(c.iattr(0), in);
             case "stack" -> Tensor.stack(c.iattr(0), in);
