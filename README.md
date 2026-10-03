@@ -42,7 +42,7 @@ in the order real models use it.
 
 | Platform | Backend | Status |
 |---|---|---|
-| NVIDIA GPU | CUDA | validated and benchmarked (RTX 5070 Ti) |
+| NVIDIA GPU | CUDA | validated and benchmarked (RTX 5070 Ti, A10) |
 | Apple Silicon | Metal | validated and benchmarked (M4 Pro); GEMM on simdgroup matrix units |
 | Apple Silicon | OpenCL | validated (M4 Pro) |
 | Other OpenCL GPUs | OpenCL | expected to work, not tested |
@@ -104,8 +104,9 @@ end (MNIST, Adam).
 
 On Apple GPUs a step is dominated by TornadoVM's per-kernel dispatch cost (about 0.15 ms per
 kernel, 268 kernels in a ResNet-18 step), and the convolutions share the scalar GEMM's ~2 TFLOP/s
-ceiling; both are the next performance targets. The CUDA ResNet-18 figure is without a pending
-TornadoVM fix for reading results from multi-graph plans. Method, all kernels, and the remaining gaps are in
+ceiling; both are the next performance targets. The RTX 5070 Ti ResNet-18 figure predates a
+TornadoVM fix for reading results from multi-graph plans; on an A10 with it, a ResNet-18 step takes
+66 ms and a MobileNetV2 step 47 ms. Method, all kernels, and the remaining gaps are in
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Documentation

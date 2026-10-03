@@ -60,17 +60,20 @@ BatchNorm training runs at 196 GB/s and max pooling at 240 GB/s (kernel time).
 
 ## CNN training steps (MNIST, batch 64, Adam)
 
-| | Metal | OpenCL (M4 Pro) | CUDA | PyTorch MPS |
-|---|---|---|---|---|
-| ResNet-18 (11.2M parameters, 268 kernels) | 165 ms | 162 ms | 160 ms | 54 ms |
-| MobileNetV2 (2.2M parameters, 515 kernels) | 148 ms | 138 ms | | 62 ms |
+| | Metal | OpenCL (M4 Pro) | CUDA (RTX 5070 Ti) | CUDA (A10) | PyTorch MPS |
+|---|---|---|---|---|---|
+| ResNet-18 (11.2M parameters, 268 kernels) | 165 ms | 162 ms | 160 ms | 65.6 ms | 54 ms |
+| MobileNetV2 (2.2M parameters, 515 kernels) | 148 ms | 138 ms | | 46.7 ms | 62 ms |
 
-On CIFAR-10 (3x32x32 inputs, batch 64, one epoch), steady-state steps on the M4 Pro:
+The RTX 5070 Ti figure was measured before the TornadoVM fix for result reads from multi-graph
+plans (TornadoVM#1159), which the A10 runs include.
 
-| | Metal | OpenCL |
-|---|---|---|
-| ResNet-18 | 189 ms (339 samples/s) | 192 ms (333 samples/s) |
-| MobileNetV2 | 153 ms (418 samples/s) | 139 ms (462 samples/s) |
+On CIFAR-10 (3x32x32 inputs, batch 64, one epoch), steady-state steps:
+
+| | Metal (M4 Pro) | OpenCL (M4 Pro) | CUDA (A10) |
+|---|---|---|---|
+| ResNet-18 | 189 ms (339 samples/s) | 192 ms (333 samples/s) | 71.7 ms (892 samples/s) |
+| MobileNetV2 | 153 ms (418 samples/s) | 139 ms (462 samples/s) | 39.1 ms (1,639 samples/s) |
 
 Device memory for intermediates, with and without buffer reuse:
 
@@ -85,8 +88,6 @@ Device memory for intermediates, with and without buffer reuse:
 - Convolutions run on the same register-blocked tiles as the GEMM and share its ceiling: about
   30% of MPS on Metal.
 - A CNN step is dominated on Apple GPUs by TornadoVM's per-kernel dispatch cost.
-- On CUDA, multi-graph plans pay a full copy-out of every other graph on each result read until a
-  pending TornadoVM fix lands.
 - Metal GEMM is about 42% of MPS. Every tile shape, and the simdgroup path, plateaus at 2.2-2.3
   TFLOP/s; getting further needs vector loads, double buffering and larger SIMD-group tiles.
 - Metal transpose and strided reductions sit at 100-140 GB/s.

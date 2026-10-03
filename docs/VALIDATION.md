@@ -30,25 +30,27 @@ Four layers of checks run on the host and on every device.
 
 ## Results
 
-| Check | Reference | OpenCL (M4 Pro) | Metal (M4 Pro) | CUDA (RTX 5070 Ti) |
-|---|---|---|---|---|
-| Operator goldens (104) | pass | pass | pass | pass |
-| Optimiser goldens (5) | pass | pass | pass | pass |
-| Philox against numpy | bit-exact | bit-exact | bit-exact | bit-exact |
-| MLP gate: loss vs reference at every step, 1e-3 | | pass | pass | pass |
-| MNIST: worst relative loss gap, steps 0-49 | | 5.0e-7 | 7.0e-7 | 6.0e-7 |
-| MNIST MLP: test accuracy (PyTorch: 96.24%) | | 96.15% | 96.14% | 96.25% |
-| LeNet-5: test accuracy (PyTorch: 96.87%) | | 96.93% | 97.02% | 97.00% |
-| ResNet-18: worst step-0 gradient, fraction of its bound | | 0.38 | 0.33 | 0.85 |
-| ResNet-18: accuracy after 200 steps (PyTorch: 93.2%) | | 93.0% | 92.7% | 93.9% |
-| MobileNetV2: worst step-0 gradient, fraction of its bound | | 0.64 | 0.60 | |
-| MobileNetV2: accuracy after 200 steps (PyTorch: 92.3%) | | 94.0% | 91.5% | |
-| CIFAR-10 ResNet-18: worst step-0 gradient, fraction of its bound | | 0.23 | 0.26 | |
-| CIFAR-10 ResNet-18: mean loss of the last 50 steps (PyTorch: 0.946) | | 0.951 | 0.922 | |
-| CIFAR-10 ResNet-18: test accuracy after one epoch (PyTorch: 66.0%) | | 67.5% | 66.5% | |
-| CIFAR-10 MobileNetV2: worst step-0 gradient, fraction of its bound | | 0.19 | 0.22 | |
-| CIFAR-10 MobileNetV2: mean loss of the last 50 steps (PyTorch: 1.118) | | 1.120 | 1.144 | |
-| CIFAR-10 MobileNetV2: test accuracy after one epoch (PyTorch: 59.2%) | | 57.8% | 60.9% | |
+| Check | Reference | OpenCL (M4 Pro) | Metal (M4 Pro) | CUDA (RTX 5070 Ti) | CUDA (A10) |
+|---|---|---|---|---|---|
+| Operator goldens (104) | pass | pass | pass | pass | pass |
+| Optimiser goldens (5) | pass | pass | pass | pass | pass |
+| Philox against numpy | bit-exact | bit-exact | bit-exact | bit-exact | bit-exact |
+| MLP gate: loss vs reference at every step, 1e-3 | | pass | pass | pass | pass |
+| MNIST: worst relative loss gap, steps 0-49 | | 5.0e-7 | 7.0e-7 | 6.0e-7 | 5.0e-7 |
+| MNIST MLP: test accuracy (PyTorch: 96.24%) | | 96.15% | 96.14% | 96.25% | 96.25% |
+| LeNet-5: test accuracy (PyTorch: 96.87%) | | 96.93% | 97.02% | 97.00% | 97.00% |
+| ResNet-18: worst step-0 gradient, fraction of its bound | | 0.38 | 0.33 | 0.85 | 0.85 |
+| ResNet-18: accuracy after 200 steps (PyTorch: 93.2%) | | 93.0% | 92.7% | 93.9% | 93.9% |
+| MobileNetV2: worst step-0 gradient, fraction of its bound | | 0.64 | 0.60 | | 0.69 |
+| MobileNetV2: accuracy after 200 steps (PyTorch: 92.3%) | | 94.0% | 91.5% | | 94.9% |
+| CIFAR-10 ResNet-18: worst step-0 gradient, fraction of its bound | | 0.23 | 0.26 | | 0.14 |
+| CIFAR-10 ResNet-18: mean loss of the last 50 steps (PyTorch: 0.946) | | 0.951 | 0.922 | | 0.945 |
+| CIFAR-10 ResNet-18: test accuracy after one epoch (PyTorch: 66.0%) | | 67.5% | 66.5% | | 63.9% |
+| CIFAR-10 MobileNetV2: worst step-0 gradient, fraction of its bound | | 0.19 | 0.22 | | 0.24 |
+| CIFAR-10 MobileNetV2: mean loss of the last 50 steps (PyTorch: 1.118) | | 1.120 | 1.144 | | 1.137 |
+| CIFAR-10 MobileNetV2: test accuracy after one epoch (PyTorch: 59.2%) | | 57.8% | 60.9% | | 58.3% |
+
+The RTX 5070 Ti column predates the CIFAR-10 gates; the A10 column runs every gate.
 
 Tolerances: element-wise ops 2e-6 relative; reductions, GEMM, softmax and losses 1e-4; gradients
 ten times those.
