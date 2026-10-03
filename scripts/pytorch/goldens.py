@@ -123,6 +123,16 @@ add("stack_last", "stack", [2], [rnd(3, 4), rnd(3, 4)])
 add("embedding", "embedding", [-1], [rng.integers(0, 11, (3, 5)).astype(np.int32), rnd(11, 6)])
 add("embedding_padding", "embedding", [2], [np.array([2, 0, 2, 5, 5, 5, 1], np.int32), rnd(7, 4)])
 add("embedding_wide", "embedding", [-1], [rng.integers(0, 50, 300).astype(np.int32), rnd(50, 33)])
+# ---- wave 3: LayerNorm and RMSNorm over the last axis; attrs: eps
+add("layer_norm", "layer_norm", [1e-5], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5), rnd(33)])
+add("layer_norm_3d", "layer_norm", [1e-5], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5), rnd(48)])
+add("layer_norm_long", "layer_norm", [1e-5], [rnd(3, 1000, lo=1, hi=5), rnd(1000, lo=0.5, hi=1.5), rnd(1000)])
+add("layer_norm_rows", "layer_norm", [1e-5], [rnd(150, 16), rnd(16, lo=0.5, hi=1.5), rnd(16)])
+add("layer_norm_nobias", "layer_norm_nobias", [1e-5], [rnd(6, 20), rnd(20, lo=0.5, hi=1.5)])
+add("rms_norm", "rms_norm", [1e-6], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5)])
+add("rms_norm_3d", "rms_norm", [1e-6], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5)])
+add("rms_norm_long", "rms_norm", [1e-6], [rnd(3, 1000), rnd(1000, lo=0.5, hi=1.5)])
+add("rms_norm_rows", "rms_norm", [1e-6], [rnd(150, 16), rnd(16, lo=0.5, hi=1.5)])
 
 
 def forward(op, attrs, t):
@@ -198,6 +208,12 @@ def forward(op, attrs, t):
         return torch.nn.functional.silu(t[0]) * t[1]
     if op == "embedding":
         return torch.nn.functional.embedding(t[0].long(), t[1], padding_idx=None if attrs[0] < 0 else attrs[0])
+    if op == "layer_norm":
+        return torch.nn.functional.layer_norm(t[0], (t[0].shape[-1],), t[1], t[2], eps=attrs[0])
+    if op == "layer_norm_nobias":
+        return torch.nn.functional.layer_norm(t[0], (t[0].shape[-1],), t[1], None, eps=attrs[0])
+    if op == "rms_norm":
+        return torch.nn.functional.rms_norm(t[0], (t[0].shape[-1],), t[1], eps=attrs[0])
     if op == "narrow":
         return t[0].narrow(attrs[0], attrs[1], attrs[2])
     if op == "concat":

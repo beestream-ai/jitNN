@@ -8,6 +8,7 @@ import org.beehive.jitnn.ops.Embedding;
 import org.beehive.jitnn.ops.Linear;
 import org.beehive.jitnn.ops.Nll;
 import org.beehive.jitnn.ops.Pool2d;
+import org.beehive.jitnn.ops.RowNorm;
 
 /** Functional operators that are not methods of {@link Tensor}. */
 public final class F {
@@ -74,6 +75,16 @@ public final class F {
     /** Inverted dropout with a fresh mask per step: {@code seed} is an INT32 [2] host tensor. */
     public static Tensor dropout(Tensor x, float p, Tensor seed, int stream) {
         return Dropout.apply(x, p, seed, stream);
+    }
+
+    /** LayerNorm over the last axis: (x - mean) / sqrt(var + eps) * weight + bias (bias may be null). */
+    public static Tensor layerNorm(Tensor x, Tensor weight, Tensor bias, float eps) {
+        return RowNorm.layerNorm(x, weight, bias, eps);
+    }
+
+    /** RMSNorm over the last axis: x / sqrt(mean(x^2) + eps) * weight. */
+    public static Tensor rmsNorm(Tensor x, Tensor weight, float eps) {
+        return RowNorm.rmsNorm(x, weight, eps);
     }
 
     /** Rows of {@code weight} [V, D] picked by the INT32 {@code index}: shape index.shape + [D]. */
