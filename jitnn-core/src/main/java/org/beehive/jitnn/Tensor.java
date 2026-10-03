@@ -362,6 +362,29 @@ public final class Tensor {
         return Unary.apply(Unary.Kind.SQUARE, this, 0, 0);
     }
 
+    public Tensor tanh() {
+        return Unary.apply(Unary.Kind.TANH, this, 0, 0);
+    }
+
+    public Tensor sigmoid() {
+        return Unary.apply(Unary.Kind.SIGMOID, this, 0, 0);
+    }
+
+    /** GELU, exact form x * Phi(x) (PyTorch's default, approximate='none'). */
+    public Tensor gelu() {
+        return Unary.apply(Unary.Kind.GELU, this, 0, 0);
+    }
+
+    /** GELU with the tanh approximation (GPT-2's form, PyTorch's approximate='tanh'). */
+    public Tensor geluTanh() {
+        return Unary.apply(Unary.Kind.GELU_TANH, this, 0, 0);
+    }
+
+    /** SiLU (swish): x * sigmoid(x). */
+    public Tensor silu() {
+        return Unary.apply(Unary.Kind.SILU, this, 0, 0);
+    }
+
     // ---------------------------------------------------------------- reductions
 
     public Tensor sum() {

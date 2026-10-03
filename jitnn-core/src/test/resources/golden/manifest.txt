@@ -102,6 +102,17 @@ case avg_pool_3s2p1 avg_pool2d 3 2 1
 case avg_pool_2s2 avg_pool2d 2 2 0
 case global_avg_pool global_avg_pool 
 case relu6 relu6 
+case tanh tanh 
+case tanh_tails tanh 
+case sigmoid sigmoid 
+case sigmoid_tails sigmoid 
+case gelu gelu 
+case gelu_tails gelu 
+case gelu_tanh gelu_tanh 
+case gelu_tanh_tails gelu_tanh 
+case silu silu 
+case silu_tails silu 
+case swiglu swiglu 
 case opt_sgd optim sgd
 case opt_sgd_momentum optim sgd_momentum
 case opt_sgd_nesterov optim sgd_nesterov
@@ -653,29 +664,75 @@ relu6 in0 f32 2327832 17 13
 relu6 w f32 2328716 17 13
 relu6 out f32 2329600 17 13
 relu6 grad0 f32 2330484 17 13
-opt_sgd p0 f32 2331368 37
-opt_sgd g0 f32 2331516 37
-opt_sgd g1 f32 2331664 37
-opt_sgd g2 f32 2331812 37
-opt_sgd out f32 2331960 37
-opt_sgd_momentum p0 f32 2332108 37
-opt_sgd_momentum g0 f32 2332256 37
-opt_sgd_momentum g1 f32 2332404 37
-opt_sgd_momentum g2 f32 2332552 37
-opt_sgd_momentum out f32 2332700 37
-opt_sgd_nesterov p0 f32 2332848 37
-opt_sgd_nesterov g0 f32 2332996 37
-opt_sgd_nesterov g1 f32 2333144 37
-opt_sgd_nesterov g2 f32 2333292 37
-opt_sgd_nesterov out f32 2333440 37
-opt_adam p0 f32 2333588 37
-opt_adam g0 f32 2333736 37
-opt_adam g1 f32 2333884 37
-opt_adam g2 f32 2334032 37
-opt_adam out f32 2334180 37
-opt_adamw p0 f32 2334328 37
-opt_adamw g0 f32 2334476 37
-opt_adamw g1 f32 2334624 37
-opt_adamw g2 f32 2334772 37
-opt_adamw out f32 2334920 37
-init_uniform out f32 2335068 4099
+tanh in0 f32 2331368 17 13
+tanh w f32 2332252 17 13
+tanh out f32 2333136 17 13
+tanh grad0 f32 2334020 17 13
+tanh_tails in0 f32 2334904 64
+tanh_tails w f32 2335160 64
+tanh_tails out f32 2335416 64
+tanh_tails grad0 f32 2335672 64
+sigmoid in0 f32 2335928 17 13
+sigmoid w f32 2336812 17 13
+sigmoid out f32 2337696 17 13
+sigmoid grad0 f32 2338580 17 13
+sigmoid_tails in0 f32 2339464 64
+sigmoid_tails w f32 2339720 64
+sigmoid_tails out f32 2339976 64
+sigmoid_tails grad0 f32 2340232 64
+gelu in0 f32 2340488 17 13
+gelu w f32 2341372 17 13
+gelu out f32 2342256 17 13
+gelu grad0 f32 2343140 17 13
+gelu_tails in0 f32 2344024 64
+gelu_tails w f32 2344280 64
+gelu_tails out f32 2344536 64
+gelu_tails grad0 f32 2344792 64
+gelu_tanh in0 f32 2345048 17 13
+gelu_tanh w f32 2345932 17 13
+gelu_tanh out f32 2346816 17 13
+gelu_tanh grad0 f32 2347700 17 13
+gelu_tanh_tails in0 f32 2348584 64
+gelu_tanh_tails w f32 2348840 64
+gelu_tanh_tails out f32 2349096 64
+gelu_tanh_tails grad0 f32 2349352 64
+silu in0 f32 2349608 17 13
+silu w f32 2350492 17 13
+silu out f32 2351376 17 13
+silu grad0 f32 2352260 17 13
+silu_tails in0 f32 2353144 64
+silu_tails w f32 2353400 64
+silu_tails out f32 2353656 64
+silu_tails grad0 f32 2353912 64
+swiglu in0 f32 2354168 9 14
+swiglu in1 f32 2354672 9 14
+swiglu w f32 2355176 9 14
+swiglu out f32 2355680 9 14
+swiglu grad0 f32 2356184 9 14
+swiglu grad1 f32 2356688 9 14
+opt_sgd p0 f32 2357192 37
+opt_sgd g0 f32 2357340 37
+opt_sgd g1 f32 2357488 37
+opt_sgd g2 f32 2357636 37
+opt_sgd out f32 2357784 37
+opt_sgd_momentum p0 f32 2357932 37
+opt_sgd_momentum g0 f32 2358080 37
+opt_sgd_momentum g1 f32 2358228 37
+opt_sgd_momentum g2 f32 2358376 37
+opt_sgd_momentum out f32 2358524 37
+opt_sgd_nesterov p0 f32 2358672 37
+opt_sgd_nesterov g0 f32 2358820 37
+opt_sgd_nesterov g1 f32 2358968 37
+opt_sgd_nesterov g2 f32 2359116 37
+opt_sgd_nesterov out f32 2359264 37
+opt_adam p0 f32 2359412 37
+opt_adam g0 f32 2359560 37
+opt_adam g1 f32 2359708 37
+opt_adam g2 f32 2359856 37
+opt_adam out f32 2360004 37
+opt_adamw p0 f32 2360152 37
+opt_adamw g0 f32 2360300 37
+opt_adamw g1 f32 2360448 37
+opt_adamw g2 f32 2360596 37
+opt_adamw out f32 2360744 37
+init_uniform out f32 2360892 4099

@@ -104,6 +104,11 @@ add("avg_pool_3s2p1", "avg_pool2d", [3, 2, 1], [rnd(2, 3, 11, 11)])
 add("avg_pool_2s2", "avg_pool2d", [2, 2, 0], [rnd(2, 4, 8, 8)])
 add("global_avg_pool", "global_avg_pool", [], [rnd(3, 7, 5, 5)])
 add("relu6", "relu6", [], [rnd(17, 13, lo=-3, hi=9)])
+# ---- wave 3: activations
+for op in ["tanh", "sigmoid", "gelu", "gelu_tanh", "silu"]:
+    add(op, op, [], [rnd(17, 13, lo=-6, hi=6)])
+    add(f"{op}_tails", op, [], [rnd(64, lo=-12, hi=12)])
+add("swiglu", "swiglu", [], [rnd(9, 14, lo=-4, hi=4), rnd(9, 14)])
 
 
 def forward(op, attrs, t):
@@ -167,6 +172,16 @@ def forward(op, attrs, t):
         return torch.nn.functional.adaptive_avg_pool2d(t[0], 1).flatten(1)
     if op == "relu6":
         return torch.nn.functional.relu6(t[0])
+    if op in ("tanh", "sigmoid"):
+        return getattr(torch, op)(t[0])
+    if op == "gelu":
+        return torch.nn.functional.gelu(t[0])
+    if op == "gelu_tanh":
+        return torch.nn.functional.gelu(t[0], approximate="tanh")
+    if op == "silu":
+        return torch.nn.functional.silu(t[0])
+    if op == "swiglu":
+        return torch.nn.functional.silu(t[0]) * t[1]
     raise ValueError(op)
 
 

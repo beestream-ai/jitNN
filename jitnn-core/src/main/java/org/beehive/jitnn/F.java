@@ -75,6 +75,11 @@ public final class F {
         return Dropout.apply(x, p, seed, stream);
     }
 
+    /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */
+    public static Tensor swiglu(Tensor gate, Tensor up) {
+        return gate.silu().mul(up);
+    }
+
     /** Fraction of rows whose argmax equals the label; runs now and returns a host value. */
     public static float accuracy(Tensor logits, Tensor labels) {
         int[] predicted = logits.argmax(-1).toIntArray();

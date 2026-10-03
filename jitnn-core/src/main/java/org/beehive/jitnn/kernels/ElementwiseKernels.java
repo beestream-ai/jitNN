@@ -35,6 +35,16 @@ public final class ElementwiseKernels {
     public static final int EQ = 13;
     /** a (b is ignored): broadcast copy. */
     public static final int FIRST = 14;
+    /** a = y = sigmoid(x), b = dy. */
+    public static final int SIGMOID_GRAD = 15;
+    /** a = y = tanh(x), b = dy. */
+    public static final int TANH_GRAD = 16;
+    /** a = x, b = dy, for GELU with the exact (erf) form. */
+    public static final int GELU_GRAD = 17;
+    /** a = x, b = dy, for GELU with the tanh approximation. */
+    public static final int GELU_TANH_GRAD = 18;
+    /** a = x, b = dy, for SiLU (x * sigmoid(x)). */
+    public static final int SILU_GRAD = 19;
 
     // Unary op codes: out = f(x; alpha, beta).
     public static final int NEG = 0;
@@ -53,8 +63,61 @@ public final class ElementwiseKernels {
     public static final int SQUARE = 10;
     /** Fills with alpha. */
     public static final int FILL = 11;
+    public static final int TANH = 12;
+    public static final int SIGMOID = 13;
+    /** x * Phi(x), Phi the standard normal CDF (PyTorch's approximate='none'). */
+    public static final int GELU = 14;
+    /** 0.5 x (1 + tanh(sqrt(2/pi) (x + 0.044715 x^3))) (PyTorch's approximate='tanh'). */
+    public static final int GELU_TANH = 15;
+    /** x * sigmoid(x), also called swish. */
+    public static final int SILU = 16;
+
+    private static final float SQRT_HALF = 0.70710678f;
+    private static final float INV_SQRT_2PI = 0.39894228f;
+    private static final float SQRT_2_OVER_PI = 0.79788456f;
+    private static final float GELU_CUBIC = 0.044715f;
 
     private ElementwiseKernels() {
+    }
+
+    /**
+     * Complementary error function, Numerical Recipes' erfcc: Chebyshev fit with a fractional
+     * error below 1.2e-7 everywhere. WORKAROUND(J7): TornadoMath has no erf/erfc.
+     */
+    public static float erfc(float x) {
+        float z = TornadoMath.abs(x);
+        float t = 1.0f / (1.0f + 0.5f * z);
+        float poly = -1.26551223f + t * (1.00002368f + t * (0.37409196f + t * (0.09678418f + t * (-0.18628806f
+                + t * (0.27886807f + t * (-1.13520398f + t * (1.48851587f + t * (-0.82215223f + t * 0.17087277f))))))));
+        float r = t * TornadoMath.exp(-z * z + poly);
+        return x >= 0.0f ? r : 2.0f - r;
+    }
+
+    /**
+     * Overflow-free tanh, through exp(-2|x|) in (0, 1]. WORKAROUND(J18): Metal's tanh returns NaN
+     * for large arguments (e.g. 66).
+     */
+    public static float tanh(float x) {
+        float e = TornadoMath.exp(-2.0f * TornadoMath.abs(x));
+        float t = (1.0f - e) / (1.0f + e);
+        return x >= 0.0f ? t : -t;
+    }
+
+    /** Overflow-free logistic function. */
+    public static float sigmoid(float x) {
+        float r;
+        if (x >= 0.0f) {
+            r = 1.0f / (1.0f + TornadoMath.exp(-x));
+        } else {
+            float e = TornadoMath.exp(x);
+            r = e / (1.0f + e);
+        }
+        return r;
+    }
+
+    /** Standard normal CDF, through erfc so it keeps relative precision in the left tail. */
+    public static float normalCdf(float x) {
+        return 0.5f * erfc(-x * SQRT_HALF);
     }
 
     public static float binaryOp(int op, float x, float y, float alpha, float beta) {
@@ -87,6 +150,18 @@ public final class ElementwiseKernels {
             r = x >= y ? 1.0f : 0.0f;
         } else if (op == EQ) {
             r = x == y ? 1.0f : 0.0f;
+        } else if (op == SIGMOID_GRAD) {
+            r = y * x * (1.0f - x);
+        } else if (op == TANH_GRAD) {
+            r = y * (1.0f - x * x);
+        } else if (op == GELU_GRAD) {
+            r = y * (normalCdf(x) + x * INV_SQRT_2PI * TornadoMath.exp(-0.5f * x * x));
+        } else if (op == GELU_TANH_GRAD) {
+            float t = tanh(SQRT_2_OVER_PI * (x + GELU_CUBIC * x * x * x));
+            r = y * (0.5f * (1.0f + t) + 0.5f * x * (1.0f - t * t) * SQRT_2_OVER_PI * (1.0f + 3.0f * GELU_CUBIC * x * x));
+        } else if (op == SILU_GRAD) {
+            float s = sigmoid(x);
+            r = y * s * (1.0f + x * (1.0f - s));
         } else {
             r = x;
         }
@@ -117,6 +192,16 @@ public final class ElementwiseKernels {
             r = 1.0f / x;
         } else if (op == SQUARE) {
             r = x * x;
+        } else if (op == TANH) {
+            r = tanh(x);
+        } else if (op == SIGMOID) {
+            r = sigmoid(x);
+        } else if (op == GELU) {
+            r = x * normalCdf(x);
+        } else if (op == GELU_TANH) {
+            r = 0.5f * x * (1.0f + tanh(SQRT_2_OVER_PI * (x + GELU_CUBIC * x * x * x)));
+        } else if (op == SILU) {
+            r = x * sigmoid(x);
         } else {
             r = alpha;
         }

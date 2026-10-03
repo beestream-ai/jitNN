@@ -164,6 +164,12 @@ public final class Golden {
             case "avg_pool2d" -> F.avgPool2d(in[0], c.iattr(0), c.iattr(1), c.iattr(2));
             case "global_avg_pool" -> F.globalAvgPool2d(in[0]);
             case "relu6" -> in[0].relu6();
+            case "tanh" -> in[0].tanh();
+            case "sigmoid" -> in[0].sigmoid();
+            case "gelu" -> in[0].gelu();
+            case "gelu_tanh" -> in[0].geluTanh();
+            case "silu" -> in[0].silu();
+            case "swiglu" -> F.swiglu(in[0], in[1]);
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
     }

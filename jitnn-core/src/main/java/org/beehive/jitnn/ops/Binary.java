@@ -29,7 +29,12 @@ public final class Binary implements Op {
         LT(ElementwiseKernels.LT),
         GE(ElementwiseKernels.GE),
         EQ(ElementwiseKernels.EQ),
-        FIRST(ElementwiseKernels.FIRST);
+        FIRST(ElementwiseKernels.FIRST),
+        SIGMOID_GRAD(ElementwiseKernels.SIGMOID_GRAD),
+        TANH_GRAD(ElementwiseKernels.TANH_GRAD),
+        GELU_GRAD(ElementwiseKernels.GELU_GRAD),
+        GELU_TANH_GRAD(ElementwiseKernels.GELU_TANH_GRAD),
+        SILU_GRAD(ElementwiseKernels.SILU_GRAD);
 
         final int code;
 

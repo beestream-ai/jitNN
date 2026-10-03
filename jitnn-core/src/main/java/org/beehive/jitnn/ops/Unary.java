@@ -24,7 +24,12 @@ public final class Unary implements Op {
         CLAMP(ElementwiseKernels.CLAMP),
         RECIPROCAL(ElementwiseKernels.RECIPROCAL),
         SQUARE(ElementwiseKernels.SQUARE),
-        FILL(ElementwiseKernels.FILL);
+        FILL(ElementwiseKernels.FILL),
+        TANH(ElementwiseKernels.TANH),
+        SIGMOID(ElementwiseKernels.SIGMOID),
+        GELU(ElementwiseKernels.GELU),
+        GELU_TANH(ElementwiseKernels.GELU_TANH),
+        SILU(ElementwiseKernels.SILU);
 
         final int code;
 
@@ -97,6 +102,11 @@ public final class Unary implements Op {
             case RECIPROCAL -> gy.mul(y.square()).neg();
             case SQUARE -> gy.mul(x.mul(2.0f));
             case FILL -> null;
+            case TANH -> Binary.apply(Binary.Kind.TANH_GRAD, y, gy);
+            case SIGMOID -> Binary.apply(Binary.Kind.SIGMOID_GRAD, y, gy);
+            case GELU -> Binary.apply(Binary.Kind.GELU_GRAD, x, gy);
+            case GELU_TANH -> Binary.apply(Binary.Kind.GELU_TANH_GRAD, x, gy);
+            case SILU -> Binary.apply(Binary.Kind.SILU_GRAD, x, gy);
         };
         return new Tensor[] { gx };
     }

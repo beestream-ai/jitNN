@@ -35,6 +35,12 @@ class GradientTest {
         gradCheck("relu", x -> x[0].relu().mul(x[0]).sum(), new float[][] { A23 }, new int[][] { S23 });
         gradCheck("abs", x -> x[0].abs().mul(x[0]).sum(), new float[][] { A23 }, new int[][] { S23 });
         gradCheck("clamp", x -> x[0].clamp(-0.5f, 0.7f).square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("tanh", x -> x[0].tanh().square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("sigmoid", x -> x[0].sigmoid().square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("gelu", x -> x[0].gelu().square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("gelu tanh", x -> x[0].geluTanh().square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("silu", x -> x[0].silu().square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("swiglu", x -> F.swiglu(x[0], x[1]).square().sum(), new float[][] { A23, B23 }, new int[][] { S23, S23 });
         gradCheck("affine+neg", x -> x[0].mul(3).add(1).neg().square().sum(), new float[][] { A23 }, new int[][] { S23 });
     }
 
