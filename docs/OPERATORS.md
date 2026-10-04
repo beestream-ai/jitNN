@@ -21,7 +21,7 @@ TornadoVM features last.
 | cross-entropy (fused, mean) | `crossEntropyRows` + mean | `crossEntropyBackwardRows` |
 | NLL | `nllRows` | `nllBackward` |
 | uniform, normal (Philox4x32-10) | `RandomKernels.philox` | none |
-| SGD, SGD momentum and Nesterov, Adam, AdamW | `OptimKernels` | none |
+| SGD, SGD momentum and Nesterov, Adam, AdamW | `MultiTensorKernels` (4 parameters per launch, generated) | none |
 
 ## Wave 2 (operators and gates done; performance work open)
 

@@ -48,12 +48,20 @@ public final class Adam extends Optimizer {
         float bc2 = (float) (1 - Math.pow(beta2, t));
         Tensor stats = takeStats();
         Tensor hyper = Tensor.of(new float[] { lr, beta1, beta2, eps, bc1, bc2, weightDecay, decoupled ? 1 : 0 }, 8);
+        List<Tensor> ps = new java.util.ArrayList<>();
+        List<Tensor> gs = new java.util.ArrayList<>();
+        List<Tensor> ms = new java.util.ArrayList<>();
+        List<Tensor> vs = new java.util.ArrayList<>();
         for (int i = 0; i < params.size(); i++) {
             Tensor p = params.get(i);
             if (p.grad() != null) {
-                OptimStep.adam(p, p.grad(), m[i], v[i], hyper, stats);
+                ps.add(p);
+                gs.add(p.grad());
+                ms.add(m[i]);
+                vs.add(v[i]);
             }
         }
+        OptimStep.apply(OptimStep.Kind.ADAM, ps, gs, List.of(ms, vs), hyper, stats);
     }
 
     @Override

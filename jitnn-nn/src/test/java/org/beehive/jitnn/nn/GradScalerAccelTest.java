@@ -108,4 +108,49 @@ class GradScalerAccelTest {
         clip(Backend.TORNADO, false);
         clip(Backend.TORNADO, true);
     }
+
+    /** Three steps of an optimiser over 6 parameters of mixed sizes (two multi-tensor launches); returns the parameters. */
+    private static float[][] multiTensor(Backend backend, String kind) {
+        return Engine.with(backend, () -> {
+            int[] sizes = { 1, 7, 300, 1000, 33, 2 };
+            List<Tensor> params = new java.util.ArrayList<>();
+            for (int i = 0; i < sizes.length; i++) {
+                params.add(Tensor.parameter(Tensor.uniform(100 + i, -1.0f, 1.0f, sizes[i])));
+            }
+            org.beehive.jitnn.nn.optim.Optimizer opt = switch (kind) {
+                case "adamw" -> org.beehive.jitnn.nn.optim.Adam.adamW(params, 0.01f, 0.05f);
+                case "momentum" -> new SGD(params, 0.1f, 0.9f, 0.01f, true);
+                default -> new SGD(params, 0.1f);
+            };
+            for (int step = 0; step < 3; step++) {
+                Tensor loss = Tensor.scalar(0.0f);
+                for (int i = 0; i < params.size(); i++) {
+                    loss = loss.add(params.get(i).square().mul(i + 1.0f).sum());
+                }
+                loss.backward();
+                opt.clipGradNorm(5.0f);
+                opt.step();
+                loss.item();
+                opt.zeroGrad();
+            }
+            float[][] out = new float[params.size()][];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = params.get(i).toFloatArray();
+            }
+            return out;
+        });
+    }
+
+    @Test
+    void multiTensorStepsMatchReference() {
+        for (String kind : new String[] { "adamw", "momentum", "sgd" }) {
+            float[][] expected = multiTensor(Backend.REFERENCE, kind);
+            float[][] actual = multiTensor(Backend.TORNADO, kind);
+            for (int i = 0; i < expected.length; i++) {
+                for (int j = 0; j < expected[i].length; j++) {
+                    assertEquals(expected[i][j], actual[i][j], 1e-5f + 1e-5f * Math.abs(expected[i][j]), kind + " parameter " + i + "[" + j + "]");
+                }
+            }
+        }
+    }
 }

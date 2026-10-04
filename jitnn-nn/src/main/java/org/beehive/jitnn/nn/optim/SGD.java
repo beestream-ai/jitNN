@@ -34,16 +34,21 @@ public final class SGD extends Optimizer {
     public void step() {
         Tensor stats = takeStats();
         Tensor hyper = Tensor.of(new float[] { lr, momentum, weightDecay, nesterov ? 1 : 0 }, 4);
+        List<Tensor> ps = new java.util.ArrayList<>();
+        List<Tensor> gs = new java.util.ArrayList<>();
+        List<Tensor> bs = new java.util.ArrayList<>();
         for (int i = 0; i < params.size(); i++) {
             Tensor p = params.get(i);
-            if (p.grad() == null) {
-                continue;
+            if (p.grad() != null) {
+                ps.add(p);
+                gs.add(p.grad());
+                bs.add(buffers[i]);
             }
-            if (momentum != 0) {
-                OptimStep.sgdMomentum(p, p.grad(), buffers[i], hyper, stats);
-            } else {
-                OptimStep.sgd(p, p.grad(), hyper, stats);
-            }
+        }
+        if (momentum != 0) {
+            OptimStep.apply(OptimStep.Kind.SGD_MOMENTUM, ps, gs, List.of(bs), hyper, stats);
+        } else {
+            OptimStep.apply(OptimStep.Kind.SGD, ps, gs, List.of(), hyper, stats);
         }
     }
 }

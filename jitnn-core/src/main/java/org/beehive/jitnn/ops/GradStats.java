@@ -9,15 +9,17 @@ import org.beehive.jitnn.engine.Emitter;
 import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.LowPrecision;
+import org.beehive.jitnn.kernels.MultiTensorKernels;
 
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
 /**
  * Statistics of a set of gradients in one operator: stats = [norm, factor, skip] where norm is the
  * global L2 norm of the gradients times {@code preScale} (a loss scaler's 1 / scale, or 1),
  * factor = preScale times the clip coefficient min(1, maxNorm / (norm + 1e-6)) when clipping,
  * and skip = 1 when any gradient holds a NaN or infinity (tested on the bit pattern). One
- * reduction per gradient and one combining thread. Inputs [preScale, g_1 .. g_P]; iattr = [P,
+ * work-group per gradient, eight gradients per launch, and one combining thread. Inputs [preScale, g_1 .. g_P]; iattr = [P,
  * clip]; fattr = [maxNorm].
  */
 public final class GradStats implements Op {
@@ -52,11 +54,20 @@ public final class GradStats implements Op {
         FloatArray preScale = e.f32(n.in(0));
         FloatArray stats = e.f32(n.out(0));
         FloatArray partial = e.scratch(2 * count);
-        for (int i = 0; i < count; i++) {
-            FloatArray g = e.f32(n.in(i + 1));
-            int slot = i;
-            int size = n.in(i + 1).numel();
-            e.task(Emitter.groups(1), (tg, id) -> tg.task(id, LowPrecision::sumSquaresFinite, e.context(), g, partial, slot, size));
+        int per = MultiTensorKernels.STATS_SLOTS;
+        for (int start = 0; start < count; start += per) {
+            // up to 8 gradients per launch, one work-group each; unused slots have size 0
+            FloatArray[] g = new FloatArray[per];
+            int[] sizes = new int[per];
+            for (int k = 0; k < per; k++) {
+                boolean used = start + k < count;
+                g[k] = used ? e.f32(n.in(start + k + 1)) : e.scratch(1);
+                sizes[k] = used ? n.in(start + k + 1).numel() : 0;
+            }
+            IntArray sz = e.constant(sizes);
+            int slot0 = start;
+            e.task(Emitter.blocks1D(per, 256), (tg, id) -> tg.task(id, MultiTensorKernels::sumSquaresFinite, e.context(), g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7],
+                    partial, sz, slot0));
         }
         e.task(Emitter.grid1D(1), (tg, id) -> tg.task(id, LowPrecision::gradStats, e.context(), partial, preScale, stats, count, maxNorm, clip));
     }

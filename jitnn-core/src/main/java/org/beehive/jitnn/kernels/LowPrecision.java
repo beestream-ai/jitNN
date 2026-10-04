@@ -68,38 +68,6 @@ public final class LowPrecision {
         }
     }
 
-    private static final int GROUP = 256;
-
-    /**
-     * Gradient statistics, one tensor per launch: partial[2 slot] = sum of g^2, partial[2 slot + 1]
-     * = 1 when g holds a NaN or infinity. One work-group of 256 threads.
-     */
-    public static void sumSquaresFinite(KernelContext kc, FloatArray g, FloatArray partial, int slot, int n) {
-        float[] sq = kc.allocateFloatLocalArray(GROUP);
-        int[] bad = kc.allocateIntLocalArray(GROUP);
-        int l = kc.localIdx;
-        float s = 0.0f;
-        int b = 0;
-        for (int i = l; i < n; i += GROUP) {
-            float v = g.get(i);
-            s += v * v;
-            b = b | nonFinite(v);
-        }
-        sq[l] = s;
-        bad[l] = b;
-        kc.localBarrier();
-        for (int w = GROUP / 2; w > 0; w = w / 2) {
-            if (l < w) {
-                sq[l] = sq[l] + sq[l + w];
-                bad[l] = bad[l] | bad[l + w];
-            }
-            kc.localBarrier();
-        }
-        if (l == 0) {
-            partial.set(2 * slot, sq[0]);
-            partial.set(2 * slot + 1, bad[0]);
-        }
-    }
 
     /**
      * stats = [norm, factor, skip] from the partials of {@code count} tensors: norm = preScale *
