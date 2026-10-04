@@ -83,10 +83,12 @@ On CIFAR-10 (3x32x32 inputs, batch 64, one epoch), steady-state steps:
 | Llama-style (0.87M parameters) | 93 ms (22.0k tokens/s) | 85 ms (24.1k tokens/s) | 27.8 ms (74k tokens/s) |
 | BERT, masked LM (0.86M parameters) | 107 ms (19.2k tokens/s) | 96 ms (21.3k tokens/s) | 22.7 ms (90k tokens/s) |
 
-With autocast the same steps take 96-127 ms on OpenCL and 147-173 ms on Metal: each product
-gains cast kernels for its operands and gradients, and the half-precision GEMMs convert as they
-load, without matrix units yet. Mixed precision pays off once GEMMs dominate and run on the
-half-precision matrix units (simdgroup matrices, tensor cores), a later optimisation.
+With autocast, the A10 runs GPT-2 (BF16) in 14.1 ms and BERT (FP16 with loss scaling) in
+15.2 ms, about a third faster than FP32, and Llama in 29.9 ms (27.5 ms in FP32). On the M4 Pro the
+same steps are slower than FP32 (96-127 ms on OpenCL, 147-173 ms on Metal): each product gains
+cast kernels for its operands and gradients, kernel dispatch dominates on Apple GPUs, and the
+half-precision GEMMs convert as they load, without matrix units yet. Running them on simdgroup
+matrices and tensor cores is a later optimisation.
 
 These models are small, so a step is dominated by kernel dispatch (several hundred kernels) rather
 than arithmetic. Attention runs as two batched GEMMs around a fused scaled, causal softmax; a fused

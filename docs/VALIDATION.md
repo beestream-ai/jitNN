@@ -9,10 +9,10 @@ Four layers of checks run on the host and on every device.
    broadcasting binaries, every unary, reductions, all four GEMM transposes, permute, reshape,
    softmax, log-softmax, cross-entropy, fused linear and an MLP chain. This currently runs in FP32
    with a loose tolerance, until jitNN has an FP64 type.
-3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 157 operator cases (waves 1 to 3:
+3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 171 operator cases (waves 1 to 3:
    element-wise, reductions, GEMM, convolution, BatchNorm, pooling, the transformer activations,
    slicing and joining, embedding, LayerNorm and RMSNorm, batched matmul, attention with causal and
-   padding masks, multi-head attention against `nn.MultiheadAttention`, RoPE and top-k), in FP64
+   padding masks, multi-head attention against `nn.MultiheadAttention`, RoPE, top-k, FP16/BF16 casts and half-precision GEMMs), in FP64
    (inputs, output and every input gradient, on odd, size-1 and broadcast shapes), plus 5
    optimiser cases (three `torch.optim` steps each), and Philox values reproduced in numpy.
    `GoldenTest` checks the reference against them; `GoldenAccelTest` and `OptimGoldenAccelTest`
@@ -45,7 +45,7 @@ Four layers of checks run on the host and on every device.
 
 | Check | Reference | OpenCL (M4 Pro) | Metal (M4 Pro) | CUDA (RTX 5070 Ti) | CUDA (A10) |
 |---|---|---|---|---|---|
-| Operator goldens (157; the RTX 5070 Ti ran the first 104) | pass | pass | pass | pass | pass |
+| Operator goldens (171; the RTX 5070 Ti ran the first 104) | pass | pass | pass | pass | pass |
 | Optimiser goldens (5) | pass | pass | pass | pass | pass |
 | Philox against numpy | bit-exact | bit-exact | bit-exact | bit-exact | bit-exact |
 | MLP gate: loss vs reference at every step, 1e-3 | | pass | pass | pass | pass |
@@ -71,9 +71,9 @@ Four layers of checks run on the host and on every device.
 | BERT: worst step-0 gradient, fraction of its bound | | 0.06 | 0.06 | | 0.06 |
 | BERT: mean loss of the last 50 steps (PyTorch: 3.7603) | | 3.7603 | 3.7603 | | 3.7603 |
 | BERT: evaluation loss (PyTorch: 3.4829) | | 3.4831 | 3.4831 | | 3.4831 |
-| GPT-2 BF16: mean loss of the last 50 steps / eval loss (FP32 PyTorch: 3.0009 / 3.1581) | | 3.0014 / 3.1565 | 3.0016 / 3.1561 | | |
-| Llama FP16 + loss scaling (FP32 PyTorch: 1.9951 / 2.5854) | | 1.9951 / 2.5854 | 1.9952 / 2.5858 | | |
-| BERT FP16 + loss scaling (FP32 PyTorch: 3.7603 / 3.4829) | | 3.7606 / 3.4842 | 3.7617 / 3.4851 | | |
+| GPT-2 BF16: mean loss of the last 50 steps / eval loss (FP32 PyTorch: 3.0009 / 3.1581) | | 3.0014 / 3.1565 | 3.0016 / 3.1561 | | 3.0017 / 3.1558 |
+| Llama FP16 + loss scaling (FP32 PyTorch: 1.9951 / 2.5854) | | 1.9951 / 2.5854 | 1.9952 / 2.5858 | | 1.9951 / 2.5853 |
+| BERT FP16 + loss scaling (FP32 PyTorch: 3.7603 / 3.4829) | | 3.7606 / 3.4842 | 3.7617 / 3.4851 | | 3.7608 / 3.4818 |
 
 The RTX 5070 Ti column predates the CIFAR-10 and transformer gates; the A10 column runs every gate.
 Without BatchNorm amplifying rounding differences, the transformer runs stay within 1e-7 of
