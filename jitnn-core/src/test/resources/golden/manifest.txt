@@ -137,6 +137,8 @@ case sdpa sdpa 0 -1
 case sdpa_causal sdpa 1 -1
 case sdpa_causal_rect sdpa 1 0.5
 case sdpa_long sdpa 1 -1
+case sdpa_head128 sdpa 1 -1
+case sdpa_head96_mask sdpa_mask 0 -1
 case sdpa_padding sdpa_mask 0 -1
 case mha mha 4 0
 case mha_causal mha 4 1
@@ -915,256 +917,273 @@ sdpa_long out f32 3014808 1 2 300 16
 sdpa_long grad0 f32 3053208 1 2 300 16
 sdpa_long grad1 f32 3091608 1 2 300 16
 sdpa_long grad2 f32 3130008 1 2 300 16
-sdpa_padding in0 f32 3168408 2 3 5 8
-sdpa_padding in1 f32 3169368 2 3 7 8
-sdpa_padding in2 f32 3170712 2 3 7 6
-sdpa_padding in3 f32 3171720 2 1 1 7
-sdpa_padding w f32 3171776 2 3 5 6
-sdpa_padding out f32 3172496 2 3 5 6
-sdpa_padding grad0 f32 3173216 2 3 5 8
-sdpa_padding grad1 f32 3174176 2 3 7 8
-sdpa_padding grad2 f32 3175520 2 3 7 6
-mha in0 f32 3176528 2 6 16
-mha in1 f32 3177296 48 16
-mha in2 f32 3180368 48
-mha in3 f32 3180560 16 16
-mha in4 f32 3181584 16
-mha w f32 3181648 2 6 16
-mha out f32 3182416 2 6 16
-mha grad0 f32 3183184 2 6 16
-mha grad1 f32 3183952 48 16
-mha grad2 f32 3187024 48
-mha grad3 f32 3187216 16 16
-mha grad4 f32 3188240 16
-mha_causal in0 f32 3188304 2 6 16
-mha_causal in1 f32 3189072 48 16
-mha_causal in2 f32 3192144 48
-mha_causal in3 f32 3192336 16 16
-mha_causal in4 f32 3193360 16
-mha_causal w f32 3193424 2 6 16
-mha_causal out f32 3194192 2 6 16
-mha_causal grad0 f32 3194960 2 6 16
-mha_causal grad1 f32 3195728 48 16
-mha_causal grad2 f32 3198800 48
-mha_causal grad3 f32 3198992 16 16
-mha_causal grad4 f32 3200016 16
-rope_half in0 f32 3200080 2 3 5 8
-rope_half w f32 3201040 2 3 5 8
-rope_half out f32 3202000 2 3 5 8
-rope_half grad0 f32 3202960 2 3 5 8
-rope_interleaved in0 f32 3203920 2 3 5 8
-rope_interleaved w f32 3204880 2 3 5 8
-rope_interleaved out f32 3205840 2 3 5 8
-rope_interleaved grad0 f32 3206800 2 3 5 8
-rope_offset in0 f32 3207760 1 2 4 16
-rope_offset w f32 3208272 1 2 4 16
-rope_offset out f32 3208784 1 2 4 16
-rope_offset grad0 f32 3209296 1 2 4 16
-rope_long in0 f32 3209808 1 1 300 64
-rope_long w f32 3286608 1 1 300 64
-rope_long out f32 3363408 1 1 300 64
-rope_long grad0 f32 3440208 1 1 300 64
-topk in0 f32 3517008 5 11
-topk w f32 3517228 5 3
-topk out f32 3517288 5 3
-topk grad0 f32 3517348 5 11
-topk_long in0 f32 3517568 2 3 900
-topk_long w f32 3539168 2 3 8
-topk_long out f32 3539360 2 3 8
-topk_long grad0 f32 3539552 2 3 900
-matmul_splitk in0 f32 3561152 1024 40
-matmul_splitk in1 f32 3724992 1024 24
-matmul_splitk w f32 3823296 40 24
-matmul_splitk out f32 3827136 40 24
-matmul_splitk grad0 f32 3830976 1024 40
-matmul_splitk grad1 f32 3994816 1024 24
-matmul_splitk_odd in0 f32 4093120 768 70
-matmul_splitk_odd in1 f32 4308160 768 9
-matmul_splitk_odd w f32 4335808 70 9
-matmul_splitk_odd out f32 4338328 70 9
-matmul_splitk_odd grad0 f32 4340848 768 70
-matmul_splitk_odd grad1 f32 4555888 768 9
-matmul_splitk_f16 in0 f32 4583536 1024 40
-matmul_splitk_f16 in1 f32 4747376 1024 24
-matmul_splitk_f16 w f32 4845680 40 24
-matmul_splitk_f16 out f32 4849520 40 24
-matmul_splitk_f16 grad0 f32 4853360 1024 40
-matmul_splitk_f16 grad1 f32 5017200 1024 24
-matmul_splitk_bf16 in0 f32 5115504 1024 40
-matmul_splitk_bf16 in1 f32 5279344 1024 24
-matmul_splitk_bf16 w f32 5377648 40 24
-matmul_splitk_bf16 out f32 5381488 40 24
-matmul_splitk_bf16 grad0 f32 5385328 1024 40
-matmul_splitk_bf16 grad1 f32 5549168 1024 24
-cast_f16 in0 f32 5647472 212
-cast_f16 w f32 5648320 212
-cast_f16 out f32 5649168 212
-cast_f16 grad0 f32 5650016 212
-cast_bf16 in0 f32 5650864 214
-cast_bf16 w f32 5651720 214
-cast_bf16 out f32 5652576 214
-cast_bf16 grad0 f32 5653432 214
-matmul_half0_t00 in0 f32 5654288 17 33
-matmul_half0_t00 in1 f32 5656532 33 40
-matmul_half0_t00 w f32 5661812 17 40
-matmul_half0_t00 out f32 5664532 17 40
-matmul_half0_t00 grad0 f32 5667252 17 33
-matmul_half0_t00 grad1 f32 5669496 33 40
-matmul_half0_t01 in0 f32 5674776 17 33
-matmul_half0_t01 in1 f32 5677020 40 33
-matmul_half0_t01 w f32 5682300 17 40
-matmul_half0_t01 out f32 5685020 17 40
-matmul_half0_t01 grad0 f32 5687740 17 33
-matmul_half0_t01 grad1 f32 5689984 40 33
-matmul_half0_t10 in0 f32 5695264 33 17
-matmul_half0_t10 in1 f32 5697508 33 40
-matmul_half0_t10 w f32 5702788 17 40
-matmul_half0_t10 out f32 5705508 17 40
-matmul_half0_t10 grad0 f32 5708228 33 17
-matmul_half0_t10 grad1 f32 5710472 33 40
-matmul_half0_t11 in0 f32 5715752 33 17
-matmul_half0_t11 in1 f32 5717996 40 33
-matmul_half0_t11 w f32 5723276 17 40
-matmul_half0_t11 out f32 5725996 17 40
-matmul_half0_t11 grad0 f32 5728716 33 17
-matmul_half0_t11 grad1 f32 5730960 40 33
-bmm_half0 in0 f32 5736240 2 3 9 16
-bmm_half0 in1 f32 5739696 2 3 11 16
-bmm_half0 w f32 5743920 2 3 9 11
-bmm_half0 out f32 5746296 2 3 9 11
-bmm_half0 grad0 f32 5748672 2 3 9 16
-bmm_half0 grad1 f32 5752128 2 3 11 16
-linear_half0 in0 f32 5756352 2 7 24
-linear_half0 in1 f32 5757696 10 24
-linear_half0 in2 f32 5758656 10
-linear_half0 w f32 5758696 2 7 10
-linear_half0 out f32 5759256 2 7 10
-linear_half0 grad0 f32 5759816 2 7 24
-linear_half0 grad1 f32 5761160 10 24
-linear_half0 grad2 f32 5762120 10
-matmul_half1_t00 in0 f32 5762160 17 33
-matmul_half1_t00 in1 f32 5764404 33 40
-matmul_half1_t00 w f32 5769684 17 40
-matmul_half1_t00 out f32 5772404 17 40
-matmul_half1_t00 grad0 f32 5775124 17 33
-matmul_half1_t00 grad1 f32 5777368 33 40
-matmul_half1_t01 in0 f32 5782648 17 33
-matmul_half1_t01 in1 f32 5784892 40 33
-matmul_half1_t01 w f32 5790172 17 40
-matmul_half1_t01 out f32 5792892 17 40
-matmul_half1_t01 grad0 f32 5795612 17 33
-matmul_half1_t01 grad1 f32 5797856 40 33
-matmul_half1_t10 in0 f32 5803136 33 17
-matmul_half1_t10 in1 f32 5805380 33 40
-matmul_half1_t10 w f32 5810660 17 40
-matmul_half1_t10 out f32 5813380 17 40
-matmul_half1_t10 grad0 f32 5816100 33 17
-matmul_half1_t10 grad1 f32 5818344 33 40
-matmul_half1_t11 in0 f32 5823624 33 17
-matmul_half1_t11 in1 f32 5825868 40 33
-matmul_half1_t11 w f32 5831148 17 40
-matmul_half1_t11 out f32 5833868 17 40
-matmul_half1_t11 grad0 f32 5836588 33 17
-matmul_half1_t11 grad1 f32 5838832 40 33
-bmm_half1 in0 f32 5844112 2 3 9 16
-bmm_half1 in1 f32 5847568 2 3 11 16
-bmm_half1 w f32 5851792 2 3 9 11
-bmm_half1 out f32 5854168 2 3 9 11
-bmm_half1 grad0 f32 5856544 2 3 9 16
-bmm_half1 grad1 f32 5860000 2 3 11 16
-linear_half1 in0 f32 5864224 2 7 24
-linear_half1 in1 f32 5865568 10 24
-linear_half1 in2 f32 5866528 10
-linear_half1 w f32 5866568 2 7 10
-linear_half1 out f32 5867128 2 7 10
-linear_half1 grad0 f32 5867688 2 7 24
-linear_half1 grad1 f32 5869032 10 24
-linear_half1 grad2 f32 5869992 10
-layer_norm in0 f32 5870032 7 33
-layer_norm in1 f32 5870956 33
-layer_norm in2 f32 5871088 33
-layer_norm w f32 5871220 7 33
-layer_norm out f32 5872144 7 33
-layer_norm grad0 f32 5873068 7 33
-layer_norm grad1 f32 5873992 33
-layer_norm grad2 f32 5874124 33
-layer_norm_3d in0 f32 5874256 2 5 48
-layer_norm_3d in1 f32 5876176 48
-layer_norm_3d in2 f32 5876368 48
-layer_norm_3d w f32 5876560 2 5 48
-layer_norm_3d out f32 5878480 2 5 48
-layer_norm_3d grad0 f32 5880400 2 5 48
-layer_norm_3d grad1 f32 5882320 48
-layer_norm_3d grad2 f32 5882512 48
-layer_norm_long in0 f32 5882704 3 1000
-layer_norm_long in1 f32 5894704 1000
-layer_norm_long in2 f32 5898704 1000
-layer_norm_long w f32 5902704 3 1000
-layer_norm_long out f32 5914704 3 1000
-layer_norm_long grad0 f32 5926704 3 1000
-layer_norm_long grad1 f32 5938704 1000
-layer_norm_long grad2 f32 5942704 1000
-layer_norm_rows in0 f32 5946704 150 16
-layer_norm_rows in1 f32 5956304 16
-layer_norm_rows in2 f32 5956368 16
-layer_norm_rows w f32 5956432 150 16
-layer_norm_rows out f32 5966032 150 16
-layer_norm_rows grad0 f32 5975632 150 16
-layer_norm_rows grad1 f32 5985232 16
-layer_norm_rows grad2 f32 5985296 16
-layer_norm_nobias in0 f32 5985360 6 20
-layer_norm_nobias in1 f32 5985840 20
-layer_norm_nobias w f32 5985920 6 20
-layer_norm_nobias out f32 5986400 6 20
-layer_norm_nobias grad0 f32 5986880 6 20
-layer_norm_nobias grad1 f32 5987360 20
-rms_norm in0 f32 5987440 7 33
-rms_norm in1 f32 5988364 33
-rms_norm w f32 5988496 7 33
-rms_norm out f32 5989420 7 33
-rms_norm grad0 f32 5990344 7 33
-rms_norm grad1 f32 5991268 33
-rms_norm_3d in0 f32 5991400 2 5 48
-rms_norm_3d in1 f32 5993320 48
-rms_norm_3d w f32 5993512 2 5 48
-rms_norm_3d out f32 5995432 2 5 48
-rms_norm_3d grad0 f32 5997352 2 5 48
-rms_norm_3d grad1 f32 5999272 48
-rms_norm_long in0 f32 5999464 3 1000
-rms_norm_long in1 f32 6011464 1000
-rms_norm_long w f32 6015464 3 1000
-rms_norm_long out f32 6027464 3 1000
-rms_norm_long grad0 f32 6039464 3 1000
-rms_norm_long grad1 f32 6051464 1000
-rms_norm_rows in0 f32 6055464 150 16
-rms_norm_rows in1 f32 6065064 16
-rms_norm_rows w f32 6065128 150 16
-rms_norm_rows out f32 6074728 150 16
-rms_norm_rows grad0 f32 6084328 150 16
-rms_norm_rows grad1 f32 6093928 16
-opt_sgd p0 f32 6093992 37
-opt_sgd g0 f32 6094140 37
-opt_sgd g1 f32 6094288 37
-opt_sgd g2 f32 6094436 37
-opt_sgd out f32 6094584 37
-opt_sgd_momentum p0 f32 6094732 37
-opt_sgd_momentum g0 f32 6094880 37
-opt_sgd_momentum g1 f32 6095028 37
-opt_sgd_momentum g2 f32 6095176 37
-opt_sgd_momentum out f32 6095324 37
-opt_sgd_nesterov p0 f32 6095472 37
-opt_sgd_nesterov g0 f32 6095620 37
-opt_sgd_nesterov g1 f32 6095768 37
-opt_sgd_nesterov g2 f32 6095916 37
-opt_sgd_nesterov out f32 6096064 37
-opt_adam p0 f32 6096212 37
-opt_adam g0 f32 6096360 37
-opt_adam g1 f32 6096508 37
-opt_adam g2 f32 6096656 37
-opt_adam out f32 6096804 37
-opt_adamw p0 f32 6096952 37
-opt_adamw g0 f32 6097100 37
-opt_adamw g1 f32 6097248 37
-opt_adamw g2 f32 6097396 37
-opt_adamw out f32 6097544 37
-init_uniform out f32 6097692 4099
+sdpa_head128 in0 f32 3168408 1 2 40 128
+sdpa_head128 in1 f32 3209368 1 2 40 128
+sdpa_head128 in2 f32 3250328 1 2 40 128
+sdpa_head128 w f32 3291288 1 2 40 128
+sdpa_head128 out f32 3332248 1 2 40 128
+sdpa_head128 grad0 f32 3373208 1 2 40 128
+sdpa_head128 grad1 f32 3414168 1 2 40 128
+sdpa_head128 grad2 f32 3455128 1 2 40 128
+sdpa_head96_mask in0 f32 3496088 2 1 9 96
+sdpa_head96_mask in1 f32 3503000 2 1 13 96
+sdpa_head96_mask in2 f32 3512984 2 1 13 96
+sdpa_head96_mask in3 f32 3522968 2 1 9 13
+sdpa_head96_mask w f32 3523904 2 1 9 96
+sdpa_head96_mask out f32 3530816 2 1 9 96
+sdpa_head96_mask grad0 f32 3537728 2 1 9 96
+sdpa_head96_mask grad1 f32 3544640 2 1 13 96
+sdpa_head96_mask grad2 f32 3554624 2 1 13 96
+sdpa_padding in0 f32 3564608 2 3 5 8
+sdpa_padding in1 f32 3565568 2 3 7 8
+sdpa_padding in2 f32 3566912 2 3 7 6
+sdpa_padding in3 f32 3567920 2 1 1 7
+sdpa_padding w f32 3567976 2 3 5 6
+sdpa_padding out f32 3568696 2 3 5 6
+sdpa_padding grad0 f32 3569416 2 3 5 8
+sdpa_padding grad1 f32 3570376 2 3 7 8
+sdpa_padding grad2 f32 3571720 2 3 7 6
+mha in0 f32 3572728 2 6 16
+mha in1 f32 3573496 48 16
+mha in2 f32 3576568 48
+mha in3 f32 3576760 16 16
+mha in4 f32 3577784 16
+mha w f32 3577848 2 6 16
+mha out f32 3578616 2 6 16
+mha grad0 f32 3579384 2 6 16
+mha grad1 f32 3580152 48 16
+mha grad2 f32 3583224 48
+mha grad3 f32 3583416 16 16
+mha grad4 f32 3584440 16
+mha_causal in0 f32 3584504 2 6 16
+mha_causal in1 f32 3585272 48 16
+mha_causal in2 f32 3588344 48
+mha_causal in3 f32 3588536 16 16
+mha_causal in4 f32 3589560 16
+mha_causal w f32 3589624 2 6 16
+mha_causal out f32 3590392 2 6 16
+mha_causal grad0 f32 3591160 2 6 16
+mha_causal grad1 f32 3591928 48 16
+mha_causal grad2 f32 3595000 48
+mha_causal grad3 f32 3595192 16 16
+mha_causal grad4 f32 3596216 16
+rope_half in0 f32 3596280 2 3 5 8
+rope_half w f32 3597240 2 3 5 8
+rope_half out f32 3598200 2 3 5 8
+rope_half grad0 f32 3599160 2 3 5 8
+rope_interleaved in0 f32 3600120 2 3 5 8
+rope_interleaved w f32 3601080 2 3 5 8
+rope_interleaved out f32 3602040 2 3 5 8
+rope_interleaved grad0 f32 3603000 2 3 5 8
+rope_offset in0 f32 3603960 1 2 4 16
+rope_offset w f32 3604472 1 2 4 16
+rope_offset out f32 3604984 1 2 4 16
+rope_offset grad0 f32 3605496 1 2 4 16
+rope_long in0 f32 3606008 1 1 300 64
+rope_long w f32 3682808 1 1 300 64
+rope_long out f32 3759608 1 1 300 64
+rope_long grad0 f32 3836408 1 1 300 64
+topk in0 f32 3913208 5 11
+topk w f32 3913428 5 3
+topk out f32 3913488 5 3
+topk grad0 f32 3913548 5 11
+topk_long in0 f32 3913768 2 3 900
+topk_long w f32 3935368 2 3 8
+topk_long out f32 3935560 2 3 8
+topk_long grad0 f32 3935752 2 3 900
+matmul_splitk in0 f32 3957352 1024 40
+matmul_splitk in1 f32 4121192 1024 24
+matmul_splitk w f32 4219496 40 24
+matmul_splitk out f32 4223336 40 24
+matmul_splitk grad0 f32 4227176 1024 40
+matmul_splitk grad1 f32 4391016 1024 24
+matmul_splitk_odd in0 f32 4489320 768 70
+matmul_splitk_odd in1 f32 4704360 768 9
+matmul_splitk_odd w f32 4732008 70 9
+matmul_splitk_odd out f32 4734528 70 9
+matmul_splitk_odd grad0 f32 4737048 768 70
+matmul_splitk_odd grad1 f32 4952088 768 9
+matmul_splitk_f16 in0 f32 4979736 1024 40
+matmul_splitk_f16 in1 f32 5143576 1024 24
+matmul_splitk_f16 w f32 5241880 40 24
+matmul_splitk_f16 out f32 5245720 40 24
+matmul_splitk_f16 grad0 f32 5249560 1024 40
+matmul_splitk_f16 grad1 f32 5413400 1024 24
+matmul_splitk_bf16 in0 f32 5511704 1024 40
+matmul_splitk_bf16 in1 f32 5675544 1024 24
+matmul_splitk_bf16 w f32 5773848 40 24
+matmul_splitk_bf16 out f32 5777688 40 24
+matmul_splitk_bf16 grad0 f32 5781528 1024 40
+matmul_splitk_bf16 grad1 f32 5945368 1024 24
+cast_f16 in0 f32 6043672 212
+cast_f16 w f32 6044520 212
+cast_f16 out f32 6045368 212
+cast_f16 grad0 f32 6046216 212
+cast_bf16 in0 f32 6047064 214
+cast_bf16 w f32 6047920 214
+cast_bf16 out f32 6048776 214
+cast_bf16 grad0 f32 6049632 214
+matmul_half0_t00 in0 f32 6050488 17 33
+matmul_half0_t00 in1 f32 6052732 33 40
+matmul_half0_t00 w f32 6058012 17 40
+matmul_half0_t00 out f32 6060732 17 40
+matmul_half0_t00 grad0 f32 6063452 17 33
+matmul_half0_t00 grad1 f32 6065696 33 40
+matmul_half0_t01 in0 f32 6070976 17 33
+matmul_half0_t01 in1 f32 6073220 40 33
+matmul_half0_t01 w f32 6078500 17 40
+matmul_half0_t01 out f32 6081220 17 40
+matmul_half0_t01 grad0 f32 6083940 17 33
+matmul_half0_t01 grad1 f32 6086184 40 33
+matmul_half0_t10 in0 f32 6091464 33 17
+matmul_half0_t10 in1 f32 6093708 33 40
+matmul_half0_t10 w f32 6098988 17 40
+matmul_half0_t10 out f32 6101708 17 40
+matmul_half0_t10 grad0 f32 6104428 33 17
+matmul_half0_t10 grad1 f32 6106672 33 40
+matmul_half0_t11 in0 f32 6111952 33 17
+matmul_half0_t11 in1 f32 6114196 40 33
+matmul_half0_t11 w f32 6119476 17 40
+matmul_half0_t11 out f32 6122196 17 40
+matmul_half0_t11 grad0 f32 6124916 33 17
+matmul_half0_t11 grad1 f32 6127160 40 33
+bmm_half0 in0 f32 6132440 2 3 9 16
+bmm_half0 in1 f32 6135896 2 3 11 16
+bmm_half0 w f32 6140120 2 3 9 11
+bmm_half0 out f32 6142496 2 3 9 11
+bmm_half0 grad0 f32 6144872 2 3 9 16
+bmm_half0 grad1 f32 6148328 2 3 11 16
+linear_half0 in0 f32 6152552 2 7 24
+linear_half0 in1 f32 6153896 10 24
+linear_half0 in2 f32 6154856 10
+linear_half0 w f32 6154896 2 7 10
+linear_half0 out f32 6155456 2 7 10
+linear_half0 grad0 f32 6156016 2 7 24
+linear_half0 grad1 f32 6157360 10 24
+linear_half0 grad2 f32 6158320 10
+matmul_half1_t00 in0 f32 6158360 17 33
+matmul_half1_t00 in1 f32 6160604 33 40
+matmul_half1_t00 w f32 6165884 17 40
+matmul_half1_t00 out f32 6168604 17 40
+matmul_half1_t00 grad0 f32 6171324 17 33
+matmul_half1_t00 grad1 f32 6173568 33 40
+matmul_half1_t01 in0 f32 6178848 17 33
+matmul_half1_t01 in1 f32 6181092 40 33
+matmul_half1_t01 w f32 6186372 17 40
+matmul_half1_t01 out f32 6189092 17 40
+matmul_half1_t01 grad0 f32 6191812 17 33
+matmul_half1_t01 grad1 f32 6194056 40 33
+matmul_half1_t10 in0 f32 6199336 33 17
+matmul_half1_t10 in1 f32 6201580 33 40
+matmul_half1_t10 w f32 6206860 17 40
+matmul_half1_t10 out f32 6209580 17 40
+matmul_half1_t10 grad0 f32 6212300 33 17
+matmul_half1_t10 grad1 f32 6214544 33 40
+matmul_half1_t11 in0 f32 6219824 33 17
+matmul_half1_t11 in1 f32 6222068 40 33
+matmul_half1_t11 w f32 6227348 17 40
+matmul_half1_t11 out f32 6230068 17 40
+matmul_half1_t11 grad0 f32 6232788 33 17
+matmul_half1_t11 grad1 f32 6235032 40 33
+bmm_half1 in0 f32 6240312 2 3 9 16
+bmm_half1 in1 f32 6243768 2 3 11 16
+bmm_half1 w f32 6247992 2 3 9 11
+bmm_half1 out f32 6250368 2 3 9 11
+bmm_half1 grad0 f32 6252744 2 3 9 16
+bmm_half1 grad1 f32 6256200 2 3 11 16
+linear_half1 in0 f32 6260424 2 7 24
+linear_half1 in1 f32 6261768 10 24
+linear_half1 in2 f32 6262728 10
+linear_half1 w f32 6262768 2 7 10
+linear_half1 out f32 6263328 2 7 10
+linear_half1 grad0 f32 6263888 2 7 24
+linear_half1 grad1 f32 6265232 10 24
+linear_half1 grad2 f32 6266192 10
+layer_norm in0 f32 6266232 7 33
+layer_norm in1 f32 6267156 33
+layer_norm in2 f32 6267288 33
+layer_norm w f32 6267420 7 33
+layer_norm out f32 6268344 7 33
+layer_norm grad0 f32 6269268 7 33
+layer_norm grad1 f32 6270192 33
+layer_norm grad2 f32 6270324 33
+layer_norm_3d in0 f32 6270456 2 5 48
+layer_norm_3d in1 f32 6272376 48
+layer_norm_3d in2 f32 6272568 48
+layer_norm_3d w f32 6272760 2 5 48
+layer_norm_3d out f32 6274680 2 5 48
+layer_norm_3d grad0 f32 6276600 2 5 48
+layer_norm_3d grad1 f32 6278520 48
+layer_norm_3d grad2 f32 6278712 48
+layer_norm_long in0 f32 6278904 3 1000
+layer_norm_long in1 f32 6290904 1000
+layer_norm_long in2 f32 6294904 1000
+layer_norm_long w f32 6298904 3 1000
+layer_norm_long out f32 6310904 3 1000
+layer_norm_long grad0 f32 6322904 3 1000
+layer_norm_long grad1 f32 6334904 1000
+layer_norm_long grad2 f32 6338904 1000
+layer_norm_rows in0 f32 6342904 150 16
+layer_norm_rows in1 f32 6352504 16
+layer_norm_rows in2 f32 6352568 16
+layer_norm_rows w f32 6352632 150 16
+layer_norm_rows out f32 6362232 150 16
+layer_norm_rows grad0 f32 6371832 150 16
+layer_norm_rows grad1 f32 6381432 16
+layer_norm_rows grad2 f32 6381496 16
+layer_norm_nobias in0 f32 6381560 6 20
+layer_norm_nobias in1 f32 6382040 20
+layer_norm_nobias w f32 6382120 6 20
+layer_norm_nobias out f32 6382600 6 20
+layer_norm_nobias grad0 f32 6383080 6 20
+layer_norm_nobias grad1 f32 6383560 20
+rms_norm in0 f32 6383640 7 33
+rms_norm in1 f32 6384564 33
+rms_norm w f32 6384696 7 33
+rms_norm out f32 6385620 7 33
+rms_norm grad0 f32 6386544 7 33
+rms_norm grad1 f32 6387468 33
+rms_norm_3d in0 f32 6387600 2 5 48
+rms_norm_3d in1 f32 6389520 48
+rms_norm_3d w f32 6389712 2 5 48
+rms_norm_3d out f32 6391632 2 5 48
+rms_norm_3d grad0 f32 6393552 2 5 48
+rms_norm_3d grad1 f32 6395472 48
+rms_norm_long in0 f32 6395664 3 1000
+rms_norm_long in1 f32 6407664 1000
+rms_norm_long w f32 6411664 3 1000
+rms_norm_long out f32 6423664 3 1000
+rms_norm_long grad0 f32 6435664 3 1000
+rms_norm_long grad1 f32 6447664 1000
+rms_norm_rows in0 f32 6451664 150 16
+rms_norm_rows in1 f32 6461264 16
+rms_norm_rows w f32 6461328 150 16
+rms_norm_rows out f32 6470928 150 16
+rms_norm_rows grad0 f32 6480528 150 16
+rms_norm_rows grad1 f32 6490128 16
+opt_sgd p0 f32 6490192 37
+opt_sgd g0 f32 6490340 37
+opt_sgd g1 f32 6490488 37
+opt_sgd g2 f32 6490636 37
+opt_sgd out f32 6490784 37
+opt_sgd_momentum p0 f32 6490932 37
+opt_sgd_momentum g0 f32 6491080 37
+opt_sgd_momentum g1 f32 6491228 37
+opt_sgd_momentum g2 f32 6491376 37
+opt_sgd_momentum out f32 6491524 37
+opt_sgd_nesterov p0 f32 6491672 37
+opt_sgd_nesterov g0 f32 6491820 37
+opt_sgd_nesterov g1 f32 6491968 37
+opt_sgd_nesterov g2 f32 6492116 37
+opt_sgd_nesterov out f32 6492264 37
+opt_adam p0 f32 6492412 37
+opt_adam g0 f32 6492560 37
+opt_adam g1 f32 6492708 37
+opt_adam g2 f32 6492856 37
+opt_adam out f32 6493004 37
+opt_adamw p0 f32 6493152 37
+opt_adamw g0 f32 6493300 37
+opt_adamw g1 f32 6493448 37
+opt_adamw g2 f32 6493596 37
+opt_adamw out f32 6493744 37
+init_uniform out f32 6493892 4099

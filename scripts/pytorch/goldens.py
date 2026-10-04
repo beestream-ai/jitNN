@@ -138,6 +138,8 @@ add("sdpa", "sdpa", [0, -1], [rnd(2, 3, 5, 8), rnd(2, 3, 7, 8), rnd(2, 3, 7, 6)]
 add("sdpa_causal", "sdpa", [1, -1], [rnd(2, 2, 6, 8), rnd(2, 2, 6, 8), rnd(2, 2, 6, 8)])
 add("sdpa_causal_rect", "sdpa", [1, 0.5], [rnd(1, 2, 4, 8), rnd(1, 2, 6, 8), rnd(1, 2, 6, 5)])
 add("sdpa_long", "sdpa", [1, -1], [rnd(1, 2, 300, 16), rnd(1, 2, 300, 16), rnd(1, 2, 300, 16)])
+add("sdpa_head128", "sdpa", [1, -1], [rnd(1, 2, 40, 128), rnd(1, 2, 40, 128), rnd(1, 2, 40, 128)])
+add("sdpa_head96_mask", "sdpa_mask", [0, -1], [rnd(2, 1, 9, 96), rnd(2, 1, 13, 96), rnd(2, 1, 13, 96), np.where(rng.uniform(size=(2, 1, 9, 13)) < 0.2, -1e9, 0).astype(np.float32)], [True, True, True, False])
 pad = np.zeros((2, 1, 1, 7), np.float32)
 pad[0, 0, 0, 5:] = -1e9
 pad[1, 0, 0, 3:] = -1e9

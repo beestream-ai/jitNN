@@ -90,6 +90,10 @@ class TransformerBenchAccelTest {
         if (total > 0) {
             System.out.printf(", device kernels %.1f ms in %d launches (%.0f%%)%n", total / 1e6 / STEPS, launches / STEPS, 100.0 * total / 1e6 / STEPS / wall);
             long all = total;
+            String detail = System.getProperty("jitnn.bench.tasks", "");
+            if (!detail.isEmpty()) {
+                perTask.entrySet().stream().filter(en -> en.getKey().contains(detail)).forEach(en -> System.out.printf("[bench]   task %-36s %6.2f ms%n", en.getKey(), en.getValue()[1] / 1e6 / STEPS));
+            }
             boolean shapes = Boolean.getBoolean("jitnn.bench.shapes");
             Map<String, long[]> rows = shapes ? perShape(perTask) : perOp;
             rows.entrySet().stream().sorted((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1])).limit(shapes ? 24 : 14)

@@ -6,6 +6,7 @@ import org.beehive.jitnn.ops.Conv2d;
 import org.beehive.jitnn.ops.CrossEntropy;
 import org.beehive.jitnn.ops.Dropout;
 import org.beehive.jitnn.ops.Embedding;
+import org.beehive.jitnn.ops.FlashAttention;
 import org.beehive.jitnn.ops.Linear;
 import org.beehive.jitnn.ops.Nll;
 import org.beehive.jitnn.ops.Pool2d;
@@ -15,6 +16,9 @@ import org.beehive.jitnn.ops.RowNorm;
 
 /** Functional operators that are not methods of {@link Tensor}. */
 public final class F {
+
+    /** Fused attention kernels for FP32 attention (default); {@code -Djitnn.fusedAttention=false} composes GEMMs and softmax instead. */
+    private static final boolean FUSED_ATTENTION = !"false".equals(System.getProperty("jitnn.fusedAttention"));
 
     private F() {
     }
@@ -123,6 +127,9 @@ public final class F {
      */
     public static Tensor scaledDotProductAttention(Tensor q, Tensor k, Tensor v, Tensor mask, boolean causal, float scale) {
         float s = scale < 0 ? (float) (1.0 / Math.sqrt(q.dim(-1))) : scale;
+        if (FUSED_ATTENTION && FlashAttention.supports(q, k, v)) {
+            return FlashAttention.apply(q, k, v, mask, causal, s);
+        }
         Tensor scores = q.matmul(k, false, true);
         Tensor p;
         if (mask != null) {
