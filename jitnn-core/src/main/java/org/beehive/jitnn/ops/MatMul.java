@@ -106,7 +106,9 @@ public final class MatMul implements Op {
         int strideA = ks * m;
         int strideB = ks * n;
         DType dt = node.in(0).dtype();
-        if (dt == DType.F16) {
+        if (dt != DType.F32 && useTensorCores(e)) {
+            emitMma(e, node.in(0), node.in(1), part, bias, m, n, ks, 1, 0, 0, slices, strideA, strideB);
+        } else if (dt == DType.F16) {
             var a = e.f16(node.in(0));
             var b = e.f16(node.in(1));
             e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64BatchedF16, e.context(), a, b, part, bias, m, n, ks, 1, 0, 0, strideA, strideB, tilesY));
@@ -167,6 +169,10 @@ public final class MatMul implements Op {
         FloatArray c = e.f32(node.out(0));
         FloatArray bias = e.dummyF32();
         boolean f16 = node.in(0).dtype() == DType.F16;
+        if (node.iattr.length > 5 && useTensorCores(e)) {
+            emitMma(e, node.in(0), node.in(1), c, bias, m, n, k, ta, tb, 0, node.iattr[5], node.iattr[6], node.iattr[7]);
+            return;
+        }
         if (node.iattr.length > 5) {
             int batch = node.iattr[5];
             int strideA = node.iattr[6];
@@ -187,8 +193,37 @@ public final class MatMul implements Op {
         emitGemmHalf(e, node.in(0), node.in(1), c, bias, m, n, k, ta, tb, 0);
     }
 
+    private static final boolean TENSOR_CORES = !"false".equals(System.getProperty("jitnn.tensorCores"));
+
+    /** True when half-precision products run on tensor cores (CUDA; {@code -Djitnn.tensorCores=false} disables it). */
+    static boolean useTensorCores(Emitter e) {
+        return TENSOR_CORES && e.isCuda();
+    }
+
+    /**
+     * Tensor-core GEMM (CUDA, FP32 accumulation) on half-precision operands, batched: C[z] at
+     * z * m * n from A[z] at z * strideA and B[z] at z * strideB; batch 1 for a plain product.
+     */
+    static void emitMma(Emitter e, Tensor at, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue, int batch, int strideA, int strideB) {
+        int tilesY = Emitter.ceilDiv(m, 32);
+        WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, 32), tilesY * batch, 32, 1);
+        if (at.dtype() == DType.F16) {
+            var a = e.f16(at);
+            var b = e.f16(bt);
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemmMmaF16, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue, strideA, strideB, tilesY));
+        } else {
+            var a = e.bf16(at);
+            var b = e.bf16(bt);
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemmMmaBF16, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue, strideA, strideB, tilesY));
+        }
+    }
+
     /** C = op(A) op(B) (+ epilogue) for half-precision A and B of the same type, FP32 C. */
     static void emitGemmHalf(Emitter e, Tensor at, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        if (useTensorCores(e)) {
+            emitMma(e, at, bt, c, bias, m, n, k, ta, tb, epilogue, 1, 0, 0);
+            return;
+        }
         String variant = System.getProperty("jitnn.gemm", "auto");
         boolean big = (long) m * n >= 64L * 64 && k >= 16;
         if ((variant.equals("simdgroup") || (variant.equals("auto") && big)) && e.isMetal() && m % 8 == 0 && n % 8 == 0) {
