@@ -36,6 +36,10 @@ Four layers of checks run on the host and on every device.
      sequences of 128, batch 16; AdamW with warm-up and cosine decay and gradient clipping at 1.
      Step-0 gradients against FP64 with the same bound as the CNN gates, the step-0 loss (1e-5),
      the mean of the last 50 losses (5%) and the evaluation loss (5%).
+   - **Mixed-precision gates** (the same runs with GPT-2 under BF16 autocast, and Llama and BERT
+     under FP16 autocast with dynamic loss scaling), against the FP32 PyTorch run: half-precision
+     operands cannot follow FP32 step by step, so the step-0 loss is checked to 1e-2 and the end of
+     training to 3%.
 
 ## Results
 
@@ -67,6 +71,9 @@ Four layers of checks run on the host and on every device.
 | BERT: worst step-0 gradient, fraction of its bound | | 0.06 | 0.06 | | 0.06 |
 | BERT: mean loss of the last 50 steps (PyTorch: 3.7603) | | 3.7603 | 3.7603 | | 3.7603 |
 | BERT: evaluation loss (PyTorch: 3.4829) | | 3.4831 | 3.4831 | | 3.4831 |
+| GPT-2 BF16: mean loss of the last 50 steps / eval loss (FP32 PyTorch: 3.0009 / 3.1581) | | 3.0014 / 3.1565 | 3.0016 / 3.1561 | | |
+| Llama FP16 + loss scaling (FP32 PyTorch: 1.9951 / 2.5854) | | 1.9951 / 2.5854 | 1.9952 / 2.5858 | | |
+| BERT FP16 + loss scaling (FP32 PyTorch: 3.7603 / 3.4829) | | 3.7606 / 3.4842 | 3.7617 / 3.4851 | | |
 
 The RTX 5070 Ti column predates the CIFAR-10 and transformer gates; the A10 column runs every gate.
 Without BatchNorm amplifying rounding differences, the transformer runs stay within 1e-7 of
