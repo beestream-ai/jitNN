@@ -50,8 +50,13 @@ public final class Adam extends Optimizer {
         for (int i = 0; i < params.size(); i++) {
             Tensor p = params.get(i);
             if (p.grad() != null) {
-                OptimStep.adam(p, p.grad(), m[i], v[i], hyper);
+                OptimStep.adam(p, p.grad(), m[i], v[i], hyper, gate);
             }
         }
+    }
+
+    @Override
+    void rewindStep() {
+        t--;
     }
 }

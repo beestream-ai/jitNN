@@ -40,7 +40,7 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 `ReLU6`, `Add` (residual). Models in `nn.models`: `ResNet.resnet18` and `MobileNetV2.mobilenetV2`
 (torchvision layouts, plus a small-input variant).
 
-## Wave 3 (operators and gates done; FP16/BF16 open)
+## Wave 3 (done)
 
 | Operator | Kernels | Gradient |
 |---|---|---|
@@ -54,6 +54,10 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 | Gradient clipping by global norm | composed, lazily on the device | |
 | Warm-up with linear or cosine decay | host | |
 | Top-k (values and indices), multinomial sampling | `SampleKernels.topkRows`, `multinomialRows` (Philox) | top-k: `topkBackward` |
+| FP16 and BF16 tensors; casts (round to nearest even) | `LowPrecision.f32ToF16`, `f16ToF32`, `f32ToBF16`, `bf16ToF32` (BF16 as raw bits) | cast back to the input's type |
+| Half-precision GEMMs (FP16 or BF16 operands, FP32 accumulation and result), plain, batched and fused linear | `GemmKernels.gemm64F16`, `gemm64BF16`, `gemm64BatchedF16`, `gemm64BatchedBF16` (generated) | the products in the half type |
+| Autocast | casts at `F.linear`, `matmul` and attention | |
+| Dynamic loss scaling | `LowPrecision.anyNonFinite` (bit-pattern test) and a skip gate in the optimiser kernels | |
 
 `F.linear` now takes inputs with any leading dimensions. Modules: `Embedding`, `LayerNorm`,
 `RMSNorm`, `MultiheadAttention`. Models in `nn.models`: `GPT2`, `Llama` (Llama-style decoder) and
@@ -64,7 +68,7 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 | Wave | Contents | Gate |
 |---|---|---|
 | 2 (rest) | convolution and GEMM speed, dispatch overhead | ResNet-18 and MobileNetV2 steps against MPS and cuDNN |
-| 3 (rest) | FP16/BF16 casts, autocast and loss scaling; fused attention | the transformer gates in reduced precision |
+| 3 (rest) | fused attention; half-precision GEMMs on matrix units | transformer steps against PyTorch MPS and CUDA |
 | 4 | sigmoid, LSTM, GRU, transposed conv, upsampling, BCE, MSE, KL | LSTM LM, U-Net, DCGAN, VAE |
 | 5 | the rest of the DL4J/DJL activations, losses, optimisers and norms, Conv1D/3D, sort, scatter | the DL4J and DJL example suites |
 | 6 | decompositions, sparse and graph ops, FFT, Word2Vec, classical ML | 1.0 |

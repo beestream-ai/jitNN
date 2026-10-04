@@ -66,4 +66,27 @@ public final class LowPrecision {
             out.set(i, fromBF16(x.get(i)));
         }
     }
+
+    private static final int GROUP = 256;
+
+    /** flag[0] = 1 when any of the n values is NaN or infinite, else 0; one work-group of 256 threads. */
+    public static void anyNonFinite(KernelContext kc, FloatArray x, FloatArray flag, int n) {
+        int[] buf = kc.allocateIntLocalArray(GROUP);
+        int l = kc.localIdx;
+        int bad = 0;
+        for (int i = l; i < n; i += GROUP) {
+            bad = bad | nonFinite(x.get(i));
+        }
+        buf[l] = bad;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] | buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        if (l == 0) {
+            flag.set(0, buf[0]);
+        }
+    }
 }

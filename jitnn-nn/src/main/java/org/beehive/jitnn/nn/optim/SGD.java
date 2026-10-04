@@ -39,9 +39,9 @@ public final class SGD extends Optimizer {
                 continue;
             }
             if (momentum != 0) {
-                OptimStep.sgdMomentum(p, p.grad(), buffers[i], hyper);
+                OptimStep.sgdMomentum(p, p.grad(), buffers[i], hyper, gate);
             } else {
-                OptimStep.sgd(p, p.grad(), hyper);
+                OptimStep.sgd(p, p.grad(), hyper, gate);
             }
         }
     }

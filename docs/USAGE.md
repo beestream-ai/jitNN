@@ -78,6 +78,20 @@ register their parameters:
 `Sequential` fuses a ReLU into the Linear, Conv2d or BatchNorm2d before it. Switch modes with
 `model.train(false)` for evaluation.
 
+### Transformer layers and models
+
+| Module | Notes |
+|---|---|
+| `Embedding(count, dim, seed)`, with a padding index | lookups by INT32 indices; deterministic gradient |
+| `LayerNorm(features)`, `RMSNorm(features, eps)` | over the last axis |
+| `MultiheadAttention(dim, heads, bias, seed)` | self-attention on [B, T, D]; `forward(x, mask, causal)` |
+| `GPT2`, `Llama`, `Bert` in `nn.models` | a GPT-2 decoder, a Llama-style decoder (RMSNorm, RoPE, SwiGLU) and a BERT encoder with an MLM head |
+
+The functional forms are in `F`: `embedding`, `layerNorm`, `rmsNorm`, `scaledDotProductAttention`
+(causal and additive masks), `multiHeadAttention`, `rope`, `swiglu`, `multinomial`, and on
+`Tensor`: `gelu`, `geluTanh`, `silu`, `sigmoid`, `tanh`, `narrow`, `slice`, `split`, `chunk`,
+`cat`, `stack`, `topk`.
+
 ## Optimisers
 
 | Optimiser | Constructor |
@@ -92,6 +106,9 @@ with each step, so schedules work without recompiling (`setLearningRate`).
 
 Learning-rate schedules (`LRScheduler.step`, `multiStep`, `cosine`) adjust the optimiser once per
 epoch, like PyTorch's.
+`LRScheduler.warmupLinear` and `warmupCosine` count optimiser steps instead (call `step()` after
+every `opt.step()`), and `Grad.clipNorm(params, maxNorm)` clips the gradients by their global norm
+on the device.
 
 ## The training loop
 
@@ -105,6 +122,34 @@ for (int step = 0; step < steps; step++) {
 }
 float acc = F.accuracy(model.forward(Tensor.of(testX, n, 784)), Tensor.of(testY, n));
 ```
+
+## Mixed precision
+
+`Tensor.half()`, `bfloat16()` and `to(DType)` convert between FP32, FP16 and BF16 (round to
+nearest even, as PyTorch). Inside an autocast scope the GEMMs (`F.linear`, `matmul` and the two
+products of attention) run on half-precision operands with FP32 accumulation; their results and
+every other operator stay FP32. FP16 needs dynamic loss scaling, as with PyTorch's `GradScaler`:
+
+```java
+GradScaler scaler = new GradScaler();
+for (int step = 0; step < steps; step++) {
+    Tensor loss;
+    try (var ac = Autocast.enable(DType.F16)) {      // or DType.BF16, usually without a scaler
+        loss = F.crossEntropy(model.forward(x), y);
+    }
+    scaler.scale(loss).backward();
+    scaler.unscale(opt);                              // before clipping
+    Grad.clipNorm(params, 1.0f);
+    scaler.step(opt);                                 // skipped on the device if a gradient overflowed
+    float value = loss.item();
+    scaler.update();                                  // reads the overflow flag, adjusts the scale
+    opt.zeroGrad();
+}
+```
+
+The scale is uploaded with each step and overflows are detected on the device, so the step stays
+one compiled plan. BF16 needs TornadoVM with float-bit reinterpretation (TornadoVM#1141, in
+`develop` since 2026-10-02) on OpenCL and Metal.
 
 ## Inference and memory
 

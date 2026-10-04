@@ -598,12 +598,12 @@ public final class Tensor {
     // ---------------------------------------------------------------- linear algebra
 
     public Tensor matmul(Tensor b) {
-        return MatMul.apply(this, b, false, false);
+        return MatMul.apply(Autocast.operand(this), Autocast.operand(b), false, false);
     }
 
     /** op(this) * op(b), where op transposes when the flag is set, without materialising the transpose. */
     public Tensor matmul(Tensor b, boolean transposeThis, boolean transposeB) {
-        return MatMul.apply(this, b, transposeThis, transposeB);
+        return MatMul.apply(Autocast.operand(this), Autocast.operand(b), transposeThis, transposeB);
     }
 
     // ---------------------------------------------------------------- softmax

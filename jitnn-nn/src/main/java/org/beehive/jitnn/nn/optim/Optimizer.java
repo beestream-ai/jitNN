@@ -20,8 +20,19 @@ public abstract class Optimizer {
         }
     }
 
+    /** A one-element device flag that skips the next updates when non-zero (set by {@link GradScaler}), or null. */
+    protected Tensor gate;
+
     /** Records one update of every parameter that has a gradient. */
     public abstract void step();
+
+    void setGate(Tensor gate) {
+        this.gate = gate;
+    }
+
+    /** Undoes the step counting of the last {@link #step()}, which a loss scaler skipped on the device. */
+    void rewindStep() {
+    }
 
     public void zeroGrad() {
         for (Tensor p : params) {

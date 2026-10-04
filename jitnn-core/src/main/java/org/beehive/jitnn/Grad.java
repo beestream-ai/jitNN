@@ -65,6 +65,28 @@ public final class Grad {
         }
     }
 
+    /**
+     * Multiplies every gradient of {@code params} by the one-element {@code factor} (a loss
+     * scaler's 1 / scale) and returns a one-element flag, 1 when any unscaled gradient is NaN or
+     * infinite. Lazy, on the device.
+     */
+    public static Tensor unscale(java.util.List<Tensor> params, Tensor factor) {
+        java.util.List<Tensor> flags = new java.util.ArrayList<>();
+        try (Scope ignored = disabled()) {
+            for (Tensor p : params) {
+                if (p.grad() != null) {
+                    Tensor g = p.grad().mul(factor);
+                    p.setGrad(g);
+                    flags.add(org.beehive.jitnn.ops.NonFinite.apply(g));
+                }
+            }
+            if (flags.isEmpty()) {
+                return Tensor.zeros(1);
+            }
+            return Tensor.cat(0, flags.toArray(new Tensor[0])).max(0, true);
+        }
+    }
+
     /** A try-with-resources scope that restores the previous gradient mode. */
     public interface Scope extends AutoCloseable {
         @Override

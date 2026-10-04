@@ -33,6 +33,8 @@ public final class F {
     }
 
     private static Tensor linear(Tensor x, Tensor weight, Tensor bias, boolean relu) {
+        x = Autocast.operand(x);
+        weight = Autocast.operand(weight);
         if (x.rank() <= 2) {
             return Linear.apply(x, weight, bias, relu);
         }

@@ -11,6 +11,7 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 /**
  * In-place optimiser updates on persistent tensors. The hyper-parameter tensor is a fresh host
  * input each step, so learning-rate schedules and Adam's bias correction work under plan replay.
+ * An optional one-element {@code gate} (last input, iattr[1] = 1) skips the update when non-zero.
  */
 public final class OptimStep implements Op {
 
@@ -26,24 +27,33 @@ public final class OptimStep implements Op {
     }
 
     /** SGD: inputs [param, grad, hyper]; hyper = [lr, momentum, weightDecay, nesterov]. */
-    public static void sgd(Tensor param, Tensor grad, Tensor hyper) {
+    public static void sgd(Tensor param, Tensor grad, Tensor hyper, Tensor gate) {
         check(param, grad);
-        Tensor.record(OP, new Tensor[] { param, grad, hyper }, new Tensor[] { param }, new int[] { Kind.SGD.ordinal() }, null, true);
+        record(new Tensor[] { param, grad, hyper }, new Tensor[] { param }, Kind.SGD, gate);
     }
 
     /** SGD with momentum buffer {@code buf}, same hyper layout as {@link #sgd}. */
-    public static void sgdMomentum(Tensor param, Tensor grad, Tensor buf, Tensor hyper) {
+    public static void sgdMomentum(Tensor param, Tensor grad, Tensor buf, Tensor hyper, Tensor gate) {
         check(param, grad);
         check(buf, grad);
-        Tensor.record(OP, new Tensor[] { param, grad, buf, hyper }, new Tensor[] { param, buf }, new int[] { Kind.SGD_MOMENTUM.ordinal() }, null, true);
+        record(new Tensor[] { param, grad, buf, hyper }, new Tensor[] { param, buf }, Kind.SGD_MOMENTUM, gate);
     }
 
     /** Adam/AdamW; hyper = [lr, beta1, beta2, eps, 1 - beta1^t, 1 - beta2^t, weightDecay, decoupled]. */
-    public static void adam(Tensor param, Tensor grad, Tensor m, Tensor v, Tensor hyper) {
+    public static void adam(Tensor param, Tensor grad, Tensor m, Tensor v, Tensor hyper, Tensor gate) {
         check(param, grad);
         check(m, grad);
         check(v, grad);
-        Tensor.record(OP, new Tensor[] { param, grad, m, v, hyper }, new Tensor[] { param, m, v }, new int[] { Kind.ADAM.ordinal() }, null, true);
+        record(new Tensor[] { param, grad, m, v, hyper }, new Tensor[] { param, m, v }, Kind.ADAM, gate);
+    }
+
+    private static void record(Tensor[] in, Tensor[] out, Kind kind, Tensor gate) {
+        Tensor[] inputs = in;
+        if (gate != null) {
+            inputs = java.util.Arrays.copyOf(in, in.length + 1);
+            inputs[in.length] = gate;
+        }
+        Tensor.record(OP, inputs, out, new int[] { kind.ordinal(), gate != null ? 1 : 0 }, null, true);
     }
 
     private static void check(Tensor state, Tensor grad) {
@@ -65,21 +75,22 @@ public final class OptimStep implements Op {
         int count = n.in(0).numel();
         FloatArray p = e.f32(n.in(0));
         FloatArray g = e.f32(n.in(1));
+        FloatArray gate = n.iattr[1] != 0 ? e.f32(n.in(n.inputs.length - 1)) : e.dummyF32();
         switch (Kind.values()[n.iattr[0]]) {
             case SGD -> {
                 FloatArray h = e.f32(n.in(2));
-                e.task(Emitter.grid1D(count), (tg, id) -> tg.task(id, OptimKernels::sgd, e.context(), p, g, h, count));
+                e.task(Emitter.grid1D(count), (tg, id) -> tg.task(id, OptimKernels::sgd, e.context(), p, g, h, gate, count));
             }
             case SGD_MOMENTUM -> {
                 FloatArray buf = e.f32(n.in(2));
                 FloatArray h = e.f32(n.in(3));
-                e.task(Emitter.grid1D(count), (tg, id) -> tg.task(id, OptimKernels::sgdMomentum, e.context(), p, g, buf, h, count));
+                e.task(Emitter.grid1D(count), (tg, id) -> tg.task(id, OptimKernels::sgdMomentum, e.context(), p, g, buf, h, gate, count));
             }
             case ADAM -> {
                 FloatArray m = e.f32(n.in(2));
                 FloatArray v = e.f32(n.in(3));
                 FloatArray h = e.f32(n.in(4));
-                e.task(Emitter.grid1D(count), (tg, id) -> tg.task(id, OptimKernels::adam, e.context(), p, g, m, v, h, count));
+                e.task(Emitter.grid1D(count), (tg, id) -> tg.task(id, OptimKernels::adam, e.context(), p, g, m, v, h, gate, count));
             }
         }
     }
@@ -89,6 +100,9 @@ public final class OptimStep implements Op {
         FloatArray p = (FloatArray) n.in(0).storage().host();
         FloatArray g = (FloatArray) n.in(1).storage().host();
         int count = n.in(0).numel();
+        if (n.iattr[1] != 0 && ((FloatArray) n.in(n.inputs.length - 1).storage().host()).get(0) != 0.0f) {
+            return;
+        }
         switch (Kind.values()[n.iattr[0]]) {
             case SGD -> {
                 FloatArray h = (FloatArray) n.in(2).storage().host();
