@@ -14,7 +14,7 @@ import org.beehive.jitnn.nn.optim.SGD;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
-/** Dynamic loss scaling on the host reference and on the device: overflow skips the step, halves the scale. */
+/** Dynamic loss scaling and norm clipping inside the optimiser, on the host reference and on the device. */
 class GradScalerAccelTest {
 
     @AfterAll
@@ -65,5 +65,47 @@ class GradScalerAccelTest {
     @Test
     void deviceSkipsOverflow() {
         run(Backend.TORNADO);
+    }
+
+    /** Gradients (3, 4): norm 5, clipped to 2.5 by a factor 0.5; with a loss scale the result is the same. */
+    private static void clip(Backend backend, boolean scaled) {
+        Engine.with(backend, () -> {
+            Tensor p = Tensor.parameter(Tensor.of(new float[] { 1.0f, 2.0f }, 2));
+            SGD opt = new SGD(List.of(p), 1.0f);
+            GradScaler scaler = new GradScaler(1024.0f, 2.0f, 0.5f, 100);
+            Tensor loss = p.mul(Tensor.of(new float[] { 3.0f, 4.0f }, 2)).sum();
+            if (scaled) {
+                scaler.scale(loss).backward();
+                scaler.unscale(opt);
+            } else {
+                loss.backward();
+            }
+            Tensor norm = opt.clipGradNorm(2.5f);
+            if (scaled) {
+                scaler.step(opt);
+            } else {
+                opt.step();
+            }
+            assertEquals(5.0f, norm.item(), 1e-5f, backend + " norm");
+            if (scaled) {
+                assertFalse(scaler.update(), backend + " no overflow");
+            }
+            float[] v = p.toFloatArray();
+            assertEquals(-0.5f, v[0], 1e-6f, backend + " clipped update 0");
+            assertEquals(0.0f, v[1], 1e-6f, backend + " clipped update 1");
+            return null;
+        });
+    }
+
+    @Test
+    void referenceClipsInsideTheUpdate() {
+        clip(Backend.REFERENCE, false);
+        clip(Backend.REFERENCE, true);
+    }
+
+    @Test
+    void deviceClipsInsideTheUpdate() {
+        clip(Backend.TORNADO, false);
+        clip(Backend.TORNADO, true);
     }
 }

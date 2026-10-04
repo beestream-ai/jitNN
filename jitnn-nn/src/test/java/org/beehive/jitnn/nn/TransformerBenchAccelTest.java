@@ -68,7 +68,7 @@ class TransformerBenchAccelTest {
                 loss = F.crossEntropy(model.forward(Tensor.of(x, BATCH, SEQ)).reshape(BATCH * SEQ, -1), Tensor.of(y, BATCH * SEQ));
             }
             loss.backward();
-            Grad.clipNorm(params, 1.0f);
+            opt.clipGradNorm(1.0f);
             opt.step();
             loss.item();
             opt.zeroGrad();

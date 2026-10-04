@@ -107,8 +107,10 @@ with each step, so schedules work without recompiling (`setLearningRate`).
 Learning-rate schedules (`LRScheduler.step`, `multiStep`, `cosine`) adjust the optimiser once per
 epoch, like PyTorch's.
 `LRScheduler.warmupLinear` and `warmupCosine` count optimiser steps instead (call `step()` after
-every `opt.step()`), and `Grad.clipNorm(params, maxNorm)` clips the gradients by their global norm
-on the device.
+every `opt.step()`). `opt.clipGradNorm(maxNorm)` clips the gradients by their global norm at the
+next step, as PyTorch's `clip_grad_norm_`, inside the update itself (one small reduction per
+gradient); `Grad.clipNorm(params, maxNorm)` rescales the gradient tensors themselves, for code
+that reads them.
 
 ## The training loop
 
@@ -139,7 +141,7 @@ for (int step = 0; step < steps; step++) {
     }
     scaler.scale(loss).backward();
     scaler.unscale(opt);                              // before clipping
-    Grad.clipNorm(params, 1.0f);
+    opt.clipGradNorm(1.0f);
     scaler.step(opt);                                 // skipped on the device if a gradient overflowed
     float value = loss.item();
     scaler.update();                                  // reads the overflow flag, adjusts the scale

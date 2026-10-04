@@ -191,7 +191,7 @@ class TransformerAccelTest {
             if (b == 0 && autocast == null) {
                 Gates.checkGradients(name, params, reference.toString());
             }
-            Grad.clipNorm(params, CLIP);
+            opt.clipGradNorm(CLIP);
             if (scaler != null) {
                 scaler.step(opt);
             } else {

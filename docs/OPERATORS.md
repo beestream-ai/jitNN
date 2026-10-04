@@ -51,13 +51,13 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 | Batched matmul: equal batch dimensions, or one shared matrix | `GemmKernels.gemm64Batched` (generated, batch folded into the grid's y) | batched products; a shared matrix's gradient summed over the batch |
 | Scaled dot-product attention: causal (PyTorch's top-left alignment) and additive masks; multi-head self-attention | batched GEMMs + `SoftmaxKernels.attentionSoftmaxRows` (scale and causal limit fused) | `attentionSoftmaxBackwardRows` and the GEMM gradients |
 | Rotary position embedding, rotate-half and interleaved, with a position offset | `ElementwiseKernels.rope` (cos/sin tables computed in double, cached on the device) | the same kernel rotating backwards |
-| Gradient clipping by global norm | composed, lazily on the device | |
+| Gradient clipping by global norm | `GradStats`, applied inside the optimiser update | |
 | Warm-up with linear or cosine decay | host | |
 | Top-k (values and indices), multinomial sampling | `SampleKernels.topkRows`, `multinomialRows` (Philox) | top-k: `topkBackward` |
 | FP16 and BF16 tensors; casts (round to nearest even) | `LowPrecision.f32ToF16`, `f16ToF32`, `f32ToBF16`, `bf16ToF32` (BF16 as raw bits) | cast back to the input's type |
 | Half-precision GEMMs (FP16 or BF16 operands, FP32 accumulation and result), plain, batched and fused linear | `GemmKernels.gemm64F16`, `gemm64BF16`, `gemm64BatchedF16`, `gemm64BatchedBF16` (generated) | the products in the half type |
 | Autocast | casts at `F.linear`, `matmul` and attention | |
-| Dynamic loss scaling | `LowPrecision.anyNonFinite` (bit-pattern test) and a skip gate in the optimiser kernels | |
+| Gradient statistics for clipping and loss scaling: global norm, unscale-and-clip factor, overflow flag | `LowPrecision.sumSquaresFinite` (one per gradient, bit-pattern test) and `gradStats`; the optimiser kernels apply the factor and skip on overflow | |
 
 `F.linear` now takes inputs with any leading dimensions. Modules: `Embedding`, `LayerNorm`,
 `RMSNorm`, `MultiheadAttention`. Models in `nn.models`: `GPT2`, `Llama` (Llama-style decoder) and

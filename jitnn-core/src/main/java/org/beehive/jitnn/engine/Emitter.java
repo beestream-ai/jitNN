@@ -95,6 +95,18 @@ public final class Emitter {
         }));
     }
 
+    private final Map<String, FloatArray> constantF32Cache = new java.util.HashMap<>();
+
+    /** A constant float array uploaded once with the graph. */
+    public FloatArray constantF32(float... values) {
+        String key = java.util.Arrays.toString(values);
+        return use(constantF32Cache.computeIfAbsent(key, k -> {
+            FloatArray a = FloatArray.fromArray(values.length == 0 ? new float[] { 0 } : values);
+            constants.add(a);
+            return a;
+        }));
+    }
+
     private FloatArray dummy;
 
     /** A one-element array for optional array arguments that a kernel does not read. */

@@ -9,6 +9,16 @@ import sys
 
 BK = int(sys.argv[1]) if len(sys.argv) > 1 else 16
 NAME = sys.argv[2] if len(sys.argv) > 2 else "gemmSimdgroup"
+IN = sys.argv[3] if len(sys.argv) > 3 else "f32"   # f16 or bf16: half-precision A and B, converted on load
+ARR = {"f32": "FloatArray", "f16": "HalfFloatArray", "bf16": "ShortArray"}[IN]
+
+
+def load(arr, index):
+    if IN == "f16":
+        return f"{arr}.get({index}).getFloat32()"
+    if IN == "bf16":
+        return f"LowPrecision.fromBF16({arr}.get({index}))"
+    return f"{arr}.get({index})"
 Q = 64 * BK // 128
 o = []
 w = o.append
@@ -18,7 +28,7 @@ w("     * 128-thread work-group computes a 64x64 block of C; each of its four SI
 w("     * sub-block as 16 hardware accumulators. Needs m and n to be multiples of 8. Launch 128-thread")
 w("     * groups over ceil(n/64) x ceil(m/64) blocks (1-D, block = groupIdx).")
 w("     */")
-w(f"    public static void {NAME}(KernelContext kc, FloatArray a, FloatArray b, FloatArray c, int m, int n, int k, int transA, int transB) {{")
+w(f"    public static void {NAME}(KernelContext kc, {ARR} a, {ARR} b, FloatArray c, int m, int n, int k, int transA, int transB) {{")
 w(f"        float[] as = kc.allocateFloatLocalArray({64 * BK});")
 w(f"        float[] bs = kc.allocateFloatLocalArray({64 * BK});")
 w("        int tid = kc.localIdx;")
@@ -47,7 +57,7 @@ w("                int gr = row0 + mm;")
 w("                int gk = k0 + kk;")
 w("                float va = 0.0f;")
 w("                if ((gr < m) & (gk < k)) {")
-w("                    va = transA == 0 ? a.get(gr * k + gk) : a.get(gk * m + gr);")
+w(f"                    va = transA == 0 ? {load('a', 'gr * k + gk')} : {load('a', 'gk * m + gr')};")
 w("                }")
 w(f"                as[mm * {BK} + kk] = va;")
 w("                int nn;")
@@ -63,7 +73,7 @@ w("                int gc = col0 + nn;")
 w("                int gkb = k0 + kb;")
 w("                float vb = 0.0f;")
 w("                if ((gkb < k) & (gc < n)) {")
-w("                    vb = transB == 0 ? b.get(gkb * n + gc) : b.get(gc * k + gkb);")
+w(f"                    vb = transB == 0 ? {load('b', 'gkb * n + gc')} : {load('b', 'gc * k + gkb')};")
 w("                }")
 w("                bs[kb * 64 + nn] = vb;")
 w("            }")

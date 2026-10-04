@@ -20,14 +20,56 @@ public abstract class Optimizer {
         }
     }
 
-    /** A one-element device flag that skips the next updates when non-zero (set by {@link GradScaler}), or null. */
-    protected Tensor gate;
+    /** Gradient statistics [norm, factor, skip] for the next step (see GradStats), or null. */
+    private Tensor stats;
+    /** A one-element factor applied to every gradient at the next step (a loss scaler's 1 / scale), or null. */
+    private Tensor preScale;
 
     /** Records one update of every parameter that has a gradient. */
     public abstract void step();
 
-    void setGate(Tensor gate) {
-        this.gate = gate;
+    /**
+     * Clips the gradients of this optimiser's parameters to a global L2 norm of at most
+     * {@code maxNorm} at the next {@link #step()}, as PyTorch's {@code clip_grad_norm_}, and returns
+     * the norm before clipping (after loss unscaling). One small reduction per gradient; the
+     * gradients are scaled inside the update itself. Reading the norm is a sync point.
+     */
+    public Tensor clipGradNorm(float maxNorm) {
+        stats = computeStats(maxNorm, true);
+        return stats.narrow(0, 0, 1).reshape();
+    }
+
+    private Tensor computeStats(float maxNorm, boolean clip) {
+        List<Tensor> grads = new java.util.ArrayList<>();
+        for (Tensor p : params) {
+            if (p.grad() != null) {
+                grads.add(p.grad());
+            }
+        }
+        return org.beehive.jitnn.ops.GradStats.apply(grads, preScale, maxNorm, clip);
+    }
+
+    void setPreScale(Tensor factor) {
+        this.preScale = factor;
+    }
+
+    /** The statistics the next update uses (computed now when a pre-scale is pending), or null; clears them. */
+    protected Tensor takeStats() {
+        Tensor s = stats;
+        if (s == null && preScale != null) {
+            s = computeStats(0.0f, false);
+        }
+        stats = null;
+        preScale = null;
+        lastStats = s;
+        return s;
+    }
+
+    private Tensor lastStats;
+
+    /** The statistics used by the last {@link #step()}, or null. */
+    Tensor lastStats() {
+        return lastStats;
     }
 
     /** Undoes the step counting of the last {@link #step()}, which a loss scaler skipped on the device. */

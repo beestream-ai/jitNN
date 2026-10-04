@@ -189,6 +189,25 @@ public final class MatMul implements Op {
 
     /** C = op(A) op(B) (+ epilogue) for half-precision A and B of the same type, FP32 C. */
     static void emitGemmHalf(Emitter e, Tensor at, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        String variant = System.getProperty("jitnn.gemm", "auto");
+        boolean big = (long) m * n >= 64L * 64 && k >= 16;
+        if ((variant.equals("simdgroup") || (variant.equals("auto") && big)) && e.isMetal() && m % 8 == 0 && n % 8 == 0) {
+            // Metal: the simdgroup matrix units, on operands converted to FP32 as they are staged.
+            WorkerGrid sg = Emitter.blocks1D(Emitter.ceilDiv(n, 64) * Emitter.ceilDiv(m, 64), 128);
+            if (at.dtype() == DType.F16) {
+                var a = e.f16(at);
+                var b = e.f16(bt);
+                e.task(sg, (g, id) -> g.task(id, GemmKernels::gemmSimdgroupF16, e.context(), a, b, c, m, n, k, ta, tb));
+            } else {
+                var a = e.bf16(at);
+                var b = e.bf16(bt);
+                e.task(sg, (g, id) -> g.task(id, GemmKernels::gemmSimdgroupBF16, e.context(), a, b, c, m, n, k, ta, tb));
+            }
+            if (epilogue != 0) {
+                e.task(Emitter.grid1D(m * n), (g, id) -> g.task(id, GemmKernels::biasActivation, e.context(), c, bias, m, n, epilogue));
+            }
+            return;
+        }
         WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), Emitter.ceilDiv(m, GemmKernels.BM), 16, 16);
         if (at.dtype() == DType.F16) {
             var a = e.f16(at);

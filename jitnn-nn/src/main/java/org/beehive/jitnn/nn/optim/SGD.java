@@ -32,6 +32,7 @@ public final class SGD extends Optimizer {
 
     @Override
     public void step() {
+        Tensor stats = takeStats();
         Tensor hyper = Tensor.of(new float[] { lr, momentum, weightDecay, nesterov ? 1 : 0 }, 4);
         for (int i = 0; i < params.size(); i++) {
             Tensor p = params.get(i);
@@ -39,9 +40,9 @@ public final class SGD extends Optimizer {
                 continue;
             }
             if (momentum != 0) {
-                OptimStep.sgdMomentum(p, p.grad(), buffers[i], hyper, gate);
+                OptimStep.sgdMomentum(p, p.grad(), buffers[i], hyper, stats);
             } else {
-                OptimStep.sgd(p, p.grad(), hyper, gate);
+                OptimStep.sgd(p, p.grad(), hyper, stats);
             }
         }
     }

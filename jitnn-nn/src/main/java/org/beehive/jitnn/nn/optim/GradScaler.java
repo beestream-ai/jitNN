@@ -2,23 +2,22 @@ package org.beehive.jitnn.nn.optim;
 
 import java.util.List;
 
-import org.beehive.jitnn.Grad;
 import org.beehive.jitnn.Tensor;
 
 /**
  * Dynamic loss scaling for FP16 training, as PyTorch's {@code torch.amp.GradScaler}: the loss is
- * multiplied by a scale before backward; {@link #unscale} divides the gradients and finds
- * overflows on the device; {@link #step} runs the optimiser, which skips the update on the
- * device when an overflow was found; {@link #update} (after the step has run, e.g. after
- * {@code loss.item()}) halves the scale on an overflow, or doubles it after
- * {@code growthInterval} clean steps. The scale reaches the device as a fresh host input each
- * step, so changing it never recompiles.
+ * multiplied by a scale before backward; {@link #unscale} makes the optimiser divide the
+ * gradients by it (inside the update, together with any clipping) and look for overflows on the
+ * device; {@link #step} runs the optimiser, which skips the update on the device when an overflow
+ * was found; {@link #update} (after the step has run, e.g. after {@code loss.item()}) halves the
+ * scale on an overflow, or doubles it after {@code growthInterval} clean steps. The scale reaches
+ * the device as a fresh host input each step, so changing it never recompiles.
  *
  * <pre>{@code
  * Tensor loss = ...;
  * scaler.scale(loss).backward();
  * scaler.unscale(opt);              // optional: before clipping
- * Grad.clipNorm(params, 1.0f);
+ * opt.clipGradNorm(1.0f);
  * scaler.step(opt);
  * float value = loss.item();
  * scaler.update();
@@ -31,7 +30,6 @@ public final class GradScaler {
     private final float backoffFactor;
     private final int growthInterval;
     private int cleanSteps;
-    private Tensor found;
     private boolean unscaled;
     private Optimizer last;
 
@@ -55,12 +53,12 @@ public final class GradScaler {
         return loss.mul(Tensor.of(new float[] { scale }, 1));
     }
 
-    /** Divides the gradients of {@code opt}'s parameters by the scale and records whether any overflowed. */
+    /** Makes {@code opt} divide its gradients by the scale at the next step (and clip after unscaling). */
     public void unscale(Optimizer opt) {
         if (unscaled) {
             throw new IllegalStateException("unscale was already called for this step");
         }
-        found = Grad.unscale(opt.params, Tensor.of(new float[] { 1.0f / scale }, 1));
+        opt.setPreScale(Tensor.of(new float[] { 1.0f / scale }, 1));
         unscaled = true;
     }
 
@@ -69,12 +67,7 @@ public final class GradScaler {
         if (!unscaled) {
             unscale(opt);
         }
-        opt.setGate(found);
-        try {
-            opt.step();
-        } finally {
-            opt.setGate(null);
-        }
+        opt.step();
         last = opt;
     }
 
@@ -83,10 +76,10 @@ public final class GradScaler {
      * returns whether the step's update was skipped.
      */
     public boolean update() {
-        if (found == null) {
+        if (last == null || last.lastStats() == null) {
             throw new IllegalStateException("update() needs a step() first");
         }
-        boolean overflow = found.item() != 0.0f;
+        boolean overflow = last.lastStats().toFloatArray()[2] != 0.0f;
         if (overflow) {
             scale *= backoffFactor;
             cleanSteps = 0;
@@ -95,7 +88,7 @@ public final class GradScaler {
             scale *= growthFactor;
             cleanSteps = 0;
         }
-        found = null;
+        last = null;
         unscaled = false;
         return overflow;
     }

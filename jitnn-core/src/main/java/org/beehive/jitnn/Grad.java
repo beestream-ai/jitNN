@@ -44,46 +44,24 @@ public final class Grad {
      * returns the norm before clipping as a scalar tensor (reading it is a sync point).
      */
     public static Tensor clipNorm(java.util.List<Tensor> params, float maxNorm) {
-        java.util.List<Tensor> squares = new java.util.ArrayList<>();
-        try (Scope ignored = disabled()) {
-            for (Tensor p : params) {
-                if (p.grad() != null) {
-                    squares.add(p.grad().square().sum().reshape(1));
-                }
+        java.util.List<Tensor> grads = new java.util.ArrayList<>();
+        java.util.List<Tensor> owners = new java.util.ArrayList<>();
+        for (Tensor p : params) {
+            if (p.grad() != null) {
+                grads.add(p.grad());
+                owners.add(p);
             }
-            if (squares.isEmpty()) {
-                return Tensor.scalar(0.0f);
-            }
-            Tensor norm = Tensor.cat(0, squares.toArray(new Tensor[0])).sum().sqrt();
-            Tensor coef = norm.add(1e-6f).reciprocal().mul(maxNorm).clamp(0.0f, 1.0f);
-            for (Tensor p : params) {
-                if (p.grad() != null) {
-                    p.setGrad(p.grad().mul(coef));
-                }
-            }
-            return norm;
         }
-    }
-
-    /**
-     * Multiplies every gradient of {@code params} by the one-element {@code factor} (a loss
-     * scaler's 1 / scale) and returns a one-element flag, 1 when any unscaled gradient is NaN or
-     * infinite. Lazy, on the device.
-     */
-    public static Tensor unscale(java.util.List<Tensor> params, Tensor factor) {
-        java.util.List<Tensor> flags = new java.util.ArrayList<>();
+        if (grads.isEmpty()) {
+            return Tensor.scalar(0.0f);
+        }
         try (Scope ignored = disabled()) {
-            for (Tensor p : params) {
-                if (p.grad() != null) {
-                    Tensor g = p.grad().mul(factor);
-                    p.setGrad(g);
-                    flags.add(org.beehive.jitnn.ops.NonFinite.apply(g));
-                }
+            Tensor stats = org.beehive.jitnn.ops.GradStats.apply(grads, null, maxNorm, true);
+            Tensor factor = stats.narrow(0, 1, 1);
+            for (Tensor p : owners) {
+                p.setGrad(p.grad().mul(factor));
             }
-            if (flags.isEmpty()) {
-                return Tensor.zeros(1);
-            }
-            return Tensor.cat(0, flags.toArray(new Tensor[0])).max(0, true);
+            return stats.narrow(0, 0, 1).reshape();
         }
     }
 
