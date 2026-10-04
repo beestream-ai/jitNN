@@ -11,11 +11,13 @@ System properties, read once at start-up.
 | `jitnn.plan.cache` | `16` | compiled plans kept; the least recently used is closed, saving parameters first |
 | `jitnn.cudaGraph` | `true` | on CUDA, capture each plan as a CUDA graph and replay it |
 | `jitnn.verbose` | `false` | log every compiled plan: device, nodes, tasks, build time |
-| `jitnn.profile` | `false` | enable TornadoVM's profiler (`Engine.lastProfile()` gives kernel time) |
+| `jitnn.profile` | `false` | enable TornadoVM's profiler: `Engine.lastProfile()` gives the last step's kernel time, `Engine.kernelBreakdown()` the device time per operator task (GEMMs labelled with their shape); on CUDA also set `jitnn.cudaGraph=false`, as the profiler reports no kernel time under CUDA graphs |
 | `jitnn.gemm` | `auto` | force a GEMM kernel: `simdgroup`, `128`, `64`, `16` |
 | `jitnn.transpose` | `32` | transpose kernel: `32` (32x32 tiles), `16`, or `naive` |
 | `jitnn.graph.maxTasks` | `40` | tasks per TornadoVM task graph; longer traces become a chain of graphs (a graph holds at most 256 tasks and 8 KiB of bytecode) |
 | `jitnn.reuseBuffers` | `true` | reuse dead backward-pass and inference buffers inside a compiled step |
+| `jitnn.splitK` | `true` | split the reduction of A^T B GEMMs (weight gradients) whose output fills too few work-groups, summing the partials in order |
+| `jitnn.fusedAttention` | `true` | FP32 attention with head dimensions up to 128 runs the fused FlashAttention-style kernels; `false` composes batched GEMMs and a softmax |
 
 ## GEMM selection (`auto`)
 
@@ -27,6 +29,9 @@ System properties, read once at start-up.
 | otherwise | `gemm`: 16x16 tiles, one output per thread |
 
 All variants take both transposes and an epilogue (bias, ReLU) without materialising anything.
+Half-precision operands (FP16, BF16) use the same choice with kernels that convert on load: the
+simdgroup kernels on Metal, the 64x64 register-blocked ones elsewhere. A^T B products with a long
+reduction and a small output (weight gradients) are split along K into up to 32 slices.
 
 ## Test properties
 
@@ -41,6 +46,8 @@ Maven properties of the `accel-tests` profile.
 | `jitnn.mnist` | empty | MNIST directory; the MNIST gate is skipped when empty |
 | `jitnn.cifar10` | empty | directory holding `cifar-10-batches-bin`; the CIFAR-10 gates are skipped when empty |
 | `jitnn.text` | empty | directory holding `corpus.txt` and the transformer references; the transformer gates are skipped when empty |
+| `jitnn.bench.dim`, `.layers`, `.seq`, `.batch` | 128, 4, 128, 16 | model and batch sizes of `TransformerBenchAccelTest` |
+| `jitnn.bench.shapes`, `jitnn.bench.tasks` | `false`, empty | with `jitnn.test.profile`, list the device time per GEMM shape, or per task of the operators whose name contains the given text |
 | `jitnn.transformer.steps` | 300 | training steps of the transformer gates (must match the PyTorch reference) |
 | `jitnn.test.extra` | empty | extra JVM arguments, e.g. `-Dtornado.printKernel=True` |
 | `jitnn.test.deviceMemory` | `12GB` | TornadoVM's device-memory budget (`tornado.device.memory`, whose own default is 4GB) |

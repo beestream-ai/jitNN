@@ -77,22 +77,36 @@ On CIFAR-10 (3x32x32 inputs, batch 64, one epoch), steady-state steps:
 
 ## Transformer training steps (batch 16 x 128 tokens, 4 layers of 128, AdamW, clipping)
 
+Steady-state steps of the transformer gates, before and after the wave 3 performance pass:
+
 | | Metal (M4 Pro) | OpenCL (M4 Pro) | CUDA (A10) |
 |---|---|---|---|
-| GPT-2 (0.84M parameters) | 95 ms (21.6k tokens/s) | 92 ms (22.2k tokens/s) | 21.7 ms (94k tokens/s) |
-| Llama-style (0.87M parameters) | 93 ms (22.0k tokens/s) | 85 ms (24.1k tokens/s) | 27.8 ms (74k tokens/s) |
-| BERT, masked LM (0.86M parameters) | 107 ms (19.2k tokens/s) | 96 ms (21.3k tokens/s) | 22.7 ms (90k tokens/s) |
+| GPT-2 (0.84M parameters) | 95 → 87 ms | 92 → 51 ms | 21.7 → 12.7 ms |
+| Llama-style (0.87M parameters) | 93 → 88 ms | 85 → 53 ms | 27.8 → 14.8 ms |
+| BERT, masked LM (0.86M parameters) | 107 → 101 ms | 96 → 57 ms | 22.7 → 14.4 ms |
+| GPT-2, BF16 autocast | 147 → 90 ms | 96 → 54 ms | 14.1 → 6.7 ms |
+| Llama, FP16 autocast with loss scaling | 210 → 99 ms | 119 → 67 ms | 29.9 → 7.1 ms |
+| BERT, FP16 autocast with loss scaling | 218 → 104 ms | 127 → 63 ms | 15.2 → 7.9 ms |
 
-With autocast, the A10 runs GPT-2 (BF16) in 14.1 ms and BERT (FP16 with loss scaling) in
-15.2 ms, about a third faster than FP32, and Llama in 29.9 ms (27.5 ms in FP32). On the M4 Pro the
-same steps are slower than FP32 (96-127 ms on OpenCL, 147-173 ms on Metal): each product gains
-cast kernels for its operands and gradients, kernel dispatch dominates on Apple GPUs, and the
-half-precision GEMMs convert as they load, without matrix units yet. Running them on simdgroup
-matrices and tensor cores is a later optimisation.
+The loss curves are unchanged: every gate still matches PyTorch to four digits (FP32) or within
+0.1% (mixed precision).
 
-These models are small, so a step is dominated by kernel dispatch (several hundred kernels) rather
-than arithmetic. Attention runs as two batched GEMMs around a fused scaled, causal softmax; a fused
-attention kernel is the next step.
+What the pass changed, found with the per-operator profile (`TransformerBenchAccelTest` with
+`-Djitnn.test.profile=true`, `Engine.kernelBreakdown()`):
+
+| Change | Effect (GPT-2 step) |
+|---|---|
+| Split-K for weight gradients: A^T B with K = 2048 tokens and a 128-512 output used 4-32 work-groups | those GEMMs 3x faster; device time 82 → 58 ms on Metal |
+| Fused attention (FlashAttention-style tiling, online softmax, deterministic backward with recomputation; thread per output element, padded local rows) | scores never stored; attention kernels 30 → 13 ms on Metal |
+| Clipping and loss unscaling inside the optimiser update, from one gradient-statistics operator (one reduction per gradient) | 555 → 377 launches |
+| Strided attention: the fused kernels read q, k, v from the packed projection (or [B, T, H, d]) and write the merged heads; RoPE on [B, T, H, d] | no permutes, splits or merges around attention; 377 → 317 launches |
+| Half-precision operands on Metal's simdgroup matrix units | mixed precision no slower than FP32 on Metal |
+
+A step of these small models is still dominated by the number of kernels on Apple GPUs (about
+0.15 ms of dispatch each, TornadoVM J11). On the A10, with CUDA graphs, a GPT-2 step spends 7.5
+ms in 301 kernels; the GEMMs are about 3 ms of it, the attention kernels 1.4 ms, and the
+per-parameter optimiser and gradient-statistics kernels 0.9 ms (a fused multi-tensor optimiser
+step is the next target, with tensor-core GEMMs for half precision).
 
 Device memory for intermediates, with and without buffer reuse:
 

@@ -103,7 +103,7 @@ end (MNIST, Adam).
 | MLP training, batch 128 | 210k samples/s | 28.7k samples/s | |
 | ResNet-18 training, batch 64 | 160 ms/step | 165 ms/step | 54 ms/step |
 | MobileNetV2 training, batch 64 | | 148 ms/step | 62 ms/step |
-| GPT-2 style training, 16 x 128 tokens, 0.84M parameters | 21.7 ms/step (A10) | 95 ms/step | |
+| GPT-2 style training, 16 x 128 tokens, 0.84M parameters | 12.7 ms/step (A10; 6.7 with BF16) | 87 ms/step | |
 
 On Apple GPUs a step is dominated by TornadoVM's per-kernel dispatch cost (about 0.15 ms per
 kernel, 268 kernels in a ResNet-18 step), and the convolutions share the scalar GEMM's ~2 TFLOP/s
