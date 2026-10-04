@@ -78,5 +78,12 @@ class BaselineBenchAccelTest {
             compute("gemm " + s, 2.0 * s * s * s, () -> x.matmul(y));
             compute("gemm " + s + " B^T", 2.0 * s * s * s, () -> x.matmul(y, false, true));
         }
+        // half-precision operands (cast inside the timed step), FP32 accumulation: tensor cores on CUDA
+        for (int s : new int[] { 1024, 2048, 4096 }) {
+            Tensor x = persistent(s, s);
+            Tensor y = persistent(s, s);
+            compute("gemm " + s + " fp16", 2.0 * s * s * s, () -> x.half().matmul(y.half()));
+            compute("gemm " + s + " bf16", 2.0 * s * s * s, () -> x.bfloat16().matmul(y.bfloat16()));
+        }
     }
 }
