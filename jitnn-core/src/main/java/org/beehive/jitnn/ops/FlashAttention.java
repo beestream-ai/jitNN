@@ -12,15 +12,28 @@ import org.beehive.jitnn.kernels.FlashKernels64;
 
 import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
 /**
  * Fused scaled dot-product attention ({@link FlashKernels32}, {@link FlashKernels64} and
- * {@link FlashKernels128} by head dimension): softmax(q k^T * scale + mask) v
- * without storing the scores. q [B, H, T, d] (or [Z, T, d]), k and v [..., S, d] with the same
- * leading dimensions; the optional additive mask broadcasts to [B, H, T, S]. Inputs [q, k, v] or
- * [q, k, v, mask]; outputs [o, lse]. iattr = [Z, T, S, d, causal, heads, mb, mh, mt, ms]; fattr = [scale].
+ * {@link FlashKernels128} by head dimension): softmax(q k^T * scale + mask) v without storing the
+ * scores, in one of three layouts that the kernels read and write through strides:
+ * <ul>
+ * <li>{@link #BHTD}: q [B, H, T, d], k and v [B, H, S, d], o [B, H, T, d] (also [Z, T, d]);</li>
+ * <li>{@link #PACKED}: one projection qkv [B, T, 3 * H * d] holding q, k and v side by side
+ * (self-attention), o [B, T, H * d]; the gradient is one packed tensor;</li>
+ * <li>{@link #BTHD}: q [B, T, H, d], k and v [B, S, H, d], o [B, T, H, d].</li>
+ * </ul>
+ * The additive mask broadcasts to [B, H, T, S]. Inputs [q, k, v] or [qkv], then the optional
+ * mask; outputs [o, lse]. iattr = [Z, T, S, d, causal, heads, mb, mh, mt, ms, layout]; fattr = [scale].
  */
 public final class FlashAttention implements Op {
+
+    public static final int BHTD = 0;
+    public static final int PACKED = 1;
+    public static final int BTHD = 2;
+    /** Largest head dimension of the fused kernels. */
+    public static final int MAX_HEAD = FlashKernels128.D;
 
     static final FlashAttention OP = new FlashAttention();
     static final Backward BACKWARD = new Backward();
@@ -28,30 +41,109 @@ public final class FlashAttention implements Op {
     private FlashAttention() {
     }
 
-    /** True when the fused kernels handle these operands (FP32, head dimension at most 128, v as wide as q). */
+    /** True when the fused kernels handle q, k, v in the [B, H, T, d] layout (FP32, v as wide as q). */
     public static boolean supports(Tensor q, Tensor k, Tensor v) {
-        return q.dtype() == DType.F32 && k.dtype() == DType.F32 && v.dtype() == DType.F32 && q.rank() >= 3 && q.rank() <= 4 && q.dim(-1) <= FlashKernels128.D
+        return q.dtype() == DType.F32 && k.dtype() == DType.F32 && v.dtype() == DType.F32 && q.rank() >= 3 && q.rank() <= 4 && q.dim(-1) <= MAX_HEAD
                 && v.dim(-1) == q.dim(-1) && k.dim(-1) == q.dim(-1) && k.shape().equals(v.shape()) && k.rank() == q.rank();
     }
 
+    /** q [B, H, T, d] (or [Z, T, d]), k and v [.., S, d]: o [B, H, T, d]. */
     public static Tensor apply(Tensor q, Tensor k, Tensor v, Tensor mask, boolean causal, float scale) {
         int t = q.dim(-2);
         int s = k.dim(-2);
         int d = q.dim(-1);
-        int z = q.numel() / (t * d);
         int heads = q.rank() == 4 ? q.dim(1) : 1;
-        int batch = z / heads;
+        return record(new Tensor[] { q, k, v }, q.shape(), q.numel() / (t * d), t, s, d, heads, mask, causal, scale, BHTD);
+    }
+
+    /** Self-attention on a packed projection qkv [B, T, 3 * heads * d]: o [B, T, heads * d]. */
+    public static Tensor packed(Tensor qkv, int heads, Tensor mask, boolean causal, float scale) {
+        Checks.f32(qkv);
+        Checks.rank(qkv, 3);
+        int b = qkv.dim(0);
+        int t = qkv.dim(1);
+        int dim = qkv.dim(2) / 3;
+        int d = dim / heads;
+        if (3 * dim != qkv.dim(2) || d * heads != dim || d > MAX_HEAD) {
+            throw new IllegalArgumentException("packed attention: " + qkv.shape() + " with " + heads + " heads");
+        }
+        return record(new Tensor[] { qkv }, Shape.of(b, t, dim), b * heads, t, t, d, heads, mask, causal, scale, PACKED);
+    }
+
+    /** q [B, T, H, d], k and v [B, S, H, d]: o [B, T, H, d]. */
+    public static Tensor bthd(Tensor q, Tensor k, Tensor v, Tensor mask, boolean causal, float scale) {
+        Checks.f32(q, k, v);
+        Checks.rank(q, 4);
+        if (!k.shape().equals(v.shape()) || k.rank() != 4 || k.dim(2) != q.dim(2) || k.dim(3) != q.dim(3) || q.dim(3) > MAX_HEAD) {
+            throw new IllegalArgumentException("attention [B, T, H, d]: " + q.shape() + ", " + k.shape() + ", " + v.shape());
+        }
+        int heads = q.dim(2);
+        return record(new Tensor[] { q, k, v }, q.shape(), q.dim(0) * heads, q.dim(1), k.dim(1), q.dim(3), heads, mask, causal, scale, BTHD);
+    }
+
+    private static Tensor record(Tensor[] qkv, Shape outShape, int z, int t, int s, int d, int heads, Tensor mask, boolean causal, float scale, int layout) {
         int[] strides = { 0, 0, 0, 0 };
+        Tensor[] in = qkv;
         if (mask != null) {
             Checks.f32(mask);
-            strides = mask.shape().broadcastStrides(Shape.of(batch, heads, t, s));
+            strides = mask.shape().broadcastStrides(Shape.of(z / heads, heads, t, s));
+            in = java.util.Arrays.copyOf(qkv, qkv.length + 1);
+            in[qkv.length] = mask;
         }
-        Tensor o = Tensor.result(q.shape(), DType.F32);
+        Tensor o = Tensor.result(outShape, DType.F32);
         Tensor lse = Tensor.result(Shape.of(z * t), DType.F32);
-        Tensor[] in = mask != null ? new Tensor[] { q, k, v, mask } : new Tensor[] { q, k, v };
-        int[] iattr = { z, t, s, d, causal ? 1 : 0, heads, strides[0], strides[1], strides[2], strides[3] };
+        int[] iattr = { z, t, s, d, causal ? 1 : 0, heads, strides[0], strides[1], strides[2], strides[3], layout };
         Tensor.record(OP, in, new Tensor[] { o, lse }, iattr, new float[] { scale }, true);
         return o;
+    }
+
+    /** [heads, the mask strides, then the (offset, batch, head, token) strides of q, k, v and o]. */
+    static int[] meta(int[] a) {
+        int t = a[1];
+        int s = a[2];
+        int d = a[3];
+        int heads = a[5];
+        int dim = heads * d;
+        int[] q;
+        int[] k;
+        int[] v;
+        int[] o;
+        switch (a[10]) {
+            case PACKED -> {
+                q = new int[] { 0, t * 3 * dim, d, 3 * dim };
+                k = new int[] { dim, t * 3 * dim, d, 3 * dim };
+                v = new int[] { 2 * dim, t * 3 * dim, d, 3 * dim };
+                o = new int[] { 0, t * dim, d, dim };
+            }
+            case BTHD -> {
+                q = new int[] { 0, t * dim, d, dim };
+                k = new int[] { 0, s * dim, d, dim };
+                v = k.clone();
+                o = q.clone();
+            }
+            default -> {
+                q = new int[] { 0, heads * t * d, t * d, d };
+                k = new int[] { 0, heads * s * d, s * d, d };
+                v = k.clone();
+                o = q.clone();
+            }
+        }
+        int[] m = new int[21];
+        m[0] = heads;
+        System.arraycopy(a, 6, m, 1, 4);
+        System.arraycopy(q, 0, m, 5, 4);
+        System.arraycopy(k, 0, m, 9, 4);
+        System.arraycopy(v, 0, m, 13, 4);
+        System.arraycopy(o, 0, m, 17, 4);
+        return m;
+    }
+
+    /** Index of row {@code row} of problem z in operand {@code which} (0 q, 1 k, 2 v, 3 o). */
+    static int at(int[] meta, int which, int z, int row) {
+        int b = z / meta[0];
+        int h = z - b * meta[0];
+        int m = 5 + 4 * which;
+        return meta[m] + b * meta[m + 1] + h * meta[m + 2] + row * meta[m + 3];
     }
 
     @Override
@@ -59,8 +151,12 @@ public final class FlashAttention implements Op {
         return "flash_attention";
     }
 
-    private static int groups(int z, int rows, int block) {
-        return z * Emitter.ceilDiv(rows, block);
+    private static int rowsPerGroup(int d) {
+        return d <= FlashKernels32.D ? FlashKernels32.ROWS : (d <= FlashKernels64.D ? FlashKernels64.ROWS : FlashKernels128.ROWS);
+    }
+
+    private static WorkerGrid grid(int z, int rows, int d) {
+        return Emitter.blocks1D(z * Emitter.ceilDiv(rows, rowsPerGroup(d)), FlashKernels32.THREADS);
     }
 
     @Override
@@ -71,62 +167,68 @@ public final class FlashAttention implements Op {
         int s = a[2];
         int d = a[3];
         int causal = a[4];
-        int heads = a[5];
-        int mb = a[6];
-        int mh = a[7];
-        int mt = a[8];
-        int ms = a[9];
         float scale = n.fattr[0];
-        uk.ac.manchester.tornado.api.types.arrays.IntArray meta = e.constant(heads, mb, mh, mt, ms);
+        IntArray meta = e.constant(meta(a));
+        boolean packed = a[10] == PACKED;
+        int qkvCount = packed ? 1 : 3;
         FloatArray q = e.f32(n.in(0));
-        FloatArray k = e.f32(n.in(1));
-        FloatArray v = e.f32(n.in(2));
-        int hasMask = n.inputs.length > 3 ? 1 : 0;
-        FloatArray mask = hasMask != 0 ? e.f32(n.in(3)) : e.dummyF32();
+        FloatArray k = packed ? q : e.f32(n.in(1));
+        FloatArray v = packed ? q : e.f32(n.in(2));
+        int hasMask = n.inputs.length > qkvCount ? 1 : 0;
+        FloatArray mask = hasMask != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
         FloatArray o = e.f32(n.out(0));
         FloatArray lse = e.f32(n.out(1));
-        int rows = d <= FlashKernels32.D ? FlashKernels32.ROWS : (d <= FlashKernels64.D ? FlashKernels64.ROWS : FlashKernels128.ROWS);
-        WorkerGrid grid = Emitter.blocks1D(groups(z, t, rows), FlashKernels32.THREADS);
+        WorkerGrid g0 = grid(z, t, d);
         if (d <= FlashKernels32.D) {
-            e.task(grid, (g, id) -> g.task(id, FlashKernels32::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
+            e.task(g0, (g, id) -> g.task(id, FlashKernels32::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
         } else if (d <= FlashKernels64.D) {
-            e.task(grid, (g, id) -> g.task(id, FlashKernels64::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
+            e.task(g0, (g, id) -> g.task(id, FlashKernels64::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
         } else {
-            e.task(grid, (g, id) -> g.task(id, FlashKernels128::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
+            e.task(g0, (g, id) -> g.task(id, FlashKernels128::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
         }
     }
 
-    /** Scores, masked and scaled, of one (z, i) row in double; NEGATIVE_INFINITY where masked. */
-    static double[] scores(Node n, int zi, int i) {
-        int[] a = n.iattr;
-        int t = a[1];
-        int s = a[2];
-        int d = a[3];
-        boolean causal = a[4] != 0;
-        int heads = a[5];
-        double scale = n.fattr[0];
-        FloatArray q = (FloatArray) n.in(0).storage().host();
-        FloatArray k = (FloatArray) n.in(1).storage().host();
-        boolean hasMask = n.op == OP ? n.inputs.length > 3 : a[10] != 0;
-        FloatArray mask = hasMask ? (FloatArray) n.in(3).storage().host() : null;
-        double[] row = new double[s];
-        for (int j = 0; j < s; j++) {
-            if (causal && j > i) {
-                row[j] = Double.NEGATIVE_INFINITY;
-                continue;
-            }
-            double dot = 0;
-            for (int c = 0; c < d; c++) {
-                dot += (double) q.get((zi * t + i) * d + c) * k.get((zi * s + j) * d + c);
-            }
-            row[j] = dot * scale;
-            if (mask != null) {
-                int b = zi / heads;
-                int h = zi - b * heads;
-                row[j] += mask.get(b * a[6] + h * a[7] + i * a[8] + j * a[9]);
-            }
+    /** Host views of q, k, v and the mask, read through the layout. */
+    private record Host(int[] meta, FloatArray q, FloatArray k, FloatArray v, FloatArray mask) {
+
+        static Host of(Node n, int maskAt) {
+            boolean packed = n.iattr[10] == PACKED;
+            FloatArray q = (FloatArray) n.in(0).storage().host();
+            FloatArray k = packed ? q : (FloatArray) n.in(1).storage().host();
+            FloatArray v = packed ? q : (FloatArray) n.in(2).storage().host();
+            FloatArray mask = maskAt >= 0 ? (FloatArray) n.in(maskAt).storage().host() : null;
+            return new Host(FlashAttention.meta(n.iattr), q, k, v, mask);
         }
-        return row;
+
+        double get(int which, int z, int row, int c) {
+            FloatArray arr = which == 0 ? q : (which == 1 ? k : v);
+            return arr.get(at(meta, which, z, row) + c);
+        }
+
+        /** Masked, scaled scores of query row i of problem z in double; NEGATIVE_INFINITY where masked. */
+        double[] scores(int[] a, double scale, int z, int i) {
+            int s = a[2];
+            int d = a[3];
+            boolean causal = a[4] != 0;
+            double[] row = new double[s];
+            for (int j = 0; j < s; j++) {
+                if (causal && j > i) {
+                    row[j] = Double.NEGATIVE_INFINITY;
+                    continue;
+                }
+                double dot = 0;
+                for (int c = 0; c < d; c++) {
+                    dot += get(0, z, i, c) * get(1, z, j, c);
+                }
+                row[j] = dot * scale;
+                if (mask != null) {
+                    int b = z / a[5];
+                    int h = z - b * a[5];
+                    row[j] += mask.get(b * a[6] + h * a[7] + i * a[8] + j * a[9]);
+                }
+            }
+            return row;
+        }
     }
 
     /** Softmax of a score row in double. */
@@ -154,12 +256,13 @@ public final class FlashAttention implements Op {
         int t = a[1];
         int s = a[2];
         int d = a[3];
-        FloatArray v = (FloatArray) n.in(2).storage().host();
+        int qkvCount = a[10] == PACKED ? 1 : 3;
+        Host h = Host.of(n, n.inputs.length > qkvCount ? qkvCount : -1);
         FloatArray o = (FloatArray) n.out(0).storage().host();
         FloatArray lse = (FloatArray) n.out(1).storage().host();
         for (int zi = 0; zi < z; zi++) {
             for (int i = 0; i < t; i++) {
-                double[] row = scores(n, zi, i);
+                double[] row = h.scores(a, n.fattr[0], zi, i);
                 double m = Double.NEGATIVE_INFINITY;
                 for (double x : row) {
                     m = Math.max(m, x);
@@ -172,9 +275,9 @@ public final class FlashAttention implements Op {
                 for (int c = 0; c < d; c++) {
                     double acc = 0;
                     for (int j = 0; j < s; j++) {
-                        acc += p[j] * v.get((zi * s + j) * d + c);
+                        acc += p[j] * h.get(2, zi, j, c);
                     }
-                    o.set((zi * t + i) * d + c, (float) acc);
+                    o.set(at(h.meta(), 3, zi, i) + c, (float) acc);
                 }
                 lse.set(zi * t + i, (float) (m + Math.log(sum)));
             }
@@ -183,21 +286,23 @@ public final class FlashAttention implements Op {
 
     @Override
     public Tensor[] backward(Node n, Tensor gy) {
-        Tensor q = n.in(0);
-        Tensor k = n.in(1);
-        Tensor v = n.in(2);
-        boolean hasMask = n.inputs.length > 3;
-        Tensor dq = Tensor.result(q.shape(), DType.F32);
-        Tensor dk = Tensor.result(k.shape(), DType.F32);
-        Tensor dv = Tensor.result(v.shape(), DType.F32);
-        Tensor[] in = hasMask ? new Tensor[] { q, k, v, n.in(3), n.out(0), n.out(1), gy } : new Tensor[] { q, k, v, n.out(0), n.out(1), gy };
-        int[] iattr = java.util.Arrays.copyOf(n.iattr, 11);
-        iattr[10] = hasMask ? 1 : 0;
-        Tensor.record(BACKWARD, in, new Tensor[] { dq, dk, dv }, iattr, n.fattr.clone(), true);
-        return hasMask ? new Tensor[] { dq, dk, dv, null } : new Tensor[] { dq, dk, dv };
+        int qkvCount = n.iattr[10] == PACKED ? 1 : 3;
+        boolean hasMask = n.inputs.length > qkvCount;
+        Tensor[] grads = new Tensor[qkvCount];
+        for (int i = 0; i < qkvCount; i++) {
+            grads[i] = Tensor.result(n.in(i).shape(), DType.F32);
+        }
+        Tensor[] in = java.util.Arrays.copyOf(n.inputs, n.inputs.length + 3);
+        in[n.inputs.length] = n.out(0);
+        in[n.inputs.length + 1] = n.out(1);
+        in[n.inputs.length + 2] = gy;
+        int[] iattr = java.util.Arrays.copyOf(n.iattr, 12);
+        iattr[11] = hasMask ? 1 : 0;
+        Tensor.record(BACKWARD, in, grads, iattr, n.fattr.clone(), true);
+        return java.util.Arrays.copyOf(grads, n.inputs.length);
     }
 
-    /** Inputs [q, k, v, (mask), o, lse, dO]; outputs [dq, dk, dv]. iattr as the forward plus [hasMask]. */
+    /** Inputs [q, k, v | qkv, (mask), o, lse, dO]; outputs [dq, dk, dv] or [dqkv]. iattr as the forward plus [hasMask]. */
     static final class Backward implements Op {
 
         @Override
@@ -213,31 +318,27 @@ public final class FlashAttention implements Op {
             int s = a[2];
             int d = a[3];
             int causal = a[4];
-            int heads = a[5];
-            int mb = a[6];
-            int mh = a[7];
-            int mt = a[8];
-            int ms = a[9];
-            int hasMask = a[10];
+            int hasMask = a[11];
             float scale = n.fattr[0];
-            uk.ac.manchester.tornado.api.types.arrays.IntArray meta = e.constant(heads, mb, mh, mt, ms);
-            int at = hasMask != 0 ? 4 : 3;
+            IntArray meta = e.constant(meta(a));
+            boolean packed = a[10] == PACKED;
+            int qkvCount = packed ? 1 : 3;
+            int at = qkvCount + hasMask;
             FloatArray q = e.f32(n.in(0));
-            FloatArray k = e.f32(n.in(1));
-            FloatArray v = e.f32(n.in(2));
-            FloatArray mask = hasMask != 0 ? e.f32(n.in(3)) : e.dummyF32();
+            FloatArray k = packed ? q : e.f32(n.in(1));
+            FloatArray v = packed ? q : e.f32(n.in(2));
+            FloatArray mask = hasMask != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
             FloatArray o = e.f32(n.in(at));
             FloatArray lse = e.f32(n.in(at + 1));
             FloatArray dout = e.f32(n.in(at + 2));
             FloatArray dq = e.f32(n.out(0));
-            FloatArray dk = e.f32(n.out(1));
-            FloatArray dv = e.f32(n.out(2));
+            FloatArray dk = packed ? dq : e.f32(n.out(1));
+            FloatArray dv = packed ? dq : e.f32(n.out(2));
             int rows = z * t;
             FloatArray delta = e.scratch(rows);
-            e.task(Emitter.grid1D(rows), (g, id) -> g.task(id, FlashKernels64::delta, e.context(), dout, o, delta, d, rows));
-            int rowsPer = d <= FlashKernels32.D ? FlashKernels32.ROWS : (d <= FlashKernels64.D ? FlashKernels64.ROWS : FlashKernels128.ROWS);
-            WorkerGrid qGrid = Emitter.blocks1D(groups(z, t, rowsPer), FlashKernels32.THREADS);
-            WorkerGrid kGrid = Emitter.blocks1D(groups(z, s, rowsPer), FlashKernels32.THREADS);
+            e.task(Emitter.grid1D(rows), (g, id) -> g.task(id, FlashKernels64::delta, e.context(), dout, o, delta, meta, t, d, rows));
+            WorkerGrid qGrid = grid(z, t, d);
+            WorkerGrid kGrid = grid(z, s, d);
             if (d <= FlashKernels32.D) {
                 e.task(qGrid, (g, id) -> g.task(id, FlashKernels32::backwardQ, e.context(), q, k, v, mask, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
                 e.task(kGrid, (g, id) -> g.task(id, FlashKernels32::backwardKV, e.context(), q, k, v, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));
@@ -258,43 +359,50 @@ public final class FlashAttention implements Op {
             int s = a[2];
             int d = a[3];
             double scale = n.fattr[0];
-            int at = a[10] != 0 ? 4 : 3;
-            FloatArray q = (FloatArray) n.in(0).storage().host();
-            FloatArray k = (FloatArray) n.in(1).storage().host();
-            FloatArray v = (FloatArray) n.in(2).storage().host();
+            boolean packed = a[10] == PACKED;
+            int qkvCount = packed ? 1 : 3;
+            int at = qkvCount + a[11];
+            Host h = Host.of(n, a[11] != 0 ? qkvCount : -1);
+            int[] meta = h.meta();
             FloatArray dout = (FloatArray) n.in(at + 2).storage().host();
-            double[] dq = new double[z * t * d];
-            double[] dk = new double[z * s * d];
-            double[] dv = new double[z * s * d];
+            FloatArray[] out = new FloatArray[3];
+            for (int w = 0; w < 3; w++) {
+                out[w] = (FloatArray) n.out(packed ? 0 : w).storage().host();
+            }
+            double[][] acc = { new double[out[0].getSize()], new double[out[1].getSize()], new double[out[2].getSize()] };
             for (int zi = 0; zi < z; zi++) {
                 for (int i = 0; i < t; i++) {
-                    double[] p = softmax(scores(n, zi, i));
+                    double[] p = softmax(h.scores(a, scale, zi, i));
                     double[] dp = new double[s];
                     double dot = 0;
                     for (int j = 0; j < s; j++) {
                         for (int c = 0; c < d; c++) {
-                            dp[j] += (double) dout.get((zi * t + i) * d + c) * v.get((zi * s + j) * d + c);
-                            dv[(zi * s + j) * d + c] += p[j] * dout.get((zi * t + i) * d + c);
+                            double g = dout.get(at(meta, 3, zi, i) + c);
+                            dp[j] += g * h.get(2, zi, j, c);
+                            acc[2][at(meta, 2, zi, j) + c] += p[j] * g;
                         }
                         dot += p[j] * dp[j];
                     }
                     for (int j = 0; j < s; j++) {
                         double g = p[j] * (dp[j] - dot) * scale;
                         for (int c = 0; c < d; c++) {
-                            dq[(zi * t + i) * d + c] += g * k.get((zi * s + j) * d + c);
-                            dk[(zi * s + j) * d + c] += g * q.get((zi * t + i) * d + c);
+                            acc[0][at(meta, 0, zi, i) + c] += g * h.get(1, zi, j, c);
+                            acc[1][at(meta, 1, zi, j) + c] += g * h.get(0, zi, i, c);
                         }
                     }
                 }
             }
-            write((FloatArray) n.out(0).storage().host(), dq);
-            write((FloatArray) n.out(1).storage().host(), dk);
-            write((FloatArray) n.out(2).storage().host(), dv);
-        }
-
-        private static void write(FloatArray out, double[] values) {
-            for (int i = 0; i < values.length; i++) {
-                out.set(i, (float) values[i]);
+            if (packed) {
+                // q, k and v occupy disjoint columns of the one gradient tensor
+                for (int i = 0; i < out[0].getSize(); i++) {
+                    out[0].set(i, (float) (acc[0][i] + acc[1][i] + acc[2][i]));
+                }
+            } else {
+                for (int w = 0; w < 3; w++) {
+                    for (int i = 0; i < out[w].getSize(); i++) {
+                        out[w].set(i, (float) acc[w][i]);
+                    }
+                }
             }
         }
     }

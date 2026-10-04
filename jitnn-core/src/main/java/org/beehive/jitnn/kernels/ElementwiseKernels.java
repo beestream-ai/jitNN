@@ -253,18 +253,19 @@ public final class ElementwiseKernels {
     }
 
     /**
-     * Rotary position embedding over x [..., T, D]: each pair (a, b) of a row at position
-     * t = row % T + offset is rotated by angle t * freq_i, using the tables cos/sin [maxT, D/2].
+     * Rotary position embedding: each pair (a, b) of a row at position t = (row / group) % T +
+     * offset is rotated by angle t * freq_i, using the tables cos/sin [maxT, D/2]; group = 1 for
+     * x [..., T, D] and H for x [..., T, H, D].
      * Pairs are (i, i + D/2) when {@code interleaved} is 0 (rotate-half) or (2i, 2i + 1)
      * otherwise. {@code sign} = -1 rotates backwards (the gradient). n = numel / 2.
      */
-    public static void rope(KernelContext kc, FloatArray x, FloatArray out, FloatArray cos, FloatArray sin, int seq, int dim, int offset, int interleaved, float sign, int n) {
+    public static void rope(KernelContext kc, FloatArray x, FloatArray out, FloatArray cos, FloatArray sin, int seq, int dim, int group, int offset, int interleaved, float sign, int n) {
         int i = kc.globalIdx;
         if (i < n) {
             int half = dim / 2;
             int row = i / half;
             int p = i - row * half;
-            int t = row % seq + offset;
+            int t = (row / group) % seq + offset;
             int ia;
             int ib;
             if (interleaved != 0) {

@@ -69,21 +69,18 @@ public final class Llama extends Module {
             this.w2 = child(new Linear(hidden, dim, false, seeds.next()));
         }
 
-        private Tensor heads(Tensor y, int b, int t) {
-            return y.reshape(b, t, heads, -1).permute(0, 2, 1, 3);
-        }
-
         @Override
         public Tensor forward(Tensor x) {
             int b = x.dim(0);
             int t = x.dim(1);
             int dim = x.dim(2);
             Tensor n = attnNorm.forward(x);
-            Tensor q = F.rope(heads(wq.forward(n), b, t), ropeBase, 0, false);
-            Tensor k = F.rope(heads(wk.forward(n), b, t), ropeBase, 0, false);
-            Tensor v = heads(wv.forward(n), b, t);
-            Tensor y = F.scaledDotProductAttention(q, k, v, null, true, -1.0f);
-            x = x.add(wo.forward(y.permute(0, 2, 1, 3).reshape(b, t, dim)));
+            // [B, T, H, hd] views of the projections: no permutes around attention
+            Tensor q = F.ropeHeads(wq.forward(n).reshape(b, t, heads, -1), ropeBase, 0, false);
+            Tensor k = F.ropeHeads(wk.forward(n).reshape(b, t, heads, -1), ropeBase, 0, false);
+            Tensor v = wv.forward(n).reshape(b, t, heads, -1);
+            Tensor y = F.scaledDotProductAttentionBTHD(q, k, v, null, true, -1.0f);
+            x = x.add(wo.forward(y.reshape(b, t, dim)));
             Tensor m = ffnNorm.forward(x);
             return x.add(w2.forward(F.swiglu(w1.forward(m), w3.forward(m))));
         }

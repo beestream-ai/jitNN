@@ -153,6 +153,11 @@ public final class F {
         if (hd * heads != dim) {
             throw new IllegalArgumentException(dim + " features do not split into " + heads + " heads");
         }
+        if (FUSED_ATTENTION && hd <= FlashAttention.MAX_HEAD) {
+            // the fused kernels read q, k and v straight from the packed projection and write [B, T, D]
+            Tensor y = FlashAttention.packed(linear(x, wqkv, bqkv), heads, mask, causal, (float) (1.0 / Math.sqrt(hd)));
+            return linear(y, wout, bout);
+        }
         // [B, T, 3, H, hd] -> [3, B, H, T, hd]
         Tensor[] qkv = linear(x, wqkv, bqkv).reshape(b, t, 3, heads, hd).permute(2, 0, 3, 1, 4).chunk(3, 0);
         Tensor q = qkv[0].reshape(b, heads, t, hd);
@@ -160,6 +165,25 @@ public final class F {
         Tensor v = qkv[2].reshape(b, heads, t, hd);
         Tensor y = scaledDotProductAttention(q, k, v, mask, causal, -1.0f);
         return linear(y.permute(0, 2, 1, 3).reshape(b, t, dim), wout, bout);
+    }
+
+    /**
+     * Scaled dot-product attention on q [B, T, H, E], k and v [B, S, H, E] (heads after tokens, as
+     * the projections produce them), returning [B, T, H, E]; otherwise as
+     * {@link #scaledDotProductAttention}. The fused kernels read this layout directly.
+     */
+    public static Tensor scaledDotProductAttentionBTHD(Tensor q, Tensor k, Tensor v, Tensor mask, boolean causal, float scale) {
+        float s = scale < 0 ? (float) (1.0 / Math.sqrt(q.dim(-1))) : scale;
+        if (FUSED_ATTENTION && q.dtype() == DType.F32 && q.dim(-1) <= FlashAttention.MAX_HEAD && k.shape().equals(v.shape())) {
+            return FlashAttention.bthd(q, k, v, mask, causal, s);
+        }
+        Tensor y = scaledDotProductAttention(q.permute(0, 2, 1, 3), k.permute(0, 2, 1, 3), v.permute(0, 2, 1, 3), mask, causal, s);
+        return y.permute(0, 2, 1, 3);
+    }
+
+    /** Rotary position embedding of x [..., T, H, D] (the heads of a token share its position); see {@link #rope}. */
+    public static Tensor ropeHeads(Tensor x, float base, int offset, boolean interleaved) {
+        return Rope.applyHeads(x, base, offset, interleaved);
     }
 
     /**

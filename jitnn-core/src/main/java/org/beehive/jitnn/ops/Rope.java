@@ -13,9 +13,10 @@ import org.beehive.jitnn.kernels.ElementwiseKernels;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
 /**
- * Rotary position embedding (RoPE) of x [..., T, D] for positions offset .. offset + T - 1, with
- * frequencies base^(-2i / D). Inputs [x, cos, sin]; iattr = [T, D, offset, interleaved];
- * fattr = [sign]. The tables are cached per (positions, D, base) as persistent tensors.
+ * Rotary position embedding (RoPE) of x [..., T, D], or of x [..., T, H, D] (every head of a
+ * token shares its position), for positions offset .. offset + T - 1, with frequencies
+ * base^(-2i / D). Inputs [x, cos, sin]; iattr = [T, D, offset, interleaved, group] with group the
+ * rows per position (1, or H); fattr = [sign]. The tables are cached per (positions, D, base) as persistent tensors.
  */
 public final class Rope implements Op {
 
@@ -33,12 +34,24 @@ public final class Rope implements Op {
         int seq = x.dim(-2);
         int dim = x.dim(-1);
         Tensor[] t = tables(offset + seq, dim, base);
-        return record(x, t, seq, dim, offset, interleaved ? 1 : 0, 1.0f);
+        return record(x, t, new int[] { seq, dim, offset, interleaved ? 1 : 0, 1 }, 1.0f);
     }
 
-    private static Tensor record(Tensor x, Tensor[] t, int seq, int dim, int offset, int interleaved, float sign) {
+    /** RoPE of x [..., T, H, D]: the H heads of a token share its position. */
+    public static Tensor applyHeads(Tensor x, float base, int offset, boolean interleaved) {
+        Checks.f32(x);
+        if (x.rank() < 3 || x.dim(-1) % 2 != 0) {
+            throw new IllegalArgumentException("rope needs [..., T, H, D] with even D, got " + x.shape());
+        }
+        int seq = x.dim(-3);
+        int dim = x.dim(-1);
+        Tensor[] t = tables(offset + seq, dim, base);
+        return record(x, t, new int[] { seq, dim, offset, interleaved ? 1 : 0, x.dim(-2) }, 1.0f);
+    }
+
+    private static Tensor record(Tensor x, Tensor[] t, int[] iattr, float sign) {
         Tensor out = Tensor.result(x.shape(), DType.F32);
-        Tensor.record(OP, new Tensor[] { x, t[0], t[1] }, new Tensor[] { out }, new int[] { seq, dim, offset, interleaved }, new float[] { sign }, true);
+        Tensor.record(OP, new Tensor[] { x, t[0], t[1] }, new Tensor[] { out }, iattr, new float[] { sign }, true);
         return out;
     }
 
@@ -75,9 +88,10 @@ public final class Rope implements Op {
         int dim = n.iattr[1];
         int offset = n.iattr[2];
         int interleaved = n.iattr[3];
+        int group = n.iattr[4];
         float sign = n.fattr[0];
         int pairs = n.out(0).numel() / 2;
-        e.task(Emitter.grid1D(pairs), (g, id) -> g.task(id, ElementwiseKernels::rope, e.context(), x, out, cos, sin, seq, dim, offset, interleaved, sign, pairs));
+        e.task(Emitter.grid1D(pairs), (g, id) -> g.task(id, ElementwiseKernels::rope, e.context(), x, out, cos, sin, seq, dim, group, offset, interleaved, sign, pairs));
     }
 
     @Override
@@ -93,7 +107,7 @@ public final class Rope implements Op {
         double sign = n.fattr[0];
         int half = dim / 2;
         for (int row = 0; row < n.out(0).numel() / dim; row++) {
-            int t = row % seq + offset;
+            int t = (row / n.iattr[4]) % seq + offset;
             for (int p = 0; p < half; p++) {
                 int ia = interleaved ? row * dim + 2 * p : row * dim + p;
                 int ib = interleaved ? ia + 1 : ia + half;
@@ -109,7 +123,6 @@ public final class Rope implements Op {
 
     @Override
     public Tensor[] backward(Node n, Tensor gy) {
-        int[] a = n.iattr;
-        return new Tensor[] { record(gy, new Tensor[] { n.in(1), n.in(2) }, a[0], a[1], a[2], a[3], -n.fattr[0]), null, null };
+        return new Tensor[] { record(gy, new Tensor[] { n.in(1), n.in(2) }, n.iattr.clone(), -n.fattr[0]), null, null };
     }
 }

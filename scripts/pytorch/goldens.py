@@ -140,6 +140,11 @@ add("sdpa_causal_rect", "sdpa", [1, 0.5], [rnd(1, 2, 4, 8), rnd(1, 2, 6, 8), rnd
 add("sdpa_long", "sdpa", [1, -1], [rnd(1, 2, 300, 16), rnd(1, 2, 300, 16), rnd(1, 2, 300, 16)])
 add("sdpa_head128", "sdpa", [1, -1], [rnd(1, 2, 40, 128), rnd(1, 2, 40, 128), rnd(1, 2, 40, 128)])
 add("sdpa_head96_mask", "sdpa_mask", [0, -1], [rnd(2, 1, 9, 96), rnd(2, 1, 13, 96), rnd(2, 1, 13, 96), np.where(rng.uniform(size=(2, 1, 9, 13)) < 0.2, -1e9, 0).astype(np.float32)], [True, True, True, False])
+# [B, T, H, E] layouts read directly by the fused kernels; RoPE with the heads after the tokens
+add("sdpa_bthd_causal", "sdpa_bthd", [1, -1], [rnd(2, 6, 3, 16), rnd(2, 6, 3, 16), rnd(2, 6, 3, 16)])
+add("sdpa_bthd_mask", "sdpa_bthd_mask", [0, -1], [rnd(2, 5, 2, 8), rnd(2, 7, 2, 8), rnd(2, 7, 2, 8), np.where(rng.uniform(size=(2, 1, 1, 7)) < 0.3, -1e9, 0).astype(np.float32)], [True, True, True, False])
+add("rope_heads", "rope_heads", [10000.0, 0, 0], [rnd(2, 5, 3, 8)])
+add("rope_heads_interleaved", "rope_heads", [500000.0, 3, 1], [rnd(1, 4, 2, 16)])
 pad = np.zeros((2, 1, 1, 7), np.float32)
 pad[0, 0, 0, 5:] = -1e9
 pad[1, 0, 0, 3:] = -1e9
@@ -147,6 +152,8 @@ add("sdpa_padding", "sdpa_mask", [0, -1], [rnd(2, 3, 5, 8), rnd(2, 3, 7, 8), rnd
 # multi-head self-attention (attrs: heads causal); inputs x, Wqkv, bqkv, Wout, bout
 for name, causal in [("mha", 0), ("mha_causal", 1)]:
     add(name, "mha", [4, causal], [rnd(2, 6, 16), rnd(48, 16, lo=-0.5, hi=0.5), rnd(48), rnd(16, 16, lo=-0.5, hi=0.5), rnd(16)])
+add("mha_padding", "mha_mask", [4, 0], [rnd(2, 6, 16), rnd(48, 16, lo=-0.5, hi=0.5), rnd(48), rnd(16, 16, lo=-0.5, hi=0.5), rnd(16),
+    np.array([[[[0, 0, 0, 0, -1e9, -1e9]]], [[[0, 0, 0, 0, 0, -1e9]]]], np.float32)], [True, True, True, True, True, False])
 # rotary position embedding (attrs: base offset interleaved), computed directly in FP64
 add("rope_half", "rope", [10000.0, 0, 0], [rnd(2, 3, 5, 8)])
 add("rope_interleaved", "rope", [10000.0, 0, 1], [rnd(2, 3, 5, 8)])
@@ -246,6 +253,20 @@ def forward(op, attrs, t):
         a = t[0].transpose(-1, -2) if attrs[0] else t[0]
         b = t[1].transpose(-1, -2) if attrs[1] else t[1]
         return a @ b
+    if op == "mha_mask":
+        B, T, D = t[0].shape
+        H = attrs[0]
+        q, k, v = (t[0] @ t[1].T + t[2]).reshape(B, T, 3, H, D // H).permute(2, 0, 3, 1, 4)
+        y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=t[5])
+        return y.permute(0, 2, 1, 3).reshape(B, T, D) @ t[3].T + t[4]
+    if op in ("sdpa_bthd", "sdpa_bthd_mask"):
+        scale = None if attrs[1] < 0 else attrs[1]
+        mask = t[3] if op == "sdpa_bthd_mask" else None
+        q, k, v = (x.permute(0, 2, 1, 3) for x in t[:3])
+        y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask, is_causal=bool(attrs[0]), scale=scale)
+        return y.permute(0, 2, 1, 3)
+    if op == "rope_heads":
+        return forward("rope", attrs, [t[0].permute(0, 2, 1, 3)]).permute(0, 2, 1, 3)
     if op == "mha":
         T = t[0].shape[1]
         mask = torch.ones(T, T, dtype=torch.bool).triu(1) if attrs[1] else None
