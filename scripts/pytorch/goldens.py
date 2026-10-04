@@ -153,6 +153,11 @@ add("rope_long", "rope", [10000.0, 0, 0], [rnd(1, 1, 300, 64)])
 # top-k values (attrs: k); random inputs have no ties
 add("topk", "topk", [3], [rnd(5, 11)])
 add("topk_long", "topk", [8], [rnd(2, 3, 900)])
+# split-K (A^T B with a long reduction and a small output, as weight gradients)
+add("matmul_splitk", "matmul", [1, 0], [rnd(1024, 40), rnd(1024, 24)])
+add("matmul_splitk_odd", "matmul", [1, 0], [rnd(768, 70), rnd(768, 9)])
+add("matmul_splitk_f16", "matmul_half", [1, 0, 0], [rnd(1024, 40), rnd(1024, 24)])
+add("matmul_splitk_bf16", "matmul_half", [1, 0, 1], [rnd(1024, 40), rnd(1024, 24)])
 # casts to FP16 / BF16 and back (round to nearest even); ties, subnormals and the extremes
 ties = np.array([1 + 2**-11, 1 + 3 * 2**-11, -(1 + 2**-11), 1 + 2**-8, 1 + 3 * 2**-8, 2**-20, -3e-7, 6e-8, 65504.0, 60000.0, 1e-3, 0.0], np.float32)
 add("cast_f16", "cast_f16", [], [np.concatenate([rnd(200, lo=-300, hi=300), ties])])

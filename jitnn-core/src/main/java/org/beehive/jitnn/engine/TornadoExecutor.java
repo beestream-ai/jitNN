@@ -291,6 +291,8 @@ final class TornadoExecutor {
         List<TaskGraph> graphs = new ArrayList<>();
         GridScheduler scheduler = new GridScheduler();
         int specIndex = 0;
+        java.util.Map<String, String> labels = PROFILE ? new java.util.HashMap<>() : null;
+        int[] perNode = PROFILE ? new int[nodes.size()] : null;
         for (int gi = 0; gi < ranges.size(); gi++) {
             String gname = ranges.size() == 1 ? name : name + "_" + gi;
             Devices.pin(gname);
@@ -332,6 +334,11 @@ final class TornadoExecutor {
                 Emitter.Spec spec = e.tasks.get(specIndex++);
                 spec.adder().add(graph, spec.id());
                 e.registerGrid(scheduler, gname, spec);
+                if (labels != null) {
+                    Node nd = nodes.get(spec.node());
+                    String shape = nd.op.name().equals("matmul") || nd.op.name().equals("linear") ? java.util.Arrays.toString(nd.iattr) : "";
+                    labels.put(gname + "." + spec.id(), nd.op.name() + shape + "#" + perNode[spec.node()]++);
+                }
             }
             if (!keep.isEmpty()) {
                 graph.persistOnDevice(keep.toArray());
@@ -341,6 +348,7 @@ final class TornadoExecutor {
 
         CompiledTrace ct = new CompiledTrace(key, name, kinds, arrays, written, bound, e.tasks.size());
         ct.recyclable = recyclable;
+        ct.taskLabels = labels;
         ct.intermediateBytes = freshBytes;
         uk.ac.manchester.tornado.api.ImmutableTaskGraph[] snapshots = new uk.ac.manchester.tornado.api.ImmutableTaskGraph[graphs.size()];
         for (int i = 0; i < snapshots.length; i++) {
@@ -413,6 +421,7 @@ final class TornadoExecutor {
         if (PROFILE) {
             lastKernelNanos = ct.last.getProfilerResult().getDeviceKernelTime();
             lastTotalNanos = ct.last.getProfilerResult().getTotalTime();
+            accumulate(ct, ct.last.getProfilerResult().getProfileLog());
         }
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
@@ -514,6 +523,43 @@ final class TornadoExecutor {
             close(ct);
         }
         CACHE.clear();
+    }
+
+    private static final java.util.regex.Pattern TASK_TIME = java.util.regex.Pattern.compile(
+            "\"([A-Za-z0-9_]+\\.t\\d+)\"\\s*:\\s*\\{[^}]*?\"TASK_KERNEL_TIME\"\\s*:\\s*\"(\\d+)\"");
+    private static final java.util.Map<String, long[]> BREAKDOWN = new java.util.TreeMap<>();
+
+    /** Adds the per-task kernel times of one profiled execution to the per-operator totals. */
+    private static void accumulate(CompiledTrace ct, String log) {
+        if (ct.taskLabels == null || log == null) {
+            return;
+        }
+        // TornadoVM's log keeps every execution's task entries: total it, and add the difference
+        // from the plan's previous totals.
+        java.util.Map<String, long[]> now = new java.util.HashMap<>();
+        java.util.regex.Matcher m = TASK_TIME.matcher(log);
+        while (m.find()) {
+            String label = ct.taskLabels.get(m.group(1));
+            if (label != null) {
+                long[] acc = now.computeIfAbsent(label, k -> new long[2]);
+                acc[0]++;
+                acc[1] += Long.parseLong(m.group(2));
+            }
+        }
+        for (var en : now.entrySet()) {
+            long[] before = ct.profileTotals.getOrDefault(en.getKey(), new long[2]);
+            long[] acc = BREAKDOWN.computeIfAbsent(en.getKey(), k -> new long[2]);
+            acc[0] += en.getValue()[0] - before[0];
+            acc[1] += en.getValue()[1] - before[1];
+        }
+        ct.profileTotals = now;
+    }
+
+    /** With -Djitnn.profile=true: per operator task ("op#k"), [launches, device ns] since the last call; resets. */
+    static synchronized java.util.Map<String, long[]> kernelBreakdown() {
+        java.util.Map<String, long[]> copy = new java.util.TreeMap<>(BREAKDOWN);
+        BREAKDOWN.clear();
+        return copy;
     }
 
     /** With -Djitnn.profile=true: [device kernel ns, TornadoVM total ns] of the last execution. */

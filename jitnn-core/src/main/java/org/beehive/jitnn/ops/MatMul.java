@@ -70,8 +70,68 @@ public final class MatMul implements Op {
         return "matmul";
     }
 
+    /**
+     * Number of K slices for C = A^T B when the output alone fills too few work-groups (weight
+     * gradients: a long reduction over tokens into a small matrix), or 1. {@code -Djitnn.splitK=false} disables it.
+     */
+    static int splitK(int m, int n, int k) {
+        if (!SPLIT_K) {
+            return 1;
+        }
+        int tiles = Emitter.ceilDiv(m, GemmKernels.BM) * Emitter.ceilDiv(n, GemmKernels.BN);
+        int slices = 1;
+        while (tiles * slices < 128 && slices < 32 && k % (slices * 2) == 0 && k / (slices * 2) >= 64) {
+            slices *= 2;
+        }
+        return slices;
+    }
+
+    private static final boolean SPLIT_K = !"false".equals(System.getProperty("jitnn.splitK"));
+
+    /**
+     * Split-K for C = A^T B (A [K, M], B [K, N]): K is the leading dimension of both, so slice z
+     * is a contiguous block, and the batched GEMM computes one partial product per slice into a
+     * scratch buffer; the partials are then summed in order (deterministic).
+     */
+    private static void emitSplitK(Emitter e, Node node, int slices) {
+        int m = node.iattr[0];
+        int n = node.iattr[1];
+        int k = node.iattr[2];
+        int ks = k / slices;
+        FloatArray c = e.f32(node.out(0));
+        FloatArray part = e.scratch(slices * m * n);
+        FloatArray bias = e.dummyF32();
+        int tilesY = Emitter.ceilDiv(m, GemmKernels.BM);
+        WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), tilesY * slices, 16, 16);
+        int strideA = ks * m;
+        int strideB = ks * n;
+        DType dt = node.in(0).dtype();
+        if (dt == DType.F16) {
+            var a = e.f16(node.in(0));
+            var b = e.f16(node.in(1));
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64BatchedF16, e.context(), a, b, part, bias, m, n, ks, 1, 0, 0, strideA, strideB, tilesY));
+        } else if (dt == DType.BF16) {
+            var a = e.bf16(node.in(0));
+            var b = e.bf16(node.in(1));
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64BatchedBF16, e.context(), a, b, part, bias, m, n, ks, 1, 0, 0, strideA, strideB, tilesY));
+        } else {
+            FloatArray a = e.f32(node.in(0));
+            FloatArray b = e.f32(node.in(1));
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64Batched, e.context(), a, b, part, bias, m, n, ks, 1, 0, 0, strideA, strideB, tilesY));
+        }
+        int cells = m * n;
+        e.task(Emitter.grid1D(cells), (g, id) -> g.task(id, org.beehive.jitnn.kernels.NormKernels::sumPartials, e.context(), part, c, slices, cells));
+    }
+
     @Override
     public void emit(Emitter e, Node node) {
+        if (node.iattr.length == 5 && node.iattr[3] == 1 && node.iattr[4] == 0) {
+            int slices = splitK(node.iattr[0], node.iattr[1], node.iattr[2]);
+            if (slices > 1) {
+                emitSplitK(e, node, slices);
+                return;
+            }
+        }
         if (HostValues.isHalf(node.in(0))) {
             emitHalf(e, node);
             return;

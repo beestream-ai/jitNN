@@ -23,6 +23,10 @@ final class CompiledTrace {
     boolean[] recyclable;
     long intermediateBytes;
 
+    /** "graph.task" keys of the profiler log and the operator each task belongs to (profiling only). */
+    java.util.Map<String, String> taskLabels;
+    java.util.Map<String, long[]> profileTotals = new java.util.HashMap<>();
+
     TornadoExecutionPlan plan;
     TornadoExecutionResult last;
     long executions;

@@ -124,6 +124,14 @@ public final class Engine {
     }
 
     /**
+     * With -Djitnn.profile=true: device time per operator task ("op#k", k-th task of the operator)
+     * as [launches, nanoseconds], accumulated since the last call (which resets it).
+     */
+    public static java.util.Map<String, long[]> kernelBreakdown() {
+        return TornadoExecutor.kernelBreakdown();
+    }
+
+    /**
      * Cumulative nanoseconds spent in jitNN's executor outside TornadoVM ({@code [0]}, tracing
      * excluded) and inside {@code TornadoExecutionPlan.execute()} ({@code [1]}).
      */
