@@ -23,7 +23,7 @@ public final class Linear implements Op {
     }
 
     public static Tensor apply(Tensor x, Tensor w, Tensor b, boolean relu) {
-        Checks.f32(x, w);
+        HostValues.gemmOperands("linear", x, w);
         Checks.rank(x, 2);
         Checks.rank(w, 2);
         if (x.dim(1) != w.dim(1)) {
@@ -56,13 +56,17 @@ public final class Linear implements Op {
         int k = node.iattr[2];
         int epilogue = (node.iattr[3] != 0 ? GemmKernels.BIAS : 0) | (node.iattr[4] != 0 ? GemmKernels.RELU : 0);
         FloatArray bias = node.iattr[3] != 0 ? e.f32(node.in(2)) : null;
+        if (HostValues.isHalf(node.in(0))) {
+            MatMul.emitGemmHalf(e, node.in(0), node.in(1), e.f32(node.out(0)), bias != null ? bias : e.dummyF32(), m, n, k, 0, 1, epilogue);
+            return;
+        }
         MatMul.emitGemm(e, e.f32(node.in(0)), e.f32(node.in(1)), e.f32(node.out(0)), bias, m, n, k, 0, 1, epilogue);
     }
 
     @Override
     public void reference(Node node) {
-        FloatArray x = (FloatArray) node.in(0).storage().host();
-        FloatArray w = (FloatArray) node.in(1).storage().host();
+        Object x = node.in(0).storage().host();
+        Object w = node.in(1).storage().host();
         FloatArray b = node.iattr[3] != 0 ? (FloatArray) node.in(2).storage().host() : null;
         FloatArray y = (FloatArray) node.out(0).storage().host();
         int m = node.iattr[0];
@@ -73,7 +77,7 @@ public final class Linear implements Op {
             for (int j = 0; j < n; j++) {
                 double acc = b == null ? 0 : b.get(j);
                 for (int q = 0; q < k; q++) {
-                    acc += (double) x.get(i * k + q) * w.get(j * k + q);
+                    acc += (double) HostValues.get(x, i * k + q) * HostValues.get(w, j * k + q);
                 }
                 y.set(i * n + j, (float) (relu ? Math.max(acc, 0) : acc));
             }
@@ -86,8 +90,10 @@ public final class Linear implements Op {
         Tensor w = node.in(1);
         // ReLU gradient from the output: y > 0 exactly where the pre-activation is > 0.
         Tensor g = node.iattr[4] != 0 ? Binary.apply(Binary.Kind.RELU_GRAD, node.out(0), gy) : gy;
-        Tensor gx = x.requiresGrad() ? MatMul.apply(g, w, false, false) : null;
-        Tensor gw = w.requiresGrad() ? MatMul.apply(g, x, true, false) : null;
+        // Half-precision operands: the gradient products run in that type (as under PyTorch's autocast).
+        Tensor gl = g.to(x.dtype());
+        Tensor gx = x.requiresGrad() ? MatMul.apply(gl, w, false, false) : null;
+        Tensor gw = w.requiresGrad() ? MatMul.apply(gl, x, true, false) : null;
         if (node.iattr[3] == 0) {
             return new Tensor[] { gx, gw };
         }

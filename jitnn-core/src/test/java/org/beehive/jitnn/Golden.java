@@ -181,6 +181,14 @@ public final class Golden {
             case "topk" -> in[0].topk(c.iattr(0))[0];
             case "cast_f16" -> in[0].half().toFloat();
             case "cast_bf16" -> in[0].bfloat16().toFloat();
+            case "matmul_half" -> {
+                DType d = c.iattr(2) == 0 ? DType.F16 : DType.BF16;
+                yield in[0].to(d).matmul(in[1].to(d), c.iattr(0) != 0, c.iattr(1) != 0);
+            }
+            case "linear_half" -> {
+                DType d = c.iattr(0) == 0 ? DType.F16 : DType.BF16;
+                yield F.linear(in[0].to(d), in[1].to(d), in[2]);
+            }
             case "narrow" -> in[0].narrow(c.iattr(0), c.iattr(1), c.iattr(2));
             case "concat" -> Tensor.cat(c.iattr(0), in);
             case "stack" -> Tensor.stack(c.iattr(0), in);
@@ -191,7 +199,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "matmul_half", "linear_half" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

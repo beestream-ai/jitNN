@@ -20,11 +20,12 @@ public final class MatMul implements Op {
     }
 
     /**
-     * op(a) op(b) for matrices, or batched: a [..., M, K] and b [..., K, N] (op applied to the last
+     * op(a) op(b) for matrices, or batched (FP32 result; half-precision operands of the same type
+     * are read as such and accumulated in FP32): a [..., M, K] and b [..., K, N] (op applied to the last
      * two axes) with equal batch dimensions, or with one side a plain matrix shared by every batch.
      */
     public static Tensor apply(Tensor a, Tensor b, boolean transA, boolean transB) {
-        Checks.f32(a, b);
+        HostValues.gemmOperands("matmul", a, b);
         if (a.rank() < 2 || b.rank() < 2) {
             throw new IllegalArgumentException("matmul needs matrices, got " + a.shape() + " and " + b.shape());
         }
@@ -71,6 +72,10 @@ public final class MatMul implements Op {
 
     @Override
     public void emit(Emitter e, Node node) {
+        if (HostValues.isHalf(node.in(0))) {
+            emitHalf(e, node);
+            return;
+        }
         FloatArray a = e.f32(node.in(0));
         FloatArray b = e.f32(node.in(1));
         FloatArray c = e.f32(node.out(0));
@@ -90,6 +95,50 @@ public final class MatMul implements Op {
             return;
         }
         emitGemm(e, a, b, c, null, m, n, k, ta, tb, 0);
+    }
+
+    /** Half-precision operands: the 64x64 register-blocked kernels that convert on load. */
+    private static void emitHalf(Emitter e, Node node) {
+        int m = node.iattr[0];
+        int n = node.iattr[1];
+        int k = node.iattr[2];
+        int ta = node.iattr[3];
+        int tb = node.iattr[4];
+        FloatArray c = e.f32(node.out(0));
+        FloatArray bias = e.dummyF32();
+        boolean f16 = node.in(0).dtype() == DType.F16;
+        if (node.iattr.length > 5) {
+            int batch = node.iattr[5];
+            int strideA = node.iattr[6];
+            int strideB = node.iattr[7];
+            int tilesY = Emitter.ceilDiv(m, GemmKernels.BM);
+            WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), tilesY * batch, 16, 16);
+            if (f16) {
+                var a = e.f16(node.in(0));
+                var b = e.f16(node.in(1));
+                e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64BatchedF16, e.context(), a, b, c, bias, m, n, k, ta, tb, 0, strideA, strideB, tilesY));
+            } else {
+                var a = e.bf16(node.in(0));
+                var b = e.bf16(node.in(1));
+                e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64BatchedBF16, e.context(), a, b, c, bias, m, n, k, ta, tb, 0, strideA, strideB, tilesY));
+            }
+            return;
+        }
+        emitGemmHalf(e, node.in(0), node.in(1), c, bias, m, n, k, ta, tb, 0);
+    }
+
+    /** C = op(A) op(B) (+ epilogue) for half-precision A and B of the same type, FP32 C. */
+    static void emitGemmHalf(Emitter e, Tensor at, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), Emitter.ceilDiv(m, GemmKernels.BM), 16, 16);
+        if (at.dtype() == DType.F16) {
+            var a = e.f16(at);
+            var b = e.f16(bt);
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64F16, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue));
+        } else {
+            var a = e.bf16(at);
+            var b = e.bf16(bt);
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64BF16, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue));
+        }
     }
 
     /**
@@ -127,8 +176,8 @@ public final class MatMul implements Op {
 
     @Override
     public void reference(Node node) {
-        FloatArray a = (FloatArray) node.in(0).storage().host();
-        FloatArray b = (FloatArray) node.in(1).storage().host();
+        Object a = node.in(0).storage().host();
+        Object b = node.in(1).storage().host();
         FloatArray c = (FloatArray) node.out(0).storage().host();
         int m = node.iattr[0];
         int n = node.iattr[1];
@@ -146,8 +195,8 @@ public final class MatMul implements Op {
                 for (int j = 0; j < n; j++) {
                     double acc = 0;
                     for (int q = 0; q < k; q++) {
-                        double av = ta ? a.get(oa + q * m + i) : a.get(oa + i * k + q);
-                        double bv = tb ? b.get(ob + j * k + q) : b.get(ob + q * n + j);
+                        double av = ta ? HostValues.get(a, oa + q * m + i) : HostValues.get(a, oa + i * k + q);
+                        double bv = tb ? HostValues.get(b, ob + j * k + q) : HostValues.get(b, ob + q * n + j);
                         acc += av * bv;
                     }
                     c.set(oc + i * n + j, (float) acc);
@@ -157,9 +206,11 @@ public final class MatMul implements Op {
     }
 
     @Override
-    public Tensor[] backward(Node node, Tensor gc) {
+    public Tensor[] backward(Node node, Tensor gcOut) {
         Tensor a = node.in(0);
         Tensor b = node.in(1);
+        // Half-precision operands: the gradient products run in that type too (as under PyTorch's autocast).
+        Tensor gc = gcOut.to(a.dtype());
         boolean ta = node.iattr[3] != 0;
         boolean tb = node.iattr[4] != 0;
         Tensor ga = null;

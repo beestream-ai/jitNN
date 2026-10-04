@@ -157,6 +157,16 @@ add("topk_long", "topk", [8], [rnd(2, 3, 900)])
 ties = np.array([1 + 2**-11, 1 + 3 * 2**-11, -(1 + 2**-11), 1 + 2**-8, 1 + 3 * 2**-8, 2**-20, -3e-7, 6e-8, 65504.0, 60000.0, 1e-3, 0.0], np.float32)
 add("cast_f16", "cast_f16", [], [np.concatenate([rnd(200, lo=-300, hi=300), ties])])
 add("cast_bf16", "cast_bf16", [], [np.concatenate([rnd(200, lo=-300, hi=300), ties, np.array([3e38, -1e-30], np.float32)])])
+# half-precision GEMM operands (attrs: ta tb type 0=f16 1=bf16): inputs and the incoming gradient
+# rounded to that type, products exact (jitNN accumulates in FP32)
+for kind in (0, 1):
+    for ta in (0, 1):
+        for tb in (0, 1):
+            a = rnd(33, 17) if ta else rnd(17, 33)
+            b = rnd(40, 33) if tb else rnd(33, 40)
+            add(f"matmul_half{kind}_t{ta}{tb}", "matmul_half", [ta, tb, kind], [a, b])
+    add(f"bmm_half{kind}", "matmul_half", [0, 1, kind], [rnd(2, 3, 9, 16), rnd(2, 3, 11, 16)])
+    add(f"linear_half{kind}", "linear_half", [kind], [rnd(2, 7, 24), rnd(10, 24), rnd(10)])
 # ---- wave 3: LayerNorm and RMSNorm over the last axis; attrs: eps
 add("layer_norm", "layer_norm", [1e-5], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5), rnd(33)])
 add("layer_norm_3d", "layer_norm", [1e-5], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5), rnd(48)])
@@ -167,6 +177,35 @@ add("rms_norm", "rms_norm", [1e-6], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5)])
 add("rms_norm_3d", "rms_norm", [1e-6], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5)])
 add("rms_norm_long", "rms_norm", [1e-6], [rnd(3, 1000), rnd(1000, lo=0.5, hi=1.5)])
 add("rms_norm_rows", "rms_norm", [1e-6], [rnd(150, 16), rnd(16, lo=0.5, hi=1.5)])
+
+
+def rounded(x, kind):
+    return (x.half() if kind == 0 else x.bfloat16()).double()
+
+
+class HalfOperands(torch.autograd.Function):
+    """Rounds a tensor to half precision; its gradient is rounded too, as jitNN casts the
+    incoming gradient of a half-precision GEMM to the operands' type."""
+
+    @staticmethod
+    def forward(ctx, x, kind):
+        ctx.kind = kind
+        return rounded(x, kind)
+
+    @staticmethod
+    def backward(ctx, g):
+        return g, None
+
+
+class HalfGrad(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, y, kind):
+        ctx.kind = kind
+        return y.clone()
+
+    @staticmethod
+    def backward(ctx, g):
+        return rounded(g, ctx.kind), None
 
 
 def forward(op, attrs, t):
@@ -207,6 +246,17 @@ def forward(op, attrs, t):
         return t[0].half().double()
     if op == "cast_bf16":
         return t[0].bfloat16().double()
+    if op == "matmul_half":
+        kind = attrs[2]
+        a = HalfOperands.apply(t[0], kind)
+        b = HalfOperands.apply(t[1], kind)
+        a = a.transpose(-1, -2) if attrs[0] else a
+        b = b.transpose(-1, -2) if attrs[1] else b
+        return HalfGrad.apply(a @ b, kind)
+    if op == "linear_half":
+        kind = attrs[0]
+        y = HalfGrad.apply(HalfOperands.apply(t[0], kind) @ HalfOperands.apply(t[1], kind).T, kind)
+        return y + t[2]
     if op == "topk":
         return torch.topk(t[0], attrs[0], dim=-1).values
     if op == "rope":
