@@ -43,6 +43,19 @@ class OpsAccelTest {
         return Tensor.of(seq(n, scale, offset), dims);
     }
 
+    /** Shapes large enough for the 128 x 128 GEMM and batched convolutions (ResNet-50 and BERT-base inference sizes). */
+    @Test
+    void largeShapes() {
+        Supplier<Tensor> a = () -> Tensor.uniform(11, -1, 1, 1100, 700);
+        Supplier<Tensor> b = () -> Tensor.uniform(12, -1, 1, 700, 1050);
+        same("gemm128", () -> a.get().matmul(b.get()), 1e-5, 2e-5);
+        same("gemm128 A^T", () -> Tensor.uniform(13, -1, 1, 700, 1100).matmul(Tensor.uniform(22, -1, 1, 700, 1030), true, false), 1e-5, 2e-5);
+        same("gemm128 B^T", () -> a.get().matmul(Tensor.uniform(14, -1, 1, 1040, 700), false, true), 1e-5, 2e-5);
+        same("linear 1024x768 -> 1024", () -> F.linear(Tensor.uniform(15, -1, 1, 1024, 768), Tensor.uniform(16, -0.05f, 0.05f, 1024, 768), Tensor.uniform(17, -1, 1, 1024)), 1e-5, 2e-5);
+        same("conv 8x64x56x56 3x3", () -> F.conv2d(Tensor.uniform(18, -1, 1, 8, 64, 56, 56), Tensor.uniform(19, -0.05f, 0.05f, 64, 64, 3, 3), null, 1, 1, 1, 1), 1e-5, 2e-5);
+        same("conv 8x256x14x14 1x1 stride 2", () -> F.conv2d(Tensor.uniform(20, -1, 1, 8, 256, 14, 14), Tensor.uniform(21, -0.05f, 0.05f, 512, 256, 1, 1), null, 2, 0, 1, 1), 1e-5, 2e-5);
+    }
+
     @Test
     void binary() {
         same("add", () -> t(1003, 2, 0, 1003).add(t(1003, 1, 0.5f, 1003)));
