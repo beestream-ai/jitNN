@@ -81,6 +81,10 @@ class InferenceBenchAccelTest {
         for (int i = 1; i < WARMUP; i++) {
             call.get();
         }
+        boolean profile = Boolean.getBoolean("jitnn.profile");
+        if (profile) {
+            Engine.kernelBreakdown();
+        }
         double[] ms = new double[RUNS];
         for (int i = 0; i < RUNS; i++) {
             long t0 = System.nanoTime();
@@ -91,6 +95,28 @@ class InferenceBenchAccelTest {
         double median = ms[RUNS / 2];
         System.out.printf("[t1] jitnn %-28s median %8.3f ms  p10 %8.3f  p90 %8.3f  %10.1f samples/s  (first call %.0f ms)%n", name, median, ms[RUNS / 10], ms[RUNS * 9 / 10],
                 samples * 1000 / median, compile);
+        if (profile) {
+            printProfile(name, Engine.kernelBreakdown());
+        }
+    }
+
+    /** Device time and launches per call, by operator (with {@code -Djitnn.profile=true}; on CUDA also {@code -Djitnn.cudaGraph=false}). */
+    private static void printProfile(String name, java.util.Map<String, long[]> perTask) {
+        java.util.Map<String, long[]> perOp = new java.util.TreeMap<>();
+        long total = 0;
+        long launches = 0;
+        for (var en : perTask.entrySet()) {
+            long[] a = perOp.computeIfAbsent(en.getKey().replaceAll("[\\[#].*", ""), k -> new long[2]);
+            a[0] += en.getValue()[0];
+            a[1] += en.getValue()[1];
+            total += en.getValue()[1];
+            launches += en.getValue()[0];
+        }
+        System.out.printf("[t1] profile %s: %d launches, %.3f ms of kernels per call%n", name, launches / RUNS, total / 1e6 / RUNS);
+        long all = total;
+        perOp.entrySet().stream().sorted((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1])).limit(12)
+                .forEach(en -> System.out.printf("[t1]   %-40s %8.3f ms %5.1f%%  %4d launches%n", en.getKey(), en.getValue()[1] / 1e6 / RUNS,
+                        100.0 * en.getValue()[1] / all, en.getValue()[0] / RUNS));
     }
 
     @Test
