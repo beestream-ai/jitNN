@@ -37,8 +37,8 @@ public final class Bench {
         String label = args[6];
         try (Model model = Model.newInstance(label, Device.gpu(), engine)) {
             model.load(file.getParent(), file.getFileName().toString());
-            System.out.printf("[djl] %s: engine %s %s, %d GPUs, model on %s%n", label, engine, ai.djl.engine.Engine.getEngine(engine).getVersion(),
-                    ai.djl.engine.Engine.getEngine(engine).getGpuCount(), model.getNDManager().getDevice());
+            System.out.printf("[djl] %s: engine %s %s, %d GPUs, model on %s%s%n", label, engine, ai.djl.engine.Engine.getEngine(engine).getVersion(),
+                    ai.djl.engine.Engine.getEngine(engine).getGpuCount(), model.getNDManager().getDevice(), ortRuntime());
             try (Predictor<NDList, NDList> predictor = model.newPredictor(new NoopTranslator())) {
                 float[] pixels = resnet ? images(b) : null;
                 long[] ids = resnet ? null : tokens(b, t);
@@ -58,6 +58,18 @@ public final class Bench {
                 };
                 time("djl-" + engine.toLowerCase(), label, b, call);
             }
+        }
+    }
+
+    /** The ONNX Runtime actually loaded (version and providers), when it is on the classpath. */
+    static String ortRuntime() {
+        try {
+            Class<?> env = Class.forName("ai.onnxruntime.OrtEnvironment");
+            Object e = env.getMethod("getEnvironment").invoke(null);
+            return ", ONNX Runtime " + env.getMethod("getVersion").invoke(e) + " providers " + env.getMethod("getAvailableProviders").invoke(null)
+                    + " from " + env.getProtectionDomain().getCodeSource().getLocation();
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return "";
         }
     }
 
