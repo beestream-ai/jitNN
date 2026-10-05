@@ -15,6 +15,7 @@ import gzip
 import math
 import os
 import sys
+import time
 
 import numpy as np
 import torch
@@ -361,11 +362,15 @@ def train(kind, d, out):
     torch.set_num_threads(8)
     gate = Gate(kind, d, torch.float32, device())
     losses = []
+    start = 0.0
     for b in range(steps_of(kind)):
+        if b == 10:
+            start = time.perf_counter()
         losses += gate.step(b)
+    per_step = (time.perf_counter() - start) * 1000 / (steps_of(kind) - 10)
     metrics = gate.evaluate()
     np.array(metrics + losses, dtype=np.float32).tofile(out)
-    print(f"{kind}: {steps_of(kind)} steps, first losses {losses[:2]}, last {np.mean(losses[-50:]):.4f}, metrics {metrics}")
+    print(f"{kind}: {steps_of(kind)} steps, {per_step:.1f} ms/step, first losses {losses[:2]}, last {np.mean(losses[-50:]):.4f}, metrics {metrics}")
 
 
 def grad64(kind, d, prefix):

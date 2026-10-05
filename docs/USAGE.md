@@ -92,6 +92,24 @@ The functional forms are in `F`: `embedding`, `layerNorm`, `rmsNorm`, `scaledDot
 `Tensor`: `gelu`, `geluTanh`, `silu`, `sigmoid`, `tanh`, `narrow`, `slice`, `split`, `chunk`,
 `cat`, `stack`, `topk`.
 
+### Generative and recurrent layers and models
+
+| Module | Notes |
+|---|---|
+| `ConvTranspose2d(in, out, kernel, stride, padding, outputPadding, dilation, groups, bias, seed)` | PyTorch's weight layout [in, out/groups, k, k] and initialisation |
+| `Upsample(scale, bilinear, alignCorners)` | nearest or bilinear; `F.interpolate` resizes to a given size |
+| `LeakyReLU(slope)`, `Sigmoid`, `Tanh` | |
+| `LSTM(input, hidden, layers, seed)`, `GRU(...)` | time-first [T, B, I]; `forward(x, h0, c0)` returns the output sequence and the final states |
+| `Vae`, `Dcgan.Generator`, `Dcgan.Discriminator`, `UNet`, `CharRnn` in `nn.models` | |
+
+Losses in `F`: `mseLoss`, `binaryCrossEntropy`, `binaryCrossEntropyWithLogits` (each with a
+`Reduction`), `gaussianKl`. Noise drawn every step should take its seed as a tensor, so the compiled
+step is replayed rather than recompiled:
+
+```java
+Tensor eps = Tensor.uniform(Tensor.seed(step), -1.7320508f, 1.7320508f, batch, latent);
+```
+
 ## Optimisers
 
 | Optimiser | Constructor |

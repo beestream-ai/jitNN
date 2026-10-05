@@ -63,13 +63,29 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 `RMSNorm`, `MultiheadAttention`. Models in `nn.models`: `GPT2`, `Llama` (Llama-style decoder) and
 `Bert` (masked language modelling).
 
+## Wave 4 (operators and gates done on CUDA; OpenCL and Metal not run yet)
+
+| Operator | Kernels | Gradient |
+|---|---|---|
+| LeakyReLU, softplus | `ElementwiseKernels.unary` (softplus through `log1p`, Goldberg's trick: TornadoMath has none) | `LEAKY_RELU_GRAD`, `SOFTPLUS_GRAD` |
+| MSE; binary cross-entropy on probabilities (logs clamped at -100, as PyTorch) and on logits; Gaussian KL | `binary` codes `BCE`, `BCE_LOGITS`; MSE and KL composed | `BCE_DX`, `BCE_DY`, `BCE_LOGITS_DX`: finite at p = 0 and 1 |
+| Transposed 2-D convolution: stride, padding, output padding, dilation, groups, bias | the convolution kernels: forward is `conv2dBackwardData` of the matching convolution | data gradient by `conv2dForward`, weight gradient by `conv2dBackwardWeight` |
+| Nearest and bilinear upsampling (align_corners either way), by scale or to a size | `ResizeKernels.forward` | `ResizeKernels.backward`, one thread per input pixel gathering the outputs that read it (deterministic) |
+| LSTM and GRU layers (PyTorch's equations and gate order), any number of layers, initial states | input projection for the whole sequence as one GEMM, then `RnnKernels.lstmForward`/`gruForward`, one kernel per timestep | `lstmBackward`/`gruBackward` per timestep in reverse, dW_hh as one GEMM over the sequence |
+| Random fills seeded from a tensor | `RandomKernels.philoxSeeded` | |
+
+`Tensor.uniform`/`normal` take the seed as an INT32 [2] tensor (`Tensor.seed(long)`), so noise drawn
+every step (VAE sampling, GAN latents) replays the compiled step instead of recompiling it. Modules:
+`ConvTranspose2d`, `Upsample`, `LeakyReLU`, `Sigmoid`, `Tanh`, `LSTM`, `GRU`. Models in
+`nn.models`: `Vae`, `Dcgan.Generator`/`Dcgan.Discriminator`, `UNet` and `CharRnn` (an LSTM or GRU
+language model). The final cell state of an LSTM carries no gradient.
+
 ## Next waves
 
 | Wave | Contents | Gate |
 |---|---|---|
 | 2 (rest) | convolution and GEMM speed, dispatch overhead | ResNet-18 and MobileNetV2 steps against MPS and cuDNN |
-| 3 (rest) | fused attention; half-precision GEMMs on matrix units | transformer steps against PyTorch MPS and CUDA |
-| 4 | sigmoid, LSTM, GRU, transposed conv, upsampling, BCE, MSE, KL | LSTM LM, U-Net, DCGAN, VAE |
+| 4 (rest) | OpenCL and Metal runs; recurrent step speed (one kernel per timestep) | the wave 4 gates on every backend |
 | 5 | the rest of the DL4J/DJL activations, losses, optimisers and norms, Conv1D/3D, sort, scatter | the DL4J and DJL example suites |
 | 6 | decompositions, sparse and graph ops, FFT, Word2Vec, classical ML | 1.0 |
 | 7 | operators blocked on TornadoVM features (data-dependent shapes, FP8 off CUDA, multi-GPU) | as each feature lands |

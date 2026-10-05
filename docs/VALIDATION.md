@@ -9,10 +9,12 @@ Four layers of checks run on the host and on every device.
    broadcasting binaries, every unary, reductions, all four GEMM transposes, permute, reshape,
    softmax, log-softmax, cross-entropy, fused linear and an MLP chain. This currently runs in FP32
    with a loose tolerance, until jitNN has an FP64 type.
-3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 197 operator cases (waves 1 to 3:
+3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 225 operator cases (waves 1 to 4:
    element-wise, reductions, GEMM, convolution, BatchNorm, pooling, the transformer activations,
    slicing and joining, embedding, LayerNorm and RMSNorm, batched matmul, attention with causal and
-   padding masks, multi-head attention against `nn.MultiheadAttention`, RoPE, top-k, FP16/BF16 casts and half-precision GEMMs), in FP64
+   padding masks, multi-head attention against `nn.MultiheadAttention`, RoPE, top-k, FP16/BF16 casts and half-precision GEMMs,
+   LeakyReLU, softplus, MSE, BCE with and without logits, Gaussian KL, transposed convolution,
+   nearest and bilinear resizing, and LSTM and GRU layers against PyTorch's own), in FP64
    (inputs, output and every input gradient, on odd, size-1 and broadcast shapes), plus 5
    optimiser cases (three `torch.optim` steps each), and Philox values reproduced in numpy.
    `GoldenTest` checks the reference against them; `GoldenAccelTest` and `OptimGoldenAccelTest`
@@ -40,6 +42,14 @@ Four layers of checks run on the host and on every device.
      under FP16 autocast with dynamic loss scaling), against the FP32 PyTorch run: half-precision
      operands cannot follow FP32 step by step, so the step-0 loss is checked to 1e-2 and the end of
      training to 3%.
+   - **Wave 4 gates** (`scripts/pytorch/wave4.py`; the same initial weights, batches and noise as
+     PyTorch, with noise from jitNN's Philox): a VAE on MNIST (BCE plus Gaussian KL, 400 steps), a
+     DCGAN on MNIST (transposed convolutions, LeakyReLU, BCE with logits, two Adam optimisers, 300
+     steps), a U-Net segmenting MNIST digits (transposed convolution, bilinear upsampling, skip
+     concatenation, 300 steps) in `GenerativeAccelTest`, and two-layer LSTM and GRU byte-level
+     language models against cuDNN's (300 steps) in `RecurrentAccelTest`. Step-0 gradients against
+     FP64 as above, the step-0 loss (1e-5), the mean of the last 50 losses (2% VAE, 5% U-Net, 3%
+     language models, 10% for the adversarial DCGAN) and the evaluation metric.
 
 ## Results
 
@@ -74,6 +84,22 @@ Four layers of checks run on the host and on every device.
 | GPT-2 BF16: mean loss of the last 50 steps / eval loss (FP32 PyTorch: 3.0009 / 3.1581) | | 3.0014 / 3.1565 | 3.0016 / 3.1561 | | 3.0017 / 3.1558 |
 | Llama FP16 + loss scaling (FP32 PyTorch: 1.9951 / 2.5854) | | 1.9951 / 2.5854 | 1.9952 / 2.5858 | | 1.9951 / 2.5853 |
 | BERT FP16 + loss scaling (FP32 PyTorch: 3.7603 / 3.4829) | | 3.7606 / 3.4842 | 3.7617 / 3.4851 | | 3.7608 / 3.4818 |
+
+Wave 4, CUDA (A10); OpenCL and Metal have not run these yet:
+
+| Check | PyTorch | jitNN |
+|---|---|---|
+| Operator goldens (225) and gradient checks | | pass (and on the reference backend) |
+| VAE: worst step-0 gradient, fraction of its bound | | 0.04 |
+| VAE: mean loss of the last 50 steps / test loss | 140.90 / 134.89 | 140.87 / 134.78 |
+| DCGAN: worst step-0 gradient, discriminator / generator | | 0.18 / 0.09 |
+| DCGAN: mean of the last 50 losses, discriminator / generator | 0.308 / 2.364 | 0.318 / 2.372 |
+| U-Net: worst step-0 gradient | | 0.02 |
+| U-Net: test loss / foreground IoU | 0.0208 / 0.934 | 0.0214 / 0.932 |
+| LSTM LM: worst step-0 gradient | | 0.04 |
+| LSTM LM: mean of the last 50 losses / evaluation loss | 3.7204 / 3.6513 | 3.7204 / 3.6513 |
+| GRU LM: worst step-0 gradient | | 0.03 |
+| GRU LM: mean of the last 50 losses / evaluation loss | 3.4037 / 3.4477 | 3.4190 / 3.4366 |
 
 The RTX 5070 Ti column predates the CIFAR-10 and transformer gates; the A10 column runs every gate.
 Without BatchNorm amplifying rounding differences, the transformer runs stay within 1e-7 of

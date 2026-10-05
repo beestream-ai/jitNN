@@ -34,7 +34,9 @@ in the order real models use it.
   ResNet-18 and MobileNetV2 match PyTorch's FP64 gradients as closely as PyTorch's own FP32 does,
   and after one CIFAR-10 epoch reach PyTorch's test accuracy (66-67% and 58-61%). GPT-2, a
   Llama-style decoder and BERT train for 300 steps on every backend and end on PyTorch's losses to
-  four digits, and within 0.1% of them under BF16 or FP16 autocast with loss scaling.
+  four digits, and within 0.1% of them under BF16 or FP16 autocast with loss scaling. A VAE, a
+  DCGAN, a U-Net and LSTM and GRU language models match PyTorch's FP64 gradients and its
+  training curves (CUDA so far).
 - **Fused and frugal.** Bias and ReLU run in the GEMM and convolution epilogues, cross-entropy's
   backward is a single kernel, and dead backward-pass buffers are reused inside a compiled step
   (-43% memory on ResNet-18). On CUDA the element-wise, reduction and softmax kernels reach 83-88%
