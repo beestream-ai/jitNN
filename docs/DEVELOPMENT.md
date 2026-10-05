@@ -58,7 +58,8 @@ jitrex (TiRex-2: sLSTM and mLSTM recurrences, variate attention, the portable FP
 Tile API GEMM). They are forward-only inference kernels, kept as they are in their source
 repositories apart from the package name and their few `@Parallel` loops, which were turned into
 KernelContext kernels. An operator adopts one by wrapping it and adding goldens and a reference;
-so far `MmaGemmKernels` (jitllm's 128 x 128 tensor-core GEMM, with a bfloat16 twin) is in use.
+so far `MmaGemmKernels` (jitllm's 128 x 128 tensor-core GEMM, with a bfloat16 twin and a
+strided variant that serves every transpose and split-K) is in use.
 
 ## TornadoVM workarounds
 

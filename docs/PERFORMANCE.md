@@ -81,12 +81,12 @@ Steady-state steps of the transformer gates, before and after the wave 3 perform
 
 | | Metal (M4 Pro) | OpenCL (M4 Pro) | CUDA (A10) |
 |---|---|---|---|
-| GPT-2 (0.84M parameters) | 95 → 87 ms | 92 → 51 ms | 21.7 → 12.7 ms |
-| Llama-style (0.87M parameters) | 93 → 88 ms | 85 → 53 ms | 27.8 → 14.8 ms |
-| BERT, masked LM (0.86M parameters) | 107 → 101 ms | 96 → 57 ms | 22.7 → 14.4 ms |
-| GPT-2, BF16 autocast | 147 → 90 ms | 96 → 54 ms | 14.1 → 6.7 ms |
-| Llama, FP16 autocast with loss scaling | 210 → 99 ms | 119 → 67 ms | 29.9 → 7.1 ms |
-| BERT, FP16 autocast with loss scaling | 218 → 104 ms | 127 → 63 ms | 15.2 → 7.9 ms |
+| GPT-2 (0.84M parameters) | 95 → 87 ms | 92 → 51 ms | 21.7 → 11.7 ms |
+| Llama-style (0.87M parameters) | 93 → 88 ms | 85 → 53 ms | 27.8 → 13.8 ms |
+| BERT, masked LM (0.86M parameters) | 107 → 101 ms | 96 → 57 ms | 22.7 → 13.3 ms |
+| GPT-2, BF16 autocast | 147 → 90 ms | 96 → 54 ms | 14.1 → 4.7 ms |
+| Llama, FP16 autocast with loss scaling | 210 → 99 ms | 119 → 67 ms | 29.9 → 11.9 ms |
+| BERT, FP16 autocast with loss scaling | 218 → 104 ms | 127 → 63 ms | 15.2 → 6.4 ms |
 
 The loss curves are unchanged: every gate still matches PyTorch to four digits (FP32) or within
 0.1% (mixed precision).
@@ -101,12 +101,25 @@ What the pass changed, found with the per-operator profile (`TransformerBenchAcc
 | Clipping and loss unscaling inside the optimiser update, from one gradient-statistics operator (one reduction per gradient) | 555 → 377 launches |
 | Strided attention: the fused kernels read q, k, v from the packed projection (or [B, T, H, d]) and write the merged heads; RoPE on [B, T, H, d] | no permutes, splits or merges around attention; 377 → 317 launches |
 | Half-precision operands on Metal's simdgroup matrix units | mixed precision no slower than FP32 on Metal |
+| Multi-tensor optimiser step (4 parameters per launch) and gradient statistics (8 gradients per launch) | fewer launches; CUDA GPT-2 12.7 → 11.8 ms |
+| Tensor-core GEMMs on CUDA for FP16/BF16 operands (every transpose, split-K) | CUDA GPT-2 BF16 5.8 → 4.7 ms, BERT FP16 7.5 → 6.4 ms |
 
 A step of these small models is still dominated by the number of kernels on Apple GPUs (about
 0.15 ms of dispatch each, TornadoVM J11). On the A10, with CUDA graphs, a GPT-2 step spends 7.5
 ms in 301 kernels; the GEMMs are about 3 ms of it, the attention kernels 1.4 ms, and the
-per-parameter optimiser and gradient-statistics kernels 0.9 ms (a fused multi-tensor optimiser
-step is the next target, with tensor-core GEMMs for half precision).
+optimiser and gradient-statistics kernels the rest of the non-GEMM time.
+
+Half-precision GEMMs on the A10 run on tensor cores (`mma.sync` m16n8k16, FP32 accumulation) with
+a 128x128 pipelined tile adapted from jitllm, on strided operands so every transpose and the
+split-K weight gradients use it. Products whose M and N are not multiples of 128 (or K not a
+multiple of 16) fall back to the generic tiles. TFLOP/s, `BaselineBenchAccelTest`,
+`-Djitnn.tensorCores=false` vs the default:
+
+| A10, square | NN FP16 | NN BF16 | A B^T FP16 | A B^T BF16 |
+|---|---|---|---|---|
+| 1024 | 4.2 → 12.7 | 4.2 → 11.3 | 3.7 → 14.2 | 3.8 → 14.5 |
+| 2048 | 5.0 → 30.1 | 5.0 → 29.4 | 4.4 → 33.1 | 4.5 → 33.3 |
+| 4096 | 5.0 → 30.1 | 5.1 → 30.6 | 4.4 → 33.1 | 4.4 → 33.8 |
 
 Device memory for intermediates, with and without buffer reuse:
 
@@ -124,5 +137,3 @@ Device memory for intermediates, with and without buffer reuse:
 - Metal GEMM is about 42% of MPS. Every tile shape, and the simdgroup path, plateaus at 2.2-2.3
   TFLOP/s; getting further needs vector loads, double buffering and larger SIMD-group tiles.
 - Metal transpose and strided reductions sit at 100-140 GB/s.
-- The optimiser still launches one kernel per parameter. A fused multi-tensor step needs storage
-  views into one flat buffer.
