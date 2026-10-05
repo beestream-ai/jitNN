@@ -37,17 +37,21 @@ public final class Bench {
         String label = args[6];
         try (Model model = Model.newInstance(label, Device.gpu(), engine)) {
             model.load(file.getParent(), file.getFileName().toString());
+            System.out.printf("[djl] %s: engine %s %s, %d GPUs, model on %s%n", label, engine, ai.djl.engine.Engine.getEngine(engine).getVersion(),
+                    ai.djl.engine.Engine.getEngine(engine).getGpuCount(), model.getNDManager().getDevice());
             try (Predictor<NDList, NDList> predictor = model.newPredictor(new NoopTranslator())) {
                 float[] pixels = resnet ? images(b) : null;
                 long[] ids = resnet ? null : tokens(b, t);
                 Supplier<float[]> call = () -> {
                     try (NDManager m = model.getNDManager().newSubManager()) {
-                        NDArray x = resnet ? m.create(pixels, new Shape(b, 3, 224, 224)) : m.create(ids, new Shape(b, t));
+                        NDArray x;
                         if (resnet && fp16) {
-                            x = x.toType(DataType.FLOAT16, false);
+                            x = m.create(halves(pixels), new Shape(b, 3, 224, 224), DataType.FLOAT16);
+                        } else {
+                            x = resnet ? m.create(pixels, new Shape(b, 3, 224, 224)) : m.create(ids, new Shape(b, t));
                         }
                         NDArray y = predictor.predict(new NDList(x)).singletonOrThrow();
-                        return y.toType(DataType.FLOAT32, false).toFloatArray();
+                        return y.getDataType() == DataType.FLOAT16 ? floats(y.toByteBuffer()) : y.toFloatArray();
                     } catch (Exception e) {
                         throw new RuntimeException(e);
                     }
@@ -55,6 +59,24 @@ public final class Bench {
                 time("djl-" + engine.toLowerCase(), label, b, call);
             }
         }
+    }
+
+    /** FP16 bits of {@code v}, little-endian, in a direct buffer. */
+    static java.nio.ByteBuffer halves(float[] v) {
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocateDirect(v.length * 2).order(java.nio.ByteOrder.nativeOrder());
+        for (float f : v) {
+            buf.putShort(Float.floatToFloat16(f));
+        }
+        return buf.rewind();
+    }
+
+    static float[] floats(java.nio.ByteBuffer half) {
+        half.order(java.nio.ByteOrder.nativeOrder());
+        float[] out = new float[half.remaining() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = Float.float16ToFloat(half.getShort());
+        }
+        return out;
     }
 
     static float[] images(int b) {
