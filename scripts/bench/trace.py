@@ -2,6 +2,7 @@
 
 usage: python trace.py <work dir>
 """
+import copy
 import os
 import sys
 
@@ -21,7 +22,7 @@ def main(work):
             nets[kind] = (t1.models.resnet50(3, 1000, False, 1) if kind == "resnet50" else t1.BertEncoder()).eval()
         base = f"resnet50_b{b}" if kind == "resnet50" else f"bert_b{b}_s{s}"
         for dtype in ("fp32", "fp16"):
-            net = nets[kind].float().to(dev) if dtype == "fp32" else nets[kind].half().to(dev)
+            net = nets[kind].to(dev) if dtype == "fp32" else copy.deepcopy(nets[kind]).half().to(dev)
             x = torch.from_numpy(t1.images(b) if kind == "resnet50" else t1.tokens(b, s)).to(dev)
             if kind == "resnet50" and dtype == "fp16":
                 x = x.half()
@@ -30,7 +31,6 @@ def main(work):
                 with torch.no_grad():
                     torch.jit.trace(net, (x,)).save(path)
             print("traced", path, flush=True)
-        nets[kind] = nets[kind].float()
 
 
 if __name__ == "__main__":

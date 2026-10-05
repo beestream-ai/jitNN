@@ -12,6 +12,7 @@ Exports one ONNX model per configuration into <work dir>, prints one line per ru
 <work dir>/t1.json. With a jitNN output dir (written by InferenceBenchAccelTest with
 -Djitnn.bench.out) it also reports how far jitNN's outputs are from PyTorch's FP32 ones.
 """
+import copy
 import json
 import os
 import sys
@@ -24,7 +25,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import models  # noqa: E402
 import transformers  # noqa: E402
 
-import onnxruntime as ort  # noqa: E402
 
 torch.backends.cudnn.allow_tf32 = False
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -80,6 +80,7 @@ def export(model, x, path):
 
 
 def ort_session(path, fp32):
+    import onnxruntime as ort
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     cuda = {"device_id": 0, "cudnn_conv_algo_search": "EXHAUSTIVE", "use_tf32": 0 if fp32 else 1}
@@ -125,7 +126,8 @@ def main(work, jitnn_dir):
         jitnn_check(base + "_fp16", ref)
         for dtype in ("fp32", "fp16"):
             fp32 = dtype == "fp32"
-            net = net32 if fp32 else nets[kind].half().to(dev)
+            # a copy: converting the shared model to FP16 and back would round its weights
+            net = net32 if fp32 else copy.deepcopy(net32).half()
             feed = x_np if kind == "bert" or fp32 else x_np.astype(np.float16)
             name = f"{base}_{dtype}"
 
@@ -140,8 +142,8 @@ def main(work, jitnn_dir):
             ort_call = lambda: sess.run(None, {"x": feed})[0]  # noqa: E731
             record("onnxruntime", name, b, timed(ort_call), ort_call(), ref)
             del sess
-            nets[kind] = nets[kind].float()
         torch.cuda.empty_cache()
+    import onnxruntime as ort
     with open(os.path.join(work, "t1.json"), "w") as f:
         json.dump(dict(torch=torch.__version__, onnxruntime=ort.__version__, gpu=torch.cuda.get_device_name(0), results=results), f, indent=1)
 
