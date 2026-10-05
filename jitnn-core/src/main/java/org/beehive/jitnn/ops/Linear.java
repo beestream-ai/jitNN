@@ -13,11 +13,16 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 /**
  * Fused y = act(x W^T + b): one GEMM with the bias and activation in its epilogue (two kernels on
  * Metal). x is [M, K], W is [N, K] (PyTorch layout), b is [N] or absent. iattr = [M, N, K,
- * hasBias, relu].
+ * hasBias, activation] with activation {@link #NONE}, {@link #RELU} or {@link #GELU} (the last
+ * only from inference fusion, which needs no gradient).
  */
 public final class Linear implements Op {
 
     static final Linear OP = new Linear();
+
+    static final int NONE = 0;
+    static final int RELU = 1;
+    static final int GELU = 2;
 
     private Linear() {
     }
@@ -54,7 +59,8 @@ public final class Linear implements Op {
         int m = node.iattr[0];
         int n = node.iattr[1];
         int k = node.iattr[2];
-        int epilogue = (node.iattr[3] != 0 ? GemmKernels.BIAS : 0) | (node.iattr[4] != 0 ? GemmKernels.RELU : 0);
+        int act = node.iattr[4];
+        int epilogue = (node.iattr[3] != 0 ? GemmKernels.BIAS : 0) | (act == RELU ? GemmKernels.RELU : 0) | (act == GELU ? GemmKernels.GELU : 0);
         FloatArray bias = node.iattr[3] != 0 ? e.f32(node.in(2)) : null;
         if (HostValues.isHalf(node.in(0))) {
             MatMul.emitGemmHalf(e, node.in(0), node.in(1), e.f32(node.out(0)), bias != null ? bias : e.dummyF32(), m, n, k, 0, 1, epilogue);
@@ -72,14 +78,15 @@ public final class Linear implements Op {
         int m = node.iattr[0];
         int n = node.iattr[1];
         int k = node.iattr[2];
-        boolean relu = node.iattr[4] != 0;
+        int act = node.iattr[4];
         for (int i = 0; i < m; i++) {
             for (int j = 0; j < n; j++) {
                 double acc = b == null ? 0 : b.get(j);
                 for (int q = 0; q < k; q++) {
                     acc += (double) HostValues.get(x, i * k + q) * HostValues.get(w, j * k + q);
                 }
-                y.set(i * n + j, (float) (relu ? Math.max(acc, 0) : acc));
+                double v = act == RELU ? Math.max(acc, 0) : (act == GELU ? acc * RefMath.normalCdf(acc) : acc);
+                y.set(i * n + j, (float) v);
             }
         }
     }
@@ -88,8 +95,11 @@ public final class Linear implements Op {
     public Tensor[] backward(Node node, Tensor gy) {
         Tensor x = node.in(0);
         Tensor w = node.in(1);
+        if (node.iattr[4] == GELU) {
+            throw new UnsupportedOperationException("linear with a fused GELU is for inference only");
+        }
         // ReLU gradient from the output: y > 0 exactly where the pre-activation is > 0.
-        Tensor g = node.iattr[4] != 0 ? Binary.apply(Binary.Kind.RELU_GRAD, node.out(0), gy) : gy;
+        Tensor g = node.iattr[4] == RELU ? Binary.apply(Binary.Kind.RELU_GRAD, node.out(0), gy) : gy;
         // Half-precision operands: the gradient products run in that type (as under PyTorch's autocast).
         Tensor gl = g.to(x.dtype());
         Tensor gx = x.requiresGrad() ? MatMul.apply(gl, w, false, false) : null;

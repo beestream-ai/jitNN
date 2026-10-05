@@ -76,10 +76,11 @@ final class TornadoExecutor {
         return loaded;
     }
 
-    static synchronized void run(List<Node> nodes, Tensor[] wanted) {
+    static synchronized void run(List<Node> recorded, Tensor[] wanted) {
         long start = System.nanoTime();
         long before = executeNanos;
         loaded = true;
+        List<Node> nodes = org.beehive.jitnn.ops.Fusion.rewrite(recorded, wanted);
         // Slot table over storages, in order of first appearance.
         IdentityHashMap<Storage, Integer> slotOf = new IdentityHashMap<>();
         List<Storage> slots = new ArrayList<>();
@@ -183,6 +184,14 @@ final class TornadoExecutor {
         }
         for (Node n : nodes) {
             n.executed = true;
+        }
+        for (Node n : recorded) {
+            n.executed = true;
+        }
+        for (int i = 0; i < slots.size(); i++) {
+            if (written[i]) {
+                slots.get(i).version++;
+            }
         }
         for (Tensor t : wanted) {
             Storage s = t.storage();

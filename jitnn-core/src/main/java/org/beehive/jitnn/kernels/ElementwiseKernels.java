@@ -59,6 +59,8 @@ public final class ElementwiseKernels {
     public static final int BCE_LOGITS = 25;
     /** d BCE_LOGITS / d x: sigmoid(x) - y. */
     public static final int BCE_LOGITS_DX = 26;
+    /** relu(x + y): a residual connection and its activation in one pass. */
+    public static final int ADD_RELU = 27;
 
     // Unary op codes: out = f(x; alpha, beta).
     public static final int NEG = 0;
@@ -220,6 +222,9 @@ public final class ElementwiseKernels {
             r = (1.0f - y) * x + (x < 0.0f ? -x : 0.0f) + log1p(TornadoMath.exp(-TornadoMath.abs(x)));
         } else if (op == BCE_LOGITS_DX) {
             r = sigmoid(x) - y;
+        } else if (op == ADD_RELU) {
+            float s = x + y;
+            r = s > 0.0f ? s : 0.0f;
         } else {
             r = x;
         }

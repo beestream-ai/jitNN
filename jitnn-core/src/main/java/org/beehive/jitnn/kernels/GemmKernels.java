@@ -1834,6 +1834,8 @@ public final class GemmKernels {
     public static final int BIAS = 1;
     /** Epilogue bit: apply ReLU after the bias. */
     public static final int RELU = 2;
+    /** Epilogue flag: exact GELU, x * Phi(x), after the bias. */
+    public static final int GELU = 4;
 
     /**
      * Writes one output with the fused epilogue. TornadoVM specialises scalar arguments, so the
@@ -1848,6 +1850,9 @@ public final class GemmKernels {
             if ((epilogue & RELU) != 0) {
                 r = r > 0.0f ? r : 0.0f;
             }
+            if ((epilogue & GELU) != 0) {
+                r = r * ElementwiseKernels.normalCdf(r);
+            }
             c.set(row * n + col, r);
         }
     }
@@ -1861,6 +1866,9 @@ public final class GemmKernels {
             }
             if ((epilogue & RELU) != 0) {
                 r = r > 0.0f ? r : 0.0f;
+            }
+            if ((epilogue & GELU) != 0) {
+                r = r * ElementwiseKernels.normalCdf(r);
             }
             c.set(offset + row * n + col, r);
         }
@@ -1877,6 +1885,9 @@ public final class GemmKernels {
             }
             if ((epilogue & RELU) != 0) {
                 r = r > 0.0f ? r : 0.0f;
+            }
+            if ((epilogue & GELU) != 0) {
+                r = r * ElementwiseKernels.normalCdf(r);
             }
             c.set(i, r);
         }

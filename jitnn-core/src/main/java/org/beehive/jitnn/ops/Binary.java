@@ -41,7 +41,8 @@ public final class Binary implements Op {
         BCE_DX(ElementwiseKernels.BCE_DX),
         BCE_DY(ElementwiseKernels.BCE_DY),
         BCE_LOGITS(ElementwiseKernels.BCE_LOGITS),
-        BCE_LOGITS_DX(ElementwiseKernels.BCE_LOGITS_DX);
+        BCE_LOGITS_DX(ElementwiseKernels.BCE_LOGITS_DX),
+        ADD_RELU(ElementwiseKernels.ADD_RELU);
 
         final int code;
 
@@ -162,6 +163,10 @@ public final class Binary implements Op {
             case MIN -> new Tensor[] { ga ? gy.mul(b.ge(a)).sumTo(sa) : null, gb ? gy.mul(b.lt(a)).sumTo(sb) : null };
             case FIRST -> new Tensor[] { ga ? gy.sumTo(sa) : null, null };
             case BCE -> new Tensor[] { ga ? gy.mul(apply(Kind.BCE_DX, a, b)).sumTo(sa) : null, gb ? gy.mul(apply(Kind.BCE_DY, a, b)).sumTo(sb) : null };
+            case ADD_RELU -> {
+                Tensor g = apply(Kind.RELU_GRAD, n.out(0), gy);
+                yield new Tensor[] { ga ? g.sumTo(sa) : null, gb ? g.sumTo(sb) : null };
+            }
             case BCE_LOGITS -> new Tensor[] { ga ? gy.mul(apply(Kind.BCE_LOGITS_DX, a, b)).sumTo(sa) : null, gb ? gy.mul(a).neg().sumTo(sb) : null };
             default -> throw new UnsupportedOperationException("no gradient for binary " + BY_CODE[n.iattr[0]]);
         };

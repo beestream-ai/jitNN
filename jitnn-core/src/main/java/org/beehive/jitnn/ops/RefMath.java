@@ -46,6 +46,7 @@ final class RefMath {
             case ElementwiseKernels.BCE_DY -> Math.max(Math.log(1 - x), -100) - Math.max(Math.log(x), -100);
             case ElementwiseKernels.BCE_LOGITS -> (1 - y) * x + Math.max(-x, 0) + Math.log1p(Math.exp(-Math.abs(x)));
             case ElementwiseKernels.BCE_LOGITS_DX -> 1 / (1 + Math.exp(-x)) - y;
+            case ElementwiseKernels.ADD_RELU -> Math.max(x + y, 0);
             default -> x;
         };
     }

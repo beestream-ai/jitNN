@@ -45,6 +45,9 @@ public final class Storage {
     long boundExec;
     boolean stale;
 
+    /** Incremented whenever the contents change (host writes, executions that write it); caches derived from it compare it. */
+    long version;
+
     public Storage(DType dtype, int numel, boolean persistent) {
         this.dtype = dtype;
         this.numel = numel;
@@ -98,6 +101,21 @@ public final class Storage {
         return id;
     }
 
+    /** Changes whenever the contents do. */
+    public long version() {
+        return version;
+    }
+
+    /** Created by an inference forward pass or by autograd, and not handed to the user: rewrites may fuse it away. */
+    public boolean isInternal() {
+        return internal;
+    }
+
+    /** Its producer was fused into a consumer, so it is never computed; reading it is an error. */
+    public void markFused() {
+        stale = true;
+    }
+
     TornadoNativeArray allocate() {
         if (array == null) {
             array = newArray(dtype, numel);
@@ -139,5 +157,6 @@ public final class Storage {
         hostValid = true;
         validOn.clear();
         boundTrace = null;
+        version++;
     }
 }
