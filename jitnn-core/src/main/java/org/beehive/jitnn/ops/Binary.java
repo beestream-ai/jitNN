@@ -34,7 +34,14 @@ public final class Binary implements Op {
         TANH_GRAD(ElementwiseKernels.TANH_GRAD),
         GELU_GRAD(ElementwiseKernels.GELU_GRAD),
         GELU_TANH_GRAD(ElementwiseKernels.GELU_TANH_GRAD),
-        SILU_GRAD(ElementwiseKernels.SILU_GRAD);
+        SILU_GRAD(ElementwiseKernels.SILU_GRAD),
+        LEAKY_RELU_GRAD(ElementwiseKernels.LEAKY_RELU_GRAD),
+        SOFTPLUS_GRAD(ElementwiseKernels.SOFTPLUS_GRAD),
+        BCE(ElementwiseKernels.BCE),
+        BCE_DX(ElementwiseKernels.BCE_DX),
+        BCE_DY(ElementwiseKernels.BCE_DY),
+        BCE_LOGITS(ElementwiseKernels.BCE_LOGITS),
+        BCE_LOGITS_DX(ElementwiseKernels.BCE_LOGITS_DX);
 
         final int code;
 
@@ -154,6 +161,8 @@ public final class Binary implements Op {
             case MAX -> new Tensor[] { ga ? gy.mul(a.ge(b)).sumTo(sa) : null, gb ? gy.mul(a.lt(b)).sumTo(sb) : null };
             case MIN -> new Tensor[] { ga ? gy.mul(b.ge(a)).sumTo(sa) : null, gb ? gy.mul(b.lt(a)).sumTo(sb) : null };
             case FIRST -> new Tensor[] { ga ? gy.sumTo(sa) : null, null };
+            case BCE -> new Tensor[] { ga ? gy.mul(apply(Kind.BCE_DX, a, b)).sumTo(sa) : null, gb ? gy.mul(apply(Kind.BCE_DY, a, b)).sumTo(sb) : null };
+            case BCE_LOGITS -> new Tensor[] { ga ? gy.mul(apply(Kind.BCE_LOGITS_DX, a, b)).sumTo(sa) : null, gb ? gy.mul(a).neg().sumTo(sb) : null };
             default -> throw new UnsupportedOperationException("no gradient for binary " + BY_CODE[n.iattr[0]]);
         };
     }

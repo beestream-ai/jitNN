@@ -39,6 +39,13 @@ final class RefMath {
                 double s = 1 / (1 + Math.exp(-x));
                 yield y * s * (1 + x * (1 - s));
             }
+            case ElementwiseKernels.LEAKY_RELU_GRAD -> x > 0 ? y : alpha * y;
+            case ElementwiseKernels.SOFTPLUS_GRAD -> y / (1 + Math.exp(-x));
+            case ElementwiseKernels.BCE -> -(y * Math.max(Math.log(x), -100) + (1 - y) * Math.max(Math.log(1 - x), -100));
+            case ElementwiseKernels.BCE_DX -> (x - y) / Math.max(x * (1 - x), 1e-12);
+            case ElementwiseKernels.BCE_DY -> Math.max(Math.log(1 - x), -100) - Math.max(Math.log(x), -100);
+            case ElementwiseKernels.BCE_LOGITS -> (1 - y) * x + Math.max(-x, 0) + Math.log1p(Math.exp(-Math.abs(x)));
+            case ElementwiseKernels.BCE_LOGITS_DX -> 1 / (1 + Math.exp(-x)) - y;
             default -> x;
         };
     }
@@ -61,6 +68,8 @@ final class RefMath {
             case ElementwiseKernels.GELU -> x * normalCdf(x);
             case ElementwiseKernels.GELU_TANH -> 0.5 * x * (1 + Math.tanh(Math.sqrt(2 / Math.PI) * (x + 0.044715 * x * x * x)));
             case ElementwiseKernels.SILU -> x / (1 + Math.exp(-x));
+            case ElementwiseKernels.LEAKY_RELU -> x > 0 ? x : alpha * x;
+            case ElementwiseKernels.SOFTPLUS -> Math.max(x, 0) + Math.log1p(Math.exp(-Math.abs(x)));
             default -> alpha;
         };
     }

@@ -2,7 +2,9 @@ package org.beehive.jitnn;
 
 import org.beehive.jitnn.ops.AttentionSoftmax;
 import org.beehive.jitnn.ops.BatchNorm2d;
+import org.beehive.jitnn.ops.Binary;
 import org.beehive.jitnn.ops.Conv2d;
+import org.beehive.jitnn.ops.ConvTranspose2d;
 import org.beehive.jitnn.ops.CrossEntropy;
 import org.beehive.jitnn.ops.Dropout;
 import org.beehive.jitnn.ops.Embedding;
@@ -10,9 +12,12 @@ import org.beehive.jitnn.ops.FlashAttention;
 import org.beehive.jitnn.ops.Linear;
 import org.beehive.jitnn.ops.Nll;
 import org.beehive.jitnn.ops.Pool2d;
+import org.beehive.jitnn.ops.Recurrent;
 import org.beehive.jitnn.ops.Rope;
 import org.beehive.jitnn.ops.Sampling;
 import org.beehive.jitnn.ops.RowNorm;
+import org.beehive.jitnn.ops.Upsample2d;
+import org.beehive.jitnn.kernels.ResizeKernels;
 
 /** Functional operators that are not methods of {@link Tensor}. */
 public final class F {
@@ -79,6 +84,29 @@ public final class F {
     /** relu(batchNorm(...)), fused. */
     public static Tensor batchNormRelu(Tensor x, Tensor runningMean, Tensor runningVar, Tensor weight, Tensor bias, boolean training, float momentum, float eps) {
         return BatchNorm2d.apply(x, weight, bias, runningMean, runningVar, training, eps, momentum, true);
+    }
+
+    /**
+     * Transposed 2-D convolution (NCHW), PyTorch's conv_transpose2d: weight [Cin, Cout/groups, K, K],
+     * square kernel; bias may be null.
+     */
+    public static Tensor convTranspose2d(Tensor x, Tensor weight, Tensor bias, int stride, int padding, int outputPadding, int dilation, int groups) {
+        return ConvTranspose2d.apply(x, weight, bias, stride, padding, outputPadding, dilation, groups);
+    }
+
+    /** Nearest-neighbour upsampling of x [N, C, H, W] by {@code scale} (PyTorch's mode='nearest'). */
+    public static Tensor upsampleNearest(Tensor x, float scale) {
+        return Upsample2d.scale(x, scale, scale, ResizeKernels.NEAREST, false);
+    }
+
+    /** Bilinear upsampling of x [N, C, H, W] by {@code scale}. */
+    public static Tensor upsampleBilinear(Tensor x, float scale, boolean alignCorners) {
+        return Upsample2d.scale(x, scale, scale, ResizeKernels.BILINEAR, alignCorners);
+    }
+
+    /** Resizes x [N, C, H, W] to [N, C, height, width], nearest or bilinear (PyTorch's interpolate with size). */
+    public static Tensor interpolate(Tensor x, int height, int width, boolean bilinear, boolean alignCorners) {
+        return Upsample2d.size(x, height, width, bilinear ? ResizeKernels.BILINEAR : ResizeKernels.NEAREST, alignCorners);
     }
 
     public static Tensor maxPool2d(Tensor x, int kernel, int stride, int padding) {
@@ -202,6 +230,84 @@ public final class F {
      */
     public static Tensor multinomial(Tensor weights, Tensor seed, int stream) {
         return Sampling.multinomial(weights, seed, stream);
+    }
+
+    /** How a loss reduces its per-element values. */
+    public enum Reduction {
+        NONE, MEAN, SUM
+    }
+
+    private static Tensor reduce(Tensor l, Reduction r) {
+        return switch (r) {
+            case NONE -> l;
+            case MEAN -> l.mean();
+            case SUM -> l.sum();
+        };
+    }
+
+    /** Mean squared error between {@code input} and {@code target} (same shape). */
+    public static Tensor mseLoss(Tensor input, Tensor target) {
+        return mseLoss(input, target, Reduction.MEAN);
+    }
+
+    public static Tensor mseLoss(Tensor input, Tensor target, Reduction reduction) {
+        return reduce(input.sub(target).square(), reduction);
+    }
+
+    /**
+     * Binary cross-entropy of probabilities {@code p} in [0, 1] against {@code target}, PyTorch
+     * semantics: the logs are clamped at -100, so p = 0 or 1 gives finite values and gradients.
+     */
+    public static Tensor binaryCrossEntropy(Tensor p, Tensor target) {
+        return binaryCrossEntropy(p, target, Reduction.MEAN);
+    }
+
+    public static Tensor binaryCrossEntropy(Tensor p, Tensor target, Reduction reduction) {
+        return reduce(Binary.apply(Binary.Kind.BCE, p, target), reduction);
+    }
+
+    /** Binary cross-entropy on logits, sigmoid folded in without overflow (PyTorch's BCEWithLogits). */
+    public static Tensor binaryCrossEntropyWithLogits(Tensor logits, Tensor target) {
+        return binaryCrossEntropyWithLogits(logits, target, Reduction.MEAN);
+    }
+
+    public static Tensor binaryCrossEntropyWithLogits(Tensor logits, Tensor target, Reduction reduction) {
+        return reduce(Binary.apply(Binary.Kind.BCE_LOGITS, logits, target), reduction);
+    }
+
+    /**
+     * KL divergence of N(mu, exp(logvar)) from N(0, 1), summed over every element:
+     * -0.5 * sum(1 + logvar - mu^2 - exp(logvar)), the VAE regulariser.
+     */
+    public static Tensor gaussianKl(Tensor mu, Tensor logvar) {
+        return logvar.add(1.0f).sub(mu.square()).sub(logvar.exp()).sum().mul(-0.5f);
+    }
+
+    /**
+     * One LSTM layer over x [T, B, I] (time first), PyTorch's equations and gate order (i, f, g, o):
+     * wih [4H, I], whh [4H, H], biases [4H], h0 and c0 [B, H]. Returns {y [T, B, H], h_n, c_n}
+     * ([B, H] each); c_n carries no gradient.
+     */
+    public static Tensor[] lstm(Tensor x, Tensor wih, Tensor whh, Tensor bih, Tensor bhh, Tensor h0, Tensor c0) {
+        int t = x.dim(0);
+        int b = x.dim(1);
+        int h = whh.dim(1);
+        Tensor xg = linear(x.reshape(t * b, x.dim(2)), wih, bih).reshape(t, b, 4 * h);
+        Tensor[] r = Recurrent.lstm(xg, whh, bhh, h0, c0);
+        return new Tensor[] { r[0], r[0].narrow(0, t - 1, 1).reshape(b, h), r[1] };
+    }
+
+    /**
+     * One GRU layer over x [T, B, I] (time first), PyTorch's equations and gate order (r, z, n):
+     * wih [3H, I], whh [3H, H], biases [3H], h0 [B, H]. Returns {y [T, B, H], h_n [B, H]}.
+     */
+    public static Tensor[] gru(Tensor x, Tensor wih, Tensor whh, Tensor bih, Tensor bhh, Tensor h0) {
+        int t = x.dim(0);
+        int b = x.dim(1);
+        int h = whh.dim(1);
+        Tensor xg = linear(x.reshape(t * b, x.dim(2)), wih, bih).reshape(t, b, 3 * h);
+        Tensor y = Recurrent.gru(xg, whh, bhh, h0);
+        return new Tensor[] { y, y.narrow(0, t - 1, 1).reshape(b, h) };
     }
 
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */

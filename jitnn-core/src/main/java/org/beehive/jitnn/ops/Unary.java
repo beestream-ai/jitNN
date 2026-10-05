@@ -29,7 +29,9 @@ public final class Unary implements Op {
         SIGMOID(ElementwiseKernels.SIGMOID),
         GELU(ElementwiseKernels.GELU),
         GELU_TANH(ElementwiseKernels.GELU_TANH),
-        SILU(ElementwiseKernels.SILU);
+        SILU(ElementwiseKernels.SILU),
+        LEAKY_RELU(ElementwiseKernels.LEAKY_RELU),
+        SOFTPLUS(ElementwiseKernels.SOFTPLUS);
 
         final int code;
 
@@ -107,6 +109,8 @@ public final class Unary implements Op {
             case GELU -> Binary.apply(Binary.Kind.GELU_GRAD, x, gy);
             case GELU_TANH -> Binary.apply(Binary.Kind.GELU_TANH_GRAD, x, gy);
             case SILU -> Binary.apply(Binary.Kind.SILU_GRAD, x, gy);
+            case LEAKY_RELU -> Binary.apply(Binary.Kind.LEAKY_RELU_GRAD, x, gy, alpha, 0.0f);
+            case SOFTPLUS -> Binary.apply(Binary.Kind.SOFTPLUS_GRAD, x, gy);
         };
         return new Tensor[] { gx };
     }

@@ -196,6 +196,19 @@ public final class Golden {
             case "narrow" -> in[0].narrow(c.iattr(0), c.iattr(1), c.iattr(2));
             case "concat" -> Tensor.cat(c.iattr(0), in);
             case "stack" -> Tensor.stack(c.iattr(0), in);
+            case "leaky_relu" -> in[0].leakyRelu(c.fattr(0));
+            case "softplus" -> in[0].softplus();
+            case "mse" -> F.mseLoss(in[0], in[1]);
+            case "mse_sum" -> F.mseLoss(in[0], in[1], F.Reduction.SUM);
+            case "bce" -> F.binaryCrossEntropy(in[0], in[1]);
+            case "bce_logits" -> F.binaryCrossEntropyWithLogits(in[0], in[1]);
+            case "gaussian_kl" -> F.gaussianKl(in[0], in[1]);
+            case "conv_transpose2d" -> F.convTranspose2d(in[0], in[1], in[2], c.iattr(0), c.iattr(1), c.iattr(2), c.iattr(3), c.iattr(4));
+            case "conv_transpose2d_nobias" -> F.convTranspose2d(in[0], in[1], null, c.iattr(0), c.iattr(1), c.iattr(2), c.iattr(3), c.iattr(4));
+            case "upsample" -> c.iattr(0) == 0 ? F.upsampleNearest(in[0], c.fattr(2)) : F.upsampleBilinear(in[0], c.fattr(2), c.iattr(1) != 0);
+            case "interpolate" -> F.interpolate(in[0], c.iattr(2), c.iattr(3), c.iattr(0) != 0, c.iattr(1) != 0);
+            case "lstm" -> F.lstm(in[0], in[1], in[2], in[3], in[4], in[5], in[6])[0];
+            case "gru" -> F.gru(in[0], in[1], in[2], in[3], in[4], in[5])[0];
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
     }
@@ -203,7 +216,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

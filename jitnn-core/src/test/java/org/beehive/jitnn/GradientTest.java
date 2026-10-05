@@ -48,6 +48,44 @@ class GradientTest {
     }
 
     @Test
+    void wave4ActivationsAndLosses() {
+        float[] prob = { 0.2f, 0.7f, 0.4f, 0.9f, 0.15f, 0.55f };
+        float[] target = { 0.3f, 1, 0, 0.6f, 0.2f, 0.9f };
+        gradCheck("leaky relu", x -> x[0].leakyRelu(0.1f).square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("softplus", x -> x[0].softplus().square().sum(), new float[][] { A23 }, new int[][] { S23 });
+        gradCheck("mse", x -> F.mseLoss(x[0], x[1]), new float[][] { A23, B23 }, new int[][] { S23, S23 });
+        gradCheck("bce", x -> F.binaryCrossEntropy(x[0], x[1]), new float[][] { prob, target }, new int[][] { S23, S23 });
+        gradCheck("bce logits", x -> F.binaryCrossEntropyWithLogits(x[0], x[1], F.Reduction.SUM), new float[][] { A23, target }, new int[][] { S23, S23 });
+        gradCheck("gaussian kl", x -> F.gaussianKl(x[0], x[1]), new float[][] { A23, B23 }, new int[][] { S23, S23 });
+    }
+
+    @Test
+    void transposedConvolutionAndResizing() {
+        float[] x = seq(18, 0.3f, 0.7f);
+        float[] w = seq(54, -0.4f, 0.3f);
+        float[] b = { 0.1f, -0.2f, 0.3f };
+        gradCheck("conv transpose", t -> F.convTranspose2d(t[0], t[1], t[2], 2, 1, 1, 1, 1).square().sum(), new float[][] { x, w, b },
+                new int[][] { { 1, 2, 3, 3 }, { 2, 3, 3, 3 }, { 3 } });
+        gradCheck("conv transpose groups", t -> F.convTranspose2d(t[0], t[1], null, 1, 0, 0, 2, 2).square().sum(), new float[][] { x, seq(18, 0.2f, -0.5f) },
+                new int[][] { { 1, 2, 3, 3 }, { 2, 1, 3, 3 } });
+        gradCheck("upsample nearest", t -> F.upsampleNearest(t[0], 2).square().sum(), new float[][] { x }, new int[][] { { 1, 2, 3, 3 } });
+        gradCheck("upsample bilinear", t -> F.upsampleBilinear(t[0], 2, false).square().sum(), new float[][] { x }, new int[][] { { 1, 2, 3, 3 } });
+        gradCheck("resize align corners", t -> F.interpolate(t[0], 5, 4, true, true).square().sum(), new float[][] { x }, new int[][] { { 1, 2, 3, 3 } });
+    }
+
+    @Test
+    void recurrentLayers() {
+        float[] x = seq(12, 0.8f, 0.1f);
+        float[] h0 = seq(6, 0.5f, -0.1f);
+        int[][] lstmShapes = { { 2, 2, 3 }, { 12, 3 }, { 12, 3 }, { 12 }, { 12 }, { 2, 3 }, { 2, 3 } };
+        gradCheck("lstm", t -> F.lstm(t[0], t[1], t[2], t[3], t[4], t[5], t[6])[0].square().sum(),
+                new float[][] { x, seq(36, 0.4f, 0), seq(36, 0.3f, 0.05f), seq(12, 0.2f, 0), seq(12, 0.2f, 0.1f), h0, seq(6, 0.6f, 0.2f) }, lstmShapes);
+        int[][] gruShapes = { { 2, 2, 3 }, { 9, 3 }, { 9, 3 }, { 9 }, { 9 }, { 2, 3 } };
+        gradCheck("gru", t -> F.gru(t[0], t[1], t[2], t[3], t[4], t[5])[0].square().sum(),
+                new float[][] { x, seq(27, 0.4f, 0), seq(27, 0.3f, 0.05f), seq(9, 0.2f, 0), seq(9, 0.2f, 0.1f), h0 }, gruShapes);
+    }
+
+    @Test
     void reductions() {
         gradCheck("sum axis", x -> x[0].sum(0, false).square().sum(), new float[][] { A23 }, new int[][] { S23 });
         gradCheck("mean keepdim", x -> x[0].mean(1, true).square().sum(), new float[][] { A23 }, new int[][] { S23 });

@@ -45,6 +45,20 @@ public final class ElementwiseKernels {
     public static final int GELU_TANH_GRAD = 18;
     /** a = x, b = dy, for SiLU (x * sigmoid(x)). */
     public static final int SILU_GRAD = 19;
+    /** y where x > 0, else alpha * y (x is the input). */
+    public static final int LEAKY_RELU_GRAD = 20;
+    /** y * sigmoid(x) (x is the input). */
+    public static final int SOFTPLUS_GRAD = 21;
+    /** Binary cross-entropy of probability x against target y, logs clamped at -100 (PyTorch). */
+    public static final int BCE = 22;
+    /** d BCE / d x: (x - y) / max(x (1 - x), 1e-12). */
+    public static final int BCE_DX = 23;
+    /** d BCE / d y: log(1 - x) - log(x), both clamped at -100. */
+    public static final int BCE_DY = 24;
+    /** Binary cross-entropy of logit x against target y: (1 - y) x + max(-x, 0) + log1p(exp(-|x|)). */
+    public static final int BCE_LOGITS = 25;
+    /** d BCE_LOGITS / d x: sigmoid(x) - y. */
+    public static final int BCE_LOGITS_DX = 26;
 
     // Unary op codes: out = f(x; alpha, beta).
     public static final int NEG = 0;
@@ -71,6 +85,10 @@ public final class ElementwiseKernels {
     public static final int GELU_TANH = 15;
     /** x * sigmoid(x), also called swish. */
     public static final int SILU = 16;
+    /** x where x > 0, else alpha * x. */
+    public static final int LEAKY_RELU = 17;
+    /** log(1 + exp(x)), overflow-free. */
+    public static final int SOFTPLUS = 18;
 
     private static final float SQRT_HALF = 0.70710678f;
     private static final float INV_SQRT_2PI = 0.39894228f;
@@ -111,6 +129,31 @@ public final class ElementwiseKernels {
         } else {
             float e = TornadoMath.exp(x);
             r = e / (1.0f + e);
+        }
+        return r;
+    }
+
+    /**
+     * log(1 + z) for z in [0, 1], accurate for small z. WORKAROUND(J7): TornadoMath has no log1p;
+     * the rounding error of u = 1 + z is cancelled by z / (u - 1) (Goldberg's trick).
+     */
+    public static float log1p(float z) {
+        float u = 1.0f + z;
+        float d = u - 1.0f;
+        return d == 0.0f ? z : TornadoMath.log(u) * (z / d);
+    }
+
+    /** Overflow-free softplus: max(x, 0) + log1p(exp(-|x|)). */
+    public static float softplus(float x) {
+        return (x > 0.0f ? x : 0.0f) + log1p(TornadoMath.exp(-TornadoMath.abs(x)));
+    }
+
+    /** log(x) clamped below at -100, as PyTorch's binary cross-entropy. */
+    public static float clampedLog(float x) {
+        float r = -100.0f;
+        if (x > 0.0f) {
+            float l = TornadoMath.log(x);
+            r = l > -100.0f ? l : -100.0f;
         }
         return r;
     }
@@ -162,6 +205,21 @@ public final class ElementwiseKernels {
         } else if (op == SILU_GRAD) {
             float s = sigmoid(x);
             r = y * s * (1.0f + x * (1.0f - s));
+        } else if (op == LEAKY_RELU_GRAD) {
+            r = x > 0.0f ? y : alpha * y;
+        } else if (op == SOFTPLUS_GRAD) {
+            r = y * sigmoid(x);
+        } else if (op == BCE) {
+            r = -(y * clampedLog(x) + (1.0f - y) * clampedLog(1.0f - x));
+        } else if (op == BCE_DX) {
+            float d = x * (1.0f - x);
+            r = (x - y) / (d > 1e-12f ? d : 1e-12f);
+        } else if (op == BCE_DY) {
+            r = clampedLog(1.0f - x) - clampedLog(x);
+        } else if (op == BCE_LOGITS) {
+            r = (1.0f - y) * x + (x < 0.0f ? -x : 0.0f) + log1p(TornadoMath.exp(-TornadoMath.abs(x)));
+        } else if (op == BCE_LOGITS_DX) {
+            r = sigmoid(x) - y;
         } else {
             r = x;
         }
@@ -202,6 +260,10 @@ public final class ElementwiseKernels {
             r = 0.5f * x * (1.0f + tanh(SQRT_2_OVER_PI * (x + GELU_CUBIC * x * x * x)));
         } else if (op == SILU) {
             r = x * sigmoid(x);
+        } else if (op == LEAKY_RELU) {
+            r = x > 0.0f ? x : alpha * x;
+        } else if (op == SOFTPLUS) {
+            r = softplus(x);
         } else {
             r = alpha;
         }

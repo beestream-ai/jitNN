@@ -24,9 +24,15 @@ public final class Mnist implements Dataset {
         this.count = labels.length;
     }
 
+    /** Pixels normalised with MNIST's mean and standard deviation (0.1307, 0.3081). */
     public static Mnist load(Path dir, boolean train) throws IOException {
+        return load(dir, train, false);
+    }
+
+    /** With {@code unit}, pixels are raw / 255 in [0, 1] (targets for generative models); otherwise normalised. */
+    public static Mnist load(Path dir, boolean train, boolean unit) throws IOException {
         String prefix = train ? "train" : "t10k";
-        float[] images = readImages(open(dir, prefix + "-images-idx3-ubyte"));
+        float[] images = readImages(open(dir, prefix + "-images-idx3-ubyte"), unit);
         int[] labels = readLabels(open(dir, prefix + "-labels-idx1-ubyte"));
         return new Mnist(images, labels);
     }
@@ -41,7 +47,7 @@ public final class Mnist implements Dataset {
         return new DataInputStream(new java.io.BufferedInputStream(in, 1 << 16));
     }
 
-    private static float[] readImages(DataInputStream in) throws IOException {
+    private static float[] readImages(DataInputStream in, boolean unit) throws IOException {
         try (in) {
             if (in.readInt() != 2051) {
                 throw new IOException("not an IDX image file");
@@ -52,7 +58,8 @@ public final class Mnist implements Dataset {
             byte[] raw = in.readNBytes(n * rows * cols);
             float[] out = new float[raw.length];
             for (int i = 0; i < raw.length; i++) {
-                out[i] = ((raw[i] & 0xFF) / 255.0f - 0.1307f) / 0.3081f;
+                float v = (raw[i] & 0xFF) / 255.0f;
+                out[i] = unit ? v : (v - 0.1307f) / 0.3081f;
             }
             return out;
         }

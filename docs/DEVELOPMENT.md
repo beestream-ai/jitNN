@@ -75,5 +75,5 @@ Kernels tagged `WORKAROUND(...)` avoid these:
 | A task graph holds at most 256 tasks and 8 KiB of high-level bytecode | traces are chained into several graphs |
 | A plan whose execution ran out of memory is not safe to run again | it is dropped and the trace recompiled after evicting other plans |
 | Metal's `tanh` returns NaN for large arguments | `ElementwiseKernels.tanh` goes through exp(-2abs(x)) |
-| TornadoMath has no erf, erfc, rsqrt, log1p, expm1 | `ElementwiseKernels.erfc`, a Chebyshev fit good to 1.2e-7, for exact GELU |
+| TornadoMath has no erf, erfc, rsqrt, log1p, expm1 | `ElementwiseKernels.erfc`, a Chebyshev fit good to 1.2e-7, for exact GELU; `ElementwiseKernels.log1p` (Goldberg's trick) for softplus and BCE with logits |
 | Short-circuit operators inside loops can drop a branch | non-short-circuit AND and OR operators in every kernel |

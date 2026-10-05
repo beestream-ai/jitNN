@@ -408,6 +408,16 @@ public final class Tensor {
         return Unary.apply(Unary.Kind.SILU, this, 0, 0);
     }
 
+    /** LeakyReLU: x for x > 0, else {@code slope} * x (PyTorch's default slope is 0.01). */
+    public Tensor leakyRelu(float slope) {
+        return Unary.apply(Unary.Kind.LEAKY_RELU, this, slope, 0);
+    }
+
+    /** Softplus, log(1 + exp(x)) (beta 1), computed without overflow. */
+    public Tensor softplus() {
+        return Unary.apply(Unary.Kind.SOFTPLUS, this, 0, 0);
+    }
+
     // ---------------------------------------------------------------- reductions
 
     public Tensor sum() {

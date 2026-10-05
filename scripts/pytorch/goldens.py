@@ -203,6 +203,50 @@ add("rms_norm", "rms_norm", [1e-6], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5)])
 add("rms_norm_3d", "rms_norm", [1e-6], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5)])
 add("rms_norm_long", "rms_norm", [1e-6], [rnd(3, 1000), rnd(1000, lo=0.5, hi=1.5)])
 add("rms_norm_rows", "rms_norm", [1e-6], [rnd(150, 16), rnd(16, lo=0.5, hi=1.5)])
+# ---- wave 4: activations and losses (attrs: slope)
+add("leaky_relu", "leaky_relu", [0.01], [rnd(17, 13)])
+add("leaky_relu_0.2", "leaky_relu", [0.2], [rnd(9, 4)])
+add("softplus", "softplus", [], [rnd(17, 13)])
+add("softplus_wide", "softplus", [], [rnd(9, 21, lo=-40, hi=40)])
+add("mse", "mse", [], [rnd(7, 9), rnd(7, 9)])
+add("mse_sum", "mse_sum", [], [rnd(3, 1, 5), rnd(3, 1, 5)])
+p_edge = np.concatenate([rng.uniform(0.01, 0.99, size=40).astype(np.float32), np.array([0.0, 1.0, 1e-30, 1 - 2**-24], np.float32)])
+add("bce", "bce", [], [p_edge.reshape(4, 11), rng.uniform(0, 1, size=(4, 11)).astype(np.float32)])
+add("bce_hard", "bce", [], [rng.uniform(0.001, 0.999, size=(6, 7)).astype(np.float32), (rng.uniform(size=(6, 7)) < 0.5).astype(np.float32)])
+add("bce_logits", "bce_logits", [], [rnd(5, 13, lo=-40, hi=40), rng.uniform(0, 1, size=(5, 13)).astype(np.float32)])
+add("bce_logits_small", "bce_logits", [], [rnd(4, 9), (rng.uniform(size=(4, 9)) < 0.5).astype(np.float32)])
+add("gaussian_kl", "gaussian_kl", [], [rnd(5, 8), rnd(5, 8)])
+# ---- wave 4: transposed convolution (attrs: stride pad output_padding dilation groups) and resizing
+add("conv_t", "conv_transpose2d", [2, 1, 1, 1, 1], [rnd(2, 4, 5, 5), rnd(4, 3, 3, 3), rnd(3)])
+add("conv_t_k4s2", "conv_transpose2d", [2, 1, 0, 1, 1], [rnd(2, 8, 4, 4), rnd(8, 4, 4, 4), rnd(4)])
+add("conv_t_s1", "conv_transpose2d", [1, 0, 0, 1, 1], [rnd(1, 5, 4, 3), rnd(5, 2, 3, 3), rnd(2)])
+add("conv_t_groups_dil", "conv_transpose2d", [1, 0, 0, 2, 2], [rnd(1, 4, 3, 5), rnd(4, 3, 3, 3), rnd(6)])
+add("conv_t_depthwise", "conv_transpose2d", [2, 1, 1, 1, 3], [rnd(1, 3, 4, 4), rnd(3, 1, 3, 3), rnd(3)])
+add("conv_t_k2s2", "conv_transpose2d_nobias", [2, 0, 0, 1, 1], [rnd(2, 6, 3, 4), rnd(6, 3, 2, 2)])
+add("conv_t_big", "conv_transpose2d", [2, 1, 0, 1, 1], [rnd(4, 64, 7, 7), rnd(64, 32, 4, 4), rnd(32)])
+# attrs: mode (0 nearest, 1 bilinear) align_corners scale / mode align_corners height width
+add("up_nearest2", "upsample", [0, 0, 2.0], [rnd(2, 3, 4, 5)])
+add("up_nearest3", "upsample", [0, 0, 3.0], [rnd(1, 2, 3, 2)])
+add("up_bilinear2", "upsample", [1, 0, 2.0], [rnd(2, 3, 4, 5)])
+add("up_bilinear_align", "upsample", [1, 1, 2.0], [rnd(2, 3, 4, 5)])
+add("up_bilinear_1.5", "upsample", [1, 0, 1.5], [rnd(1, 2, 5, 6)])
+add("resize_bilinear", "interpolate", [1, 0, 7, 9], [rnd(2, 3, 4, 5)])
+add("resize_bilinear_down", "interpolate", [1, 0, 3, 2], [rnd(1, 2, 7, 5)])
+add("resize_nearest", "interpolate", [0, 0, 3, 7], [rnd(2, 2, 5, 4)])
+add("resize_align_1", "interpolate", [1, 1, 1, 6], [rnd(1, 2, 3, 4)])
+# ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
+def rnn_case(name, op, t, b, i, h, gates):
+    w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
+    states = [rnd(b, h, lo=-1, hi=1)] + ([rnd(b, h, lo=-1, hi=1)] if op == "lstm" else [])
+    add(name, op, [], [rnd(t, b, i, lo=-1, hi=1), w(gates * h, i), w(gates * h, h), w(gates * h), w(gates * h)] + states)
+
+
+rnn_case("lstm", "lstm", 5, 3, 4, 6, 4)
+rnn_case("lstm_t1", "lstm", 1, 2, 3, 5, 4)
+rnn_case("lstm_big", "lstm", 9, 4, 16, 33, 4)
+rnn_case("gru", "gru", 5, 3, 4, 6, 3)
+rnn_case("gru_t1", "gru", 1, 2, 3, 5, 3)
+rnn_case("gru_big", "gru", 9, 4, 16, 33, 3)
 
 
 def rounded(x, kind):
@@ -380,6 +424,33 @@ def forward(op, attrs, t):
         return torch.cat(t, dim=attrs[0])
     if op == "stack":
         return torch.stack(t, dim=attrs[0])
+    if op == "leaky_relu":
+        return torch.nn.functional.leaky_relu(t[0], attrs[0])
+    if op == "softplus":
+        return torch.nn.functional.softplus(t[0])
+    if op == "mse":
+        return torch.nn.functional.mse_loss(t[0], t[1])
+    if op == "mse_sum":
+        return torch.nn.functional.mse_loss(t[0], t[1], reduction="sum")
+    if op == "bce":
+        return torch.nn.functional.binary_cross_entropy(t[0], t[1])
+    if op == "bce_logits":
+        return torch.nn.functional.binary_cross_entropy_with_logits(t[0], t[1])
+    if op == "gaussian_kl":
+        return -0.5 * torch.sum(1 + t[1] - t[0] ** 2 - t[1].exp())
+    if op in ("conv_transpose2d", "conv_transpose2d_nobias"):
+        bias = t[2] if op == "conv_transpose2d" else None
+        return torch.nn.functional.conv_transpose2d(t[0], t[1], bias, stride=attrs[0], padding=attrs[1], output_padding=attrs[2], dilation=attrs[3], groups=attrs[4])
+    if op == "upsample":
+        mode = "nearest" if attrs[0] == 0 else "bilinear"
+        return torch.nn.functional.interpolate(t[0], scale_factor=attrs[2], mode=mode, align_corners=None if attrs[0] == 0 else bool(attrs[1]))
+    if op == "interpolate":
+        mode = "nearest" if attrs[0] == 0 else "bilinear"
+        return torch.nn.functional.interpolate(t[0], size=(attrs[2], attrs[3]), mode=mode, align_corners=None if attrs[0] == 0 else bool(attrs[1]))
+    if op == "lstm":
+        return torch._VF.lstm(t[0], (t[5].unsqueeze(0), t[6].unsqueeze(0)), t[1:5], True, 1, 0.0, True, False, False)[0]
+    if op == "gru":
+        return torch._VF.gru(t[0], t[5].unsqueeze(0), t[1:5], True, 1, 0.0, True, False, False)[0]
     raise ValueError(op)
 
 
