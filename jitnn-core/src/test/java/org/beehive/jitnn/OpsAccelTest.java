@@ -53,6 +53,11 @@ class OpsAccelTest {
         same("gemm128 B^T", () -> a.get().matmul(Tensor.uniform(14, -1, 1, 1040, 700), false, true), 1e-5, 2e-5);
         same("linear 1024x768 -> 1024", () -> F.linear(Tensor.uniform(15, -1, 1, 1024, 768), Tensor.uniform(16, -0.05f, 0.05f, 1024, 768), Tensor.uniform(17, -1, 1, 1024)), 1e-5, 2e-5);
         same("conv 8x64x56x56 3x3", () -> F.conv2d(Tensor.uniform(18, -1, 1, 8, 64, 56, 56), Tensor.uniform(19, -0.05f, 0.05f, 64, 64, 3, 3), null, 1, 1, 1, 1), 1e-5, 2e-5);
+        // few output tiles: split-K, in the GEMM and in the convolution
+        same("split-K linear 128x768 -> 768", () -> F.linear(Tensor.uniform(23, -1, 1, 128, 768), Tensor.uniform(24, -0.05f, 0.05f, 768, 768), Tensor.uniform(25, -1, 1, 768)), 1e-5, 2e-5);
+        same("split-K matmul A^T B^T", () -> Tensor.uniform(26, -1, 1, 1000, 70).matmul(Tensor.uniform(27, -1, 1, 90, 1000), true, true), 1e-5, 2e-5);
+        same("split-K conv 1x512x7x7 3x3 + bias + ReLU", () -> F.conv2dRelu(Tensor.uniform(28, -1, 1, 1, 512, 7, 7), Tensor.uniform(29, -0.02f, 0.02f, 512, 512, 3, 3), Tensor.uniform(30, -1, 1, 512), 1, 1, 1, 1), 1e-5, 2e-5);
+        same("split-K grouped conv", () -> F.conv2d(Tensor.uniform(31, -1, 1, 2, 256, 5, 5), Tensor.uniform(32, -0.05f, 0.05f, 128, 64, 3, 3), null, 1, 1, 1, 4), 1e-5, 2e-5);
         same("conv 8x256x14x14 1x1 stride 2", () -> F.conv2d(Tensor.uniform(20, -1, 1, 8, 256, 14, 14), Tensor.uniform(21, -0.05f, 0.05f, 512, 256, 1, 1), null, 2, 0, 1, 1), 1e-5, 2e-5);
     }
 

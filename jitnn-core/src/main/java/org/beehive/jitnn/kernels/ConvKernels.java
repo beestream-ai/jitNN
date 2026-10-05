@@ -129,6 +129,121 @@ public final class ConvKernels {
         storeForward(out, bias, cin, cout, oh, ow, groups, m, g, epilogue, row0 + ty + 48, col0 + tx + 48, c3_3);
     }
 
+    public static void conv2dForwardSplitK(KernelContext kc, FloatArray x, FloatArray w, FloatArray part, int cin, int h, int wd, int cout, int oh, int ow, int ks, int stride, int pad, int dil, int groups, int m, int tilesN, int tilesM, int chunk) {
+        float[] as = kc.allocateFloatLocalArray(1024);
+        float[] bs = kc.allocateFloatLocalArray(1024);
+        int tx = kc.localIdx;
+        int ty = kc.localIdy;
+        int tid = ty * 16 + tx;
+        int g = kc.groupIdx / tilesN;
+        int col0 = (kc.groupIdx - g * tilesN) * 64;
+        int s = kc.groupIdy / tilesM;
+        int row0 = (kc.groupIdy - s * tilesM) * 64;
+        int cg = cin / groups;
+        int cog = cout / groups;
+        int kg = cg * ks * ks;
+        int kBegin = s * chunk;
+        int kEnd = kBegin + chunk < kg ? kBegin + chunk : kg;
+        float c0_0 = 0.0f;
+        float c0_1 = 0.0f;
+        float c0_2 = 0.0f;
+        float c0_3 = 0.0f;
+        float c1_0 = 0.0f;
+        float c1_1 = 0.0f;
+        float c1_2 = 0.0f;
+        float c1_3 = 0.0f;
+        float c2_0 = 0.0f;
+        float c2_1 = 0.0f;
+        float c2_2 = 0.0f;
+        float c2_3 = 0.0f;
+        float c3_0 = 0.0f;
+        float c3_1 = 0.0f;
+        float c3_2 = 0.0f;
+        float c3_3 = 0.0f;
+        for (int k0 = kBegin; k0 < kEnd; k0 += 16) {
+            for (int q = 0; q < 4; q++) {
+                int idx = tid + 256 * q;
+                int kk = idx / 64;
+                int mm = idx - kk * 64;
+                int gm = row0 + mm;
+                int gk = k0 + kk;
+                float va = 0.0f;
+                if ((gm < m) & (gk < kEnd)) {
+                    int owi = gm % ow;
+                    int t = gm / ow;
+                    int ohi = t % oh;
+                    int n = t / oh;
+                    int kw = gk % ks;
+                    int t2 = gk / ks;
+                    int kh = t2 % ks;
+                    int ci = t2 / ks;
+                    int ih = ohi * stride - pad + kh * dil;
+                    int iw = owi * stride - pad + kw * dil;
+                    if ((ih >= 0) & (ih < h) & (iw >= 0) & (iw < wd)) {
+                        va = x.get(((n * cin + g * cg + ci) * h + ih) * wd + iw);
+                    }
+                }
+                as[kk * 64 + mm] = va;
+            }
+            for (int q = 0; q < 4; q++) {
+                int idx = tid + 256 * q;
+                int nn = idx / 16;
+                int kb = idx - nn * 16;
+                int gn = col0 + nn;
+                int gkb = k0 + kb;
+                float vb = 0.0f;
+                if ((gkb < kEnd) & (gn < cog)) {
+                    vb = w.get((g * cog + gn) * kg + gkb);
+                }
+                bs[kb * 64 + nn] = vb;
+            }
+            kc.localBarrier();
+            for (int p = 0; p < 16; p++) {
+                float a0 = as[p * 64 + ty + 0];
+                float a1 = as[p * 64 + ty + 16];
+                float a2 = as[p * 64 + ty + 32];
+                float a3 = as[p * 64 + ty + 48];
+                float b0 = bs[p * 64 + tx + 0];
+                float b1 = bs[p * 64 + tx + 16];
+                float b2 = bs[p * 64 + tx + 32];
+                float b3 = bs[p * 64 + tx + 48];
+                c0_0 += a0 * b0;
+                c0_1 += a0 * b1;
+                c0_2 += a0 * b2;
+                c0_3 += a0 * b3;
+                c1_0 += a1 * b0;
+                c1_1 += a1 * b1;
+                c1_2 += a1 * b2;
+                c1_3 += a1 * b3;
+                c2_0 += a2 * b0;
+                c2_1 += a2 * b1;
+                c2_2 += a2 * b2;
+                c2_3 += a2 * b3;
+                c3_0 += a3 * b0;
+                c3_1 += a3 * b1;
+                c3_2 += a3 * b2;
+                c3_3 += a3 * b3;
+            }
+            kc.localBarrier();
+        }
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 0, col0 + tx + 0, c0_0);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 0, col0 + tx + 16, c0_1);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 0, col0 + tx + 32, c0_2);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 0, col0 + tx + 48, c0_3);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 16, col0 + tx + 0, c1_0);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 16, col0 + tx + 16, c1_1);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 16, col0 + tx + 32, c1_2);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 16, col0 + tx + 48, c1_3);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 32, col0 + tx + 0, c2_0);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 32, col0 + tx + 16, c2_1);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 32, col0 + tx + 32, c2_2);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 32, col0 + tx + 48, c2_3);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 48, col0 + tx + 0, c3_0);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 48, col0 + tx + 16, c3_1);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 48, col0 + tx + 32, c3_2);
+        storeForwardPartial(part, cout, oh, ow, groups, m, g, s, row0 + ty + 48, col0 + tx + 48, c3_3);
+    }
+
     public static void conv2dBackwardData(KernelContext kc, FloatArray dy, FloatArray w, FloatArray dx, int cin, int h, int wd, int cout, int oh, int ow, int ks, int stride, int pad, int dil, int groups, int m, int tilesN) {
         float[] as = kc.allocateFloatLocalArray(1024);
         float[] bs = kc.allocateFloatLocalArray(1024);
@@ -387,6 +502,39 @@ public final class ConvKernels {
         }
     }
 
+    private static void storeForwardPartial(FloatArray part, int cout, int oh, int ow, int groups, int m, int g, int s, int gm, int gn, float v) {
+        int cog = cout / groups;
+        if ((gm < m) & (gn < cog)) {
+            int owi = gm % ow;
+            int t = gm / ow;
+            int ohi = t % oh;
+            int n = t / oh;
+            part.set(s * m * cout + ((n * cout + g * cog + gn) * oh + ohi) * ow + owi, v);
+        }
+    }
+
+    /**
+     * Sums the {@code slices} partial outputs of {@link #conv2dForwardSplitK} in slice order
+     * (deterministic) and applies the bias/ReLU epilogue. {@code total} = N * cout * OH * OW,
+     * {@code plane} = OH * OW.
+     */
+    public static void sumSplitK(KernelContext kc, FloatArray part, FloatArray out, FloatArray bias, int slices, int total, int cout, int plane, int epilogue) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            float r = 0.0f;
+            for (int z = 0; z < slices; z++) {
+                r += part.get(z * total + i);
+            }
+            if ((epilogue & 1) != 0) {
+                r = r + bias.get((i / plane) % cout);
+            }
+            if ((epilogue & 2) != 0) {
+                r = r > 0.0f ? r : 0.0f;
+            }
+            out.set(i, r);
+        }
+    }
+
     private static void storeBackwardData(FloatArray dx, int cin, int h, int wd, int groups, int m, int g, int gm, int gn, float v) {
         int cg = cin / groups;
         if ((gm < m) & (gn < cg)) {
@@ -403,7 +551,6 @@ public final class ConvKernels {
             partial.set(s * cout * kgOut + (g * cogOut + gm) * kgOut + gn, v);
         }
     }
-
 
     // ---------------------------------------------------------------- depthwise (direct)
 

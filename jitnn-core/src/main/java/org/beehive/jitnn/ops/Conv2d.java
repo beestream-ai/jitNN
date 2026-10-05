@@ -91,7 +91,22 @@ public final class Conv2d implements Op {
         }
         int m = a[N] * oh * ow;
         int tilesN = Emitter.ceilDiv(cout / gr, 64);
-        e.task(Emitter.blocks2D(tilesN * gr, Emitter.ceilDiv(m, 64), 16, 16),
+        int tilesM = Emitter.ceilDiv(m, 64);
+        int kg = (cin / gr) * k * k;
+        int slices = MatMul.forwardSlices(tilesN * gr * tilesM, kg);
+        if (slices > 1) {
+            // too few output tiles to fill the GPU: split the (ci, kh, kw) reduction, then sum with the epilogue
+            int chunk = Emitter.ceilDiv(Emitter.ceilDiv(kg, slices), 16) * 16;
+            int sl = Emitter.ceilDiv(kg, chunk);
+            int total = m * cout;
+            FloatArray part = e.scratch(sl * total);
+            e.task(Emitter.blocks2D(tilesN * gr, tilesM * sl, 16, 16),
+                    (g, id) -> g.task(id, ConvKernels::conv2dForwardSplitK, e.context(), x, w, part, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, tilesN, tilesM, chunk));
+            int plane = oh * ow;
+            e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ConvKernels::sumSplitK, e.context(), part, out, bias, sl, total, cout, plane, epilogue));
+            return;
+        }
+        e.task(Emitter.blocks2D(tilesN * gr, tilesM, 16, 16),
                 (g, id) -> g.task(id, ConvKernels::conv2dForward, e.context(), x, w, out, bias, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, epilogue, tilesN));
     }
 

@@ -89,6 +89,33 @@ public final class MatMul implements Op {
 
     private static final boolean SPLIT_K = !"false".equals(System.getProperty("jitnn.splitK"));
 
+    /** Work-groups a forward product should reach before splitting K stops (about two per SM on an A100). */
+    private static final int SPLIT_TARGET = Integer.getInteger("jitnn.splitK.groups", 256);
+
+    /**
+     * K slices for a forward product C = op(A) op(B): 1 when its 64 x 64 output tiles already fill
+     * the GPU, otherwise doubled while the work-groups stay under {@link #SPLIT_TARGET} and each
+     * slice keeps at least 64 of K.
+     */
+    static int forwardSlices(int m, int n, int k) {
+        if ((long) m * n < 64L * 64) {
+            return 1;
+        }
+        return forwardSlices(Emitter.ceilDiv(m, GemmKernels.BM) * Emitter.ceilDiv(n, GemmKernels.BN), k);
+    }
+
+    /** As {@link #forwardSlices(int, int, int)} for {@code tiles} work-groups over a reduction of {@code k}. */
+    static int forwardSlices(int tiles, int k) {
+        if (!SPLIT_K) {
+            return 1;
+        }
+        int slices = 1;
+        while (tiles * slices * 2 <= SPLIT_TARGET && k / (slices * 2) >= 64) {
+            slices *= 2;
+        }
+        return slices;
+    }
+
     /**
      * Split-K for C = A^T B (A [K, M], B [K, N]): K is the leading dimension of both, so slice z
      * is a contiguous block, and the batched GEMM computes one partial product per slice into a
@@ -315,6 +342,19 @@ public final class MatMul implements Op {
         }
         // Every kernel below takes the bias argument; it is only created when one does (J15).
         FloatArray biasArg = bias != null ? bias : e.dummyF32();
+        int slices = auto ? forwardSlices(m, n, k) : 1;
+        if (slices > 1) {
+            // too few output tiles to fill the GPU: split K, then sum the partials with the epilogue
+            int ks = Emitter.ceilDiv(Emitter.ceilDiv(k, slices), 16) * 16;
+            int sl = Emitter.ceilDiv(k, ks);
+            int tilesY = Emitter.ceilDiv(m, GemmKernels.BM);
+            FloatArray part = e.scratch(sl * m * n);
+            e.task(Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), tilesY * sl, 16, 16),
+                    (g, id) -> g.task(id, GemmKernels::gemm64SplitK, e.context(), a, b, part, m, n, k, ta, tb, ks, tilesY));
+            int mn = m * n;
+            e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::sumSplitK, e.context(), part, c, biasArg, sl, mn, n, epilogue));
+            return;
+        }
         if (variant.equals("128") || (auto && m >= 1024 && n >= 1024 && k >= 64)) {
             WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, 128), Emitter.ceilDiv(m, 128), 16, 16);
             e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128, e.context(), a, b, c, biasArg, m, n, k, ta, tb, epilogue));
