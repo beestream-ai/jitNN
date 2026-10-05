@@ -7,6 +7,7 @@ import org.beehive.jitnn.engine.Emitter;
 import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.GemmKernels;
+import org.beehive.jitnn.kernels.MmaGemmKernels;
 
 import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
@@ -221,6 +222,23 @@ public final class MatMul implements Op {
     /** C = op(A) op(B) (+ epilogue) for half-precision A and B of the same type, FP32 C. */
     static void emitGemmHalf(Emitter e, Tensor at, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (useTensorCores(e)) {
+            if (ta == 0 && tb == 1 && m % MmaGemmKernels.TILE == 0 && n % MmaGemmKernels.TILE == 0 && k % 16 == 0) {
+                // jitllm's pipelined 128 x 128 tensor-core GEMM (C = A B^T, whole tiles only)
+                WorkerGrid grid = Emitter.blocks2D(m / MmaGemmKernels.TILE, n / MmaGemmKernels.TILE, MmaGemmKernels.THREADS, 1);
+                if (at.dtype() == DType.F16) {
+                    var a = e.f16(at);
+                    var b = e.f16(bt);
+                    e.task(grid, (g, id) -> g.task(id, MmaGemmKernels::gemmMMA, e.context(), a, b, c, m, n, k));
+                } else {
+                    var a = e.bf16(at);
+                    var b = e.bf16(bt);
+                    e.task(grid, (g, id) -> g.task(id, MmaGemmKernels::gemmMMABF16, e.context(), a, b, c, m, n, k));
+                }
+                if (epilogue != 0) {
+                    e.task(Emitter.grid1D(m * n), (g, id) -> g.task(id, GemmKernels::biasActivation, e.context(), c, bias, m, n, epilogue));
+                }
+                return;
+            }
             emitMma(e, at, bt, c, bias, m, n, k, ta, tb, epilogue, 1, 0, 0);
             return;
         }

@@ -84,6 +84,8 @@ class BaselineBenchAccelTest {
             Tensor y = persistent(s, s);
             compute("gemm " + s + " fp16", 2.0 * s * s * s, () -> x.half().matmul(y.half()));
             compute("gemm " + s + " bf16", 2.0 * s * s * s, () -> x.bfloat16().matmul(y.bfloat16()));
+            compute("gemm " + s + " fp16 B^T", 2.0 * s * s * s, () -> x.half().matmul(y.half(), false, true));
+            compute("gemm " + s + " bf16 B^T", 2.0 * s * s * s, () -> x.bfloat16().matmul(y.bfloat16(), false, true));
         }
     }
 }
