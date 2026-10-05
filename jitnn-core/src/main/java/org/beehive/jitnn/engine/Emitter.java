@@ -176,6 +176,13 @@ public final class Emitter {
         return g;
     }
 
+    /** {@code gx * gy * gz} work-groups of {@code lx} threads. */
+    public static WorkerGrid blocks3D(int gx, int gy, int gz, int lx) {
+        WorkerGrid g = new uk.ac.manchester.tornado.api.WorkerGrid3D(Math.max(gx, 1) * lx, Math.max(gy, 1), Math.max(gz, 1));
+        g.setLocalWork(lx, 1, 1);
+        return g;
+    }
+
     public static int ceilDiv(int a, int b) {
         return (a + b - 1) / b;
     }
