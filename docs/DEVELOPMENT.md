@@ -49,6 +49,17 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 4. Add a finite-difference check to `GradientTest`, a case to `scripts/pytorch/goldens.py` (then
    regenerate the goldens and map it in `Golden.apply`), and a device check to `OpsAccelTest`.
 
+## Kernels copied from jitllm and jitrex
+
+`kernels/jitllm` holds the GPU kernels of jitllm (the LLM inference engine: GEMV and tensor-core
+GEMMs, quantised Q4/Q5/Q6/Q8 matmuls, paged and flash attention for prefill and decode, RMSNorm,
+RoPE, SwiGLU/GeGLU, MoE routing and experts, Gated DeltaNet), and `kernels/jitrex` holds those of
+jitrex (TiRex-2: sLSTM and mLSTM recurrences, variate attention, the portable FP16 GEMM and a CUDA
+Tile API GEMM). They are forward-only inference kernels, kept as they are in their source
+repositories apart from the package name and their few `@Parallel` loops, which were turned into
+KernelContext kernels. An operator adopts one by wrapping it and adding goldens and a reference;
+so far `MmaGemmKernels` (jitllm's 128 x 128 tensor-core GEMM, with a bfloat16 twin) is in use.
+
 ## TornadoVM workarounds
 
 Kernels tagged `WORKAROUND(...)` avoid these:
