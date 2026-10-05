@@ -129,6 +129,26 @@ Device memory for intermediates, with and without buffer reuse:
 | MobileNetV2 training step | 1,965 MB | 1,091 MB |
 | MobileNetV2 evaluation, batch 250 (`Grad.inference`) | 3,810 MB | 427 MB |
 
+## Wave 4 training steps (A100)
+
+Steady-state steps of the wave 4 gates, PyTorch 2.14 with cuDNN (TF32 off) against jitNN, both
+reading the loss back every step:
+
+| Gate | PyTorch (CUDA) | jitNN, CUDA | jitNN, OpenCL |
+|---|---|---|---|
+| VAE, MNIST, batch 128 | 3.4 ms | 2.2 ms | 5.3 ms |
+| DCGAN, MNIST, batch 64 (one D and one G step) | 7.2 ms | 7.5 ms | 14.0 ms |
+| U-Net, MNIST, batch 32 | 5.7 ms | 7.8 ms | 12.9 ms |
+| LSTM LM, 2 layers of 256, 32 x 64 tokens | 6.6 ms | 36.7 ms | 50.0 ms |
+| GRU LM, 2 layers of 256, 32 x 64 tokens | 6.3 ms | 28.4 ms | 40.2 ms |
+
+The recurrent layers are the gap: each timestep is one kernel (one thread per hidden unit, its
+gate dot products as plain loops), so a step launches 4 T kernels for two layers and reads W_hh
+from memory every timestep, where cuDNN keeps it on chip in a persistent kernel.
+
+On the A100, tensor-core GEMMs reach 55 TFLOP/s (FP16 and BF16, 4096, A B) and 66 TFLOP/s (A B^T);
+GPT-2 under BF16 autocast trains at 4.6 ms per step.
+
 ## Known gaps
 
 - Convolutions run on the same register-blocked tiles as the GEMM and share its ceiling: about
@@ -137,3 +157,4 @@ Device memory for intermediates, with and without buffer reuse:
 - Metal GEMM is about 42% of MPS. Every tile shape, and the simdgroup path, plateaus at 2.2-2.3
   TFLOP/s; getting further needs vector loads, double buffering and larger SIMD-group tiles.
 - Metal transpose and strided reductions sit at 100-140 GB/s.
+- LSTM and GRU steps are 4-6x slower than cuDNN (one kernel per timestep; see above).

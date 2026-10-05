@@ -63,7 +63,7 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 `RMSNorm`, `MultiheadAttention`. Models in `nn.models`: `GPT2`, `Llama` (Llama-style decoder) and
 `Bert` (masked language modelling).
 
-## Wave 4 (operators and gates done on CUDA; OpenCL and Metal not run yet)
+## Wave 4 (done on CUDA and OpenCL; Metal not run yet)
 
 | Operator | Kernels | Gradient |
 |---|---|---|
@@ -85,7 +85,7 @@ language model). The final cell state of an LSTM carries no gradient.
 | Wave | Contents | Gate |
 |---|---|---|
 | 2 (rest) | convolution and GEMM speed, dispatch overhead | ResNet-18 and MobileNetV2 steps against MPS and cuDNN |
-| 4 (rest) | OpenCL and Metal runs; recurrent step speed (one kernel per timestep) | the wave 4 gates on every backend |
+| 4 (rest) | Metal runs; recurrent step speed (one kernel per timestep) | the wave 4 gates on Metal; LSTM and GRU steps against cuDNN |
 | 5 | the rest of the DL4J/DJL activations, losses, optimisers and norms, Conv1D/3D, sort, scatter | the DL4J and DJL example suites |
 | 6 | decompositions, sparse and graph ops, FFT, Word2Vec, classical ML | 1.0 |
 | 7 | operators blocked on TornadoVM features (data-dependent shapes, FP8 off CUDA, multi-GPU) | as each feature lands |

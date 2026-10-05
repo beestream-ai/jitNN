@@ -85,21 +85,25 @@ Four layers of checks run on the host and on every device.
 | Llama FP16 + loss scaling (FP32 PyTorch: 1.9951 / 2.5854) | | 1.9951 / 2.5854 | 1.9952 / 2.5858 | | 1.9951 / 2.5853 |
 | BERT FP16 + loss scaling (FP32 PyTorch: 3.7603 / 3.4829) | | 3.7606 / 3.4842 | 3.7617 / 3.4851 | | 3.7608 / 3.4818 |
 
-Wave 4, CUDA (A10); OpenCL and Metal have not run these yet:
+Wave 4 on the A100 (CUDA and OpenCL), against PyTorch references made on the same GPU; the A10
+passes the same gates against references made on it. Metal has not run these yet.
 
-| Check | PyTorch | jitNN |
-|---|---|---|
-| Operator goldens (225) and gradient checks | | pass (and on the reference backend) |
-| VAE: worst step-0 gradient, fraction of its bound | | 0.04 |
-| VAE: mean loss of the last 50 steps / test loss | 140.90 / 134.89 | 140.87 / 134.78 |
-| DCGAN: worst step-0 gradient, discriminator / generator | | 0.18 / 0.09 |
-| DCGAN: mean of the last 50 losses, discriminator / generator | 0.308 / 2.364 | 0.318 / 2.372 |
-| U-Net: worst step-0 gradient | | 0.02 |
-| U-Net: test loss / foreground IoU | 0.0208 / 0.934 | 0.0214 / 0.932 |
-| LSTM LM: worst step-0 gradient | | 0.04 |
-| LSTM LM: mean of the last 50 losses / evaluation loss | 3.7204 / 3.6513 | 3.7204 / 3.6513 |
-| GRU LM: worst step-0 gradient | | 0.03 |
-| GRU LM: mean of the last 50 losses / evaluation loss | 3.4037 / 3.4477 | 3.4190 / 3.4366 |
+| Check | PyTorch | CUDA (A100) | OpenCL (A100) |
+|---|---|---|---|
+| Operator goldens (225) and gradient checks | | pass | pass |
+| VAE: worst step-0 gradient, fraction of its bound | | 0.04 | 0.04 |
+| VAE: mean loss of the last 50 steps / test loss | 140.89 / 134.87 | 140.87 / 134.78 | 140.91 / 134.81 |
+| DCGAN: worst step-0 gradient, discriminator / generator | | 0.17 / 0.08 | 0.17 / 0.06 |
+| DCGAN: mean of the last 50 losses, discriminator / generator | 0.325 / 2.398 | 0.318 / 2.372 | 0.319 / 2.430 |
+| U-Net: worst step-0 gradient | | 0.02 | 0.02 |
+| U-Net: test loss / foreground IoU | 0.0207 / 0.933 | 0.0214 / 0.932 | 0.0215 / 0.931 |
+| LSTM LM: worst step-0 gradient | | 0.04 | 0.05 |
+| LSTM LM: mean of the last 50 losses / evaluation loss | 3.7204 / 3.6513 | 3.7204 / 3.6513 | 3.7204 / 3.6513 |
+| GRU LM: worst step-0 gradient | | 0.03 | 0.03 |
+| GRU LM: mean of the last 50 losses / evaluation loss | 3.4299 / 3.4294 | 3.4190 / 3.4366 | 3.4022 / 3.4480 |
+
+Every earlier gate (MNIST, ResNet-18 and MobileNetV2 on MNIST and CIFAR-10, the transformers in
+FP32 and mixed precision) also passes on both A100 backends.
 
 The RTX 5070 Ti column predates the CIFAR-10 and transformer gates; the A10 column runs every gate.
 Without BatchNorm amplifying rounding differences, the transformer runs stay within 1e-7 of

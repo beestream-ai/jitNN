@@ -36,7 +36,7 @@ in the order real models use it.
   Llama-style decoder and BERT train for 300 steps on every backend and end on PyTorch's losses to
   four digits, and within 0.1% of them under BF16 or FP16 autocast with loss scaling. A VAE, a
   DCGAN, a U-Net and LSTM and GRU language models match PyTorch's FP64 gradients and its
-  training curves (CUDA so far).
+  training curves on CUDA and OpenCL.
 - **Fused and frugal.** Bias and ReLU run in the GEMM and convolution epilogues, cross-entropy's
   backward is a single kernel, and dead backward-pass buffers are reused inside a compiled step
   (-43% memory on ResNet-18). On CUDA the element-wise, reduction and softmax kernels reach 83-88%
@@ -46,7 +46,8 @@ in the order real models use it.
 
 | Platform | Backend | Status |
 |---|---|---|
-| NVIDIA GPU | CUDA | validated and benchmarked (RTX 5070 Ti, A10) |
+| NVIDIA GPU | CUDA | validated and benchmarked (RTX 5070 Ti, A10, A100) |
+| NVIDIA GPU | OpenCL | validated (A100) |
 | Apple Silicon | Metal | validated and benchmarked (M4 Pro); GEMM on simdgroup matrix units |
 | Apple Silicon | OpenCL | validated (M4 Pro) |
 | Other OpenCL GPUs | OpenCL | expected to work, not tested |
