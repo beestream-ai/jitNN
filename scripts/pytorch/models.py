@@ -67,6 +67,30 @@ def resnet18(in_channels, classes, small, seed):
     return torch.nn.Sequential(*layers)
 
 
+def bottleneck(i, w, stride, seeds):
+    o = 4 * w
+    main = torch.nn.Sequential(conv(i, w, 1, 1, 0, 1, seeds), torch.nn.BatchNorm2d(w), torch.nn.ReLU(),
+                               conv(w, w, 3, stride, 1, 1, seeds), torch.nn.BatchNorm2d(w), torch.nn.ReLU(),
+                               conv(w, o, 1, 1, 0, 1, seeds), torch.nn.BatchNorm2d(o))
+    short = torch.nn.Sequential(conv(i, o, 1, stride, 0, 1, seeds), torch.nn.BatchNorm2d(o)) if stride != 1 or i != o else None
+    return Add(main, short, True)
+
+
+def resnet50(in_channels, classes, small, seed):
+    seeds = Seeds(seed)
+    if small:
+        layers = [conv(in_channels, 64, 3, 1, 1, 1, seeds), torch.nn.BatchNorm2d(64), torch.nn.ReLU()]
+    else:
+        layers = [conv(in_channels, 64, 7, 2, 3, 1, seeds), torch.nn.BatchNorm2d(64), torch.nn.ReLU(), torch.nn.MaxPool2d(3, 2, 1)]
+    i = 64
+    for stage, (w, n) in enumerate(zip([64, 128, 256, 512], [3, 4, 6, 3])):
+        for b in range(n):
+            layers.append(bottleneck(i, w, 2 if stage > 0 and b == 0 else 1, seeds))
+            i = 4 * w
+    layers += [torch.nn.AdaptiveAvgPool2d(1), torch.nn.Flatten(), fc(i, classes, seeds())]
+    return torch.nn.Sequential(*layers)
+
+
 SETTINGS = [(1, 16, 1, 1), (6, 24, 2, 2), (6, 32, 3, 2), (6, 64, 4, 2), (6, 96, 3, 1), (6, 160, 3, 2), (6, 320, 1, 1)]
 
 
