@@ -36,7 +36,8 @@ public final class Bench {
         boolean fp16 = args[5].equals("fp16");
         String label = args[6];
         try (Model model = Model.newInstance(label, Device.gpu(), engine)) {
-            model.load(file.getParent(), file.getFileName().toString());
+            // an options map, even empty: DJL's ONNX Runtime engine adds the CUDA provider only when one is given
+            model.load(file.getParent(), file.getFileName().toString(), new java.util.HashMap<>());
             System.out.printf("[djl] %s: engine %s %s, %d GPUs, model on %s%s%n", label, engine, ai.djl.engine.Engine.getEngine(engine).getVersion(),
                     ai.djl.engine.Engine.getEngine(engine).getGpuCount(), model.getNDManager().getDevice(), ortRuntime());
             try (Predictor<NDList, NDList> predictor = model.newPredictor(new NoopTranslator())) {
