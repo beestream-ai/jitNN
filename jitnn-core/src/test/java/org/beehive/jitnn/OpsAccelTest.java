@@ -120,6 +120,9 @@ class OpsAccelTest {
         float[] device = on(Backend.TORNADO, () -> Tensor.uniform(7, -2, 2, 4099));
         assertArrayEquals(host, device, "uniform is bit-exact");
         same("normal", () -> Tensor.normal(7, 1, 2, 4099), 1e-5, 1e-5);
+        float[] seeded = on(Backend.TORNADO, () -> Tensor.uniform(Tensor.seed(7), -2, 2, 4099));
+        assertArrayEquals(host, seeded, "uniform with a seed tensor is the same stream");
+        same("normal, seed tensor", () -> Tensor.normal(Tensor.seed(7), 1, 2, 4099), 1e-5, 1e-5);
     }
 
     @Test

@@ -2,7 +2,9 @@ package org.beehive.jitnn;
 
 import static org.beehive.jitnn.Checks.gradCheck;
 import static org.beehive.jitnn.Checks.seq;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
+import org.beehive.jitnn.engine.Engine;
 import org.junit.jupiter.api.Test;
 
 /** Autograd against finite differences for every differentiable wave 1 operator. */
@@ -83,6 +85,26 @@ class GradientTest {
         int[][] gruShapes = { { 2, 2, 3 }, { 9, 3 }, { 9, 3 }, { 9 }, { 9 }, { 2, 3 } };
         gradCheck("gru", t -> F.gru(t[0], t[1], t[2], t[3], t[4], t[5])[0].square().sum(),
                 new float[][] { x, seq(27, 0.4f, 0), seq(27, 0.3f, 0.05f), seq(9, 0.2f, 0), seq(9, 0.2f, 0.1f), h0 }, gruShapes);
+    }
+
+    @Test
+    void reshapedParameterGetsItsGradient() {
+        Engine.with(Engine.Backend.REFERENCE, () -> {
+            Tensor p = Tensor.parameter(Tensor.of(new float[] { 1, -2, 3 }, 3));
+            p.reshape(1, 3, 1).mul(Tensor.of(new float[] { 2, 4, 6 }, 1, 3, 1)).sum().backward();
+            assertArrayEquals(new float[] { 2, 4, 6 }, p.grad().toFloatArray());
+            return null;
+        });
+    }
+
+    @Test
+    void seededRandomMatchesKeyedRandom() {
+        Engine.with(Engine.Backend.REFERENCE, () -> {
+            long seed = 0x1234_5678_9ABCL;
+            assertArrayEquals(Tensor.uniform(seed, -1, 2, 7, 3).toFloatArray(), Tensor.uniform(Tensor.seed(seed), -1, 2, 7, 3).toFloatArray());
+            assertArrayEquals(Tensor.normal(seed, 0.5f, 2, 9).toFloatArray(), Tensor.normal(Tensor.seed(seed), 0.5f, 2, 9).toFloatArray());
+            return null;
+        });
     }
 
     @Test

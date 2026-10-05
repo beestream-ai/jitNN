@@ -3,6 +3,7 @@ package org.beehive.jitnn.kernels;
 import uk.ac.manchester.tornado.api.KernelContext;
 import uk.ac.manchester.tornado.api.math.TornadoMath;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
 /**
  * Counter-based random numbers (Philox4x32-10, Salmon et al., SC'11). Element {@code i} depends
@@ -47,39 +48,52 @@ public final class RandomKernels {
     public static void philox(KernelContext kc, FloatArray out, int seedLo, int seedHi, int stream, int mode, float a, float b, int n, int rounds) {
         int i = kc.globalIdx;
         if (i < n) {
-            int c0 = i >> 2;
-            int c1 = stream;
-            int c2 = 0;
-            int c3 = 0;
-            int k0 = seedLo;
-            int k1 = seedHi;
-            for (int r = 0; r < rounds; r++) {
-                int hi0 = mulhi(M0, c0);
-                int lo0 = M0 * c0;
-                int hi1 = mulhi(M1, c2);
-                int lo1 = M1 * c2;
-                c0 = hi1 ^ c1 ^ k0;
-                c1 = lo1;
-                c2 = hi0 ^ c3 ^ k1;
-                c3 = lo0;
-                k0 = k0 + W0;
-                k1 = k1 + W1;
-            }
-            int j = i & 3;
-            float v;
-            if (mode == 0) {
-                int w = j == 0 ? c0 : (j == 1 ? c1 : (j == 2 ? c2 : c3));
-                v = a + (b - a) * toUnit(w);
-            } else {
-                int wr = j < 2 ? c0 : c2;
-                int wt = j < 2 ? c1 : c3;
-                float radius = TornadoMath.sqrt(-2.0f * TornadoMath.log(1.0f - toUnit(wr)));
-                float theta = 6.2831855f * toUnit(wt);
-                float trig = (j & 1) == 0 ? TornadoMath.cos(theta) : TornadoMath.sin(theta);
-                v = a + b * radius * trig;
-            }
-            out.set(i, v);
+            out.set(i, philoxValue(i, seedLo, seedHi, stream, mode, a, b, rounds));
         }
+    }
+
+    /** As {@link #philox}, with the key read from {@code seed} = [lo, hi], so a new seed needs no recompilation. */
+    public static void philoxSeeded(KernelContext kc, FloatArray out, IntArray seed, int stream, int mode, float a, float b, int n, int rounds) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            out.set(i, philoxValue(i, seed.get(0), seed.get(1), stream, mode, a, b, rounds));
+        }
+    }
+
+    /** Element {@code i} of a uniform (mode 0) or normal (mode 1) Philox stream. */
+    public static float philoxValue(int i, int seedLo, int seedHi, int stream, int mode, float a, float b, int rounds) {
+        int c0 = i >> 2;
+        int c1 = stream;
+        int c2 = 0;
+        int c3 = 0;
+        int k0 = seedLo;
+        int k1 = seedHi;
+        for (int r = 0; r < rounds; r++) {
+            int hi0 = mulhi(M0, c0);
+            int lo0 = M0 * c0;
+            int hi1 = mulhi(M1, c2);
+            int lo1 = M1 * c2;
+            c0 = hi1 ^ c1 ^ k0;
+            c1 = lo1;
+            c2 = hi0 ^ c3 ^ k1;
+            c3 = lo0;
+            k0 = k0 + W0;
+            k1 = k1 + W1;
+        }
+        int j = i & 3;
+        float v;
+        if (mode == 0) {
+            int w = j == 0 ? c0 : (j == 1 ? c1 : (j == 2 ? c2 : c3));
+            v = a + (b - a) * toUnit(w);
+        } else {
+            int wr = j < 2 ? c0 : c2;
+            int wt = j < 2 ? c1 : c3;
+            float radius = TornadoMath.sqrt(-2.0f * TornadoMath.log(1.0f - toUnit(wr)));
+            float theta = 6.2831855f * toUnit(wt);
+            float trig = (j & 1) == 0 ? TornadoMath.cos(theta) : TornadoMath.sin(theta);
+            v = a + b * radius * trig;
+        }
+        return v;
     }
 
     /** Word {@code j} (0..3) of the Philox4x32 block for counter (c0, c1, 0, 0) and key (k0, k1). */

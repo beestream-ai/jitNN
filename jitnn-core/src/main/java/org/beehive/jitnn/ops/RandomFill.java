@@ -9,6 +9,7 @@ import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.RandomKernels;
 
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
 /**
  * Philox4x32-10 random fill. iattr = [seedLo, seedHi, stream, mode]; fattr = [a, b]: uniform in
@@ -19,6 +20,19 @@ public final class RandomFill implements Op {
     static final RandomFill OP = new RandomFill();
 
     private RandomFill() {
+    }
+
+    /**
+     * The same stream with the key taken from {@code seed}, an INT32 [2] tensor [lo, hi]: a replayed
+     * plan draws new values from a new seed without recompiling.
+     */
+    public static Tensor apply(Shape shape, Tensor seed, int mode, float a, float b) {
+        if (seed.dtype() != DType.I32 || seed.numel() != 2) {
+            throw new IllegalArgumentException("random seed must be an INT32 tensor of 2 elements");
+        }
+        Tensor out = Tensor.result(shape, DType.F32);
+        Tensor.record(OP, new Tensor[] { seed }, new Tensor[] { out }, new int[] { 0, 0, 0, mode }, new float[] { a, b }, true);
+        return out;
     }
 
     public static Tensor apply(Shape shape, long seed, int mode, float a, float b) {
@@ -42,6 +56,11 @@ public final class RandomFill implements Op {
         float a = n.fattr[0];
         float b = n.fattr[1];
         int count = n.out(0).numel();
+        if (n.inputs.length == 1) {
+            IntArray seed = e.i32(n.in(0));
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, RandomKernels::philoxSeeded, e.context(), out, seed, stream, mode, a, b, count, RandomKernels.ROUNDS));
+            return;
+        }
         e.task(Emitter.grid1D(count), (g, id) -> g.task(id, RandomKernels::philox, e.context(), out, seedLo, seedHi, stream, mode, a, b, count, RandomKernels.ROUNDS));
     }
 
@@ -49,9 +68,16 @@ public final class RandomFill implements Op {
     public void reference(Node n) {
         FloatArray out = (FloatArray) n.out(0).storage().host();
         int count = n.out(0).numel();
+        int seedLo = n.iattr[0];
+        int seedHi = n.iattr[1];
+        if (n.inputs.length == 1) {
+            IntArray seed = (IntArray) n.in(0).storage().host();
+            seedLo = seed.get(0);
+            seedHi = seed.get(1);
+        }
         float[] block = new float[4];
         for (int t = 0; t * 4 < count; t++) {
-            generate(t, n.iattr[0], n.iattr[1], n.iattr[2], n.iattr[3], n.fattr[0], n.fattr[1], block);
+            generate(t, seedLo, seedHi, n.iattr[2], n.iattr[3], n.fattr[0], n.fattr[1], block);
             for (int j = 0; j < 4 && t * 4 + j < count; j++) {
                 out.set(t * 4 + j, block[j]);
             }

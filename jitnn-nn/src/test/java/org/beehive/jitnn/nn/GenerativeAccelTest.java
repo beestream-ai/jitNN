@@ -87,7 +87,7 @@ class GenerativeAccelTest {
         long first = 0;
         for (int b = 0; b < VAE_STEPS; b++) {
             Tensor x = Tensor.of(batch(train, b, VAE_BATCH), VAE_BATCH, Mnist.PIXELS);
-            Tensor eps = Tensor.uniform(VAE_NOISE + b, -SQRT3, SQRT3, VAE_BATCH, VAE_LATENT);
+            Tensor eps = Tensor.uniform(Tensor.seed(VAE_NOISE + b), -SQRT3, SQRT3, VAE_BATCH, VAE_LATENT);
             Tensor loss = Vae.loss(model.run(x, eps), x);
             opt.zeroGrad();
             loss.backward();
@@ -104,7 +104,7 @@ class GenerativeAccelTest {
         double eval = 0;
         for (int i = 0; i < VAE_EVAL_BATCHES; i++) {
             Tensor x = Tensor.of(batch(test, i, VAE_BATCH), VAE_BATCH, Mnist.PIXELS);
-            Tensor eps = Tensor.uniform(VAE_EVAL_NOISE + i, -SQRT3, SQRT3, VAE_BATCH, VAE_LATENT);
+            Tensor eps = Tensor.uniform(Tensor.seed(VAE_EVAL_NOISE + i), -SQRT3, SQRT3, VAE_BATCH, VAE_LATENT);
             eval += Grad.inference(() -> Vae.loss(model.run(x, eps), x)).item() / VAE_EVAL_BATCHES;
         }
         System.out.printf("[jitnn] VAE test loss %.3f vs PyTorch %.3f%n", eval, torch.metrics()[0]);
@@ -129,7 +129,7 @@ class GenerativeAccelTest {
         long first = 0;
         for (int b = 0; b < GAN_STEPS; b++) {
             Tensor real = Tensor.of(batch(train, b, GAN_BATCH), GAN_BATCH, 1, 28, 28).mul(2.0f).add(-1.0f);
-            Tensor z = Tensor.uniform(GAN_NOISE + b, -SQRT3, SQRT3, GAN_BATCH, GAN_LATENT);
+            Tensor z = Tensor.uniform(Tensor.seed(GAN_NOISE + b), -SQRT3, SQRT3, GAN_BATCH, GAN_LATENT);
             Tensor fake = g.forward(z);
             Tensor dLoss = F.binaryCrossEntropyWithLogits(d.forward(real), ones).add(F.binaryCrossEntropyWithLogits(d.forward(fake.detach()), zeros));
             dOpt.zeroGrad();

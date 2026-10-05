@@ -82,6 +82,25 @@ public final class Tensor {
         return RandomFill.apply(Shape.of(dims), seed, 0, lo, hi);
     }
 
+    /**
+     * As {@link #uniform(long, float, float, int...)} with the seed in an INT32 [2] tensor (see
+     * {@link #seed}): a plan replayed with a new seed draws new values without recompiling, so use
+     * this for noise drawn every step.
+     */
+    public static Tensor uniform(Tensor seed, float lo, float hi, int... dims) {
+        return RandomFill.apply(Shape.of(dims), seed, 0, lo, hi);
+    }
+
+    /** As {@link #normal(long, float, float, int...)} with the seed in an INT32 [2] tensor. */
+    public static Tensor normal(Tensor seed, float mean, float std, int... dims) {
+        return RandomFill.apply(Shape.of(dims), seed, 1, mean, std);
+    }
+
+    /** A 64-bit seed as the INT32 [2] host tensor [lo, hi] that the seeded random operators take. */
+    public static Tensor seed(long seed) {
+        return of(new int[] { (int) seed, (int) (seed >> 32) }, 2);
+    }
+
     /** Normal with the given mean and standard deviation, counter-based like {@link #uniform}. */
     public static Tensor normal(long seed, float mean, float std, int... dims) {
         return RandomFill.apply(Shape.of(dims), seed, 1, mean, std);
@@ -129,7 +148,8 @@ public final class Tensor {
             }
             if (needs) {
                 for (Tensor t : outputs) {
-                    if (!t.storage.isPersistent()) {
+                    // a view of a parameter (untraced reshape) shares its persistent storage but is a new tensor
+                    if (!t.storage.isPersistent() || !traced) {
                         t.requiresGrad = true;
                         t.gradFn = node;
                     }
