@@ -568,6 +568,46 @@ public final class Tensor {
         return Binary.apply(Binary.Kind.LOGICAL_XOR, this, o);
     }
 
+    /** Elements idx[0 .. m-1] (INT32 [m]) of {@code axis}, torch.index_select. */
+    public Tensor indexSelect(int axis, Tensor idx) {
+        return org.beehive.jitnn.ops.Indexing.indexSelect(this, axis, idx);
+    }
+
+    /** torch.gather along {@code axis} with an INT32 index of this shape except along the axis. */
+    public Tensor gather(int axis, Tensor index) {
+        return org.beehive.jitnn.ops.Indexing.gather(this, axis, index);
+    }
+
+    /** torch.scatter_add: this with {@code src} added at {@code index} along {@code axis}. */
+    public Tensor scatterAdd(int axis, Tensor index, Tensor src) {
+        return org.beehive.jitnn.ops.Indexing.scatter(this, axis, index, src, true);
+    }
+
+    /** torch.scatter: this with {@code src} written at {@code index} (duplicates: the last wins); no gradient. */
+    public Tensor scatter(int axis, Tensor index, Tensor src) {
+        return org.beehive.jitnn.ops.Indexing.scatter(this, axis, index, src, false);
+    }
+
+    /** Inclusive cumulative sum along {@code axis}. */
+    public Tensor cumsum(int axis) {
+        return org.beehive.jitnn.ops.Ordered.scan(this, axis, org.beehive.jitnn.kernels.ScanKernels.SUM);
+    }
+
+    /** Inclusive cumulative product along {@code axis}; its gradient is exact with zeros. */
+    public Tensor cumprod(int axis) {
+        return org.beehive.jitnn.ops.Ordered.scan(this, axis, org.beehive.jitnn.kernels.ScanKernels.PROD);
+    }
+
+    /** Stable sort along {@code axis}: {values, INT32 original indices}; values carry the gradient. */
+    public Tensor[] sort(int axis, boolean descending) {
+        return org.beehive.jitnn.ops.Ordered.sort(this, axis, descending);
+    }
+
+    /** INT32 indices that sort along {@code axis} (stable). */
+    public Tensor argsort(int axis, boolean descending) {
+        return sort(axis, descending)[1];
+    }
+
     /** ELU: x for x > 0, else alpha (exp(x) - 1). */
     public Tensor elu(float alpha) {
         return Unary.apply(Unary.Kind.ELU, this, alpha, 0);

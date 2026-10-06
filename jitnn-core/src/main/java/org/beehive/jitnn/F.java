@@ -588,6 +588,27 @@ public final class F {
         return org.beehive.jitnn.ops.Select.oneHot(labels, classes);
     }
 
+    /** How {@link #embeddingBag} and {@link #segmentReduce} combine the rows of a bag. */
+    public enum BagMode {
+        SUM, MEAN, MAX
+    }
+
+    /**
+     * Sum, mean or max of the row segments of x [rows, D]: segment b covers rows offsets[b] ..
+     * offsets[b + 1] - 1, the last to the end; an empty segment gives zeros. [segments, D].
+     */
+    public static Tensor segmentReduce(Tensor x, int[] offsets, BagMode mode) {
+        return org.beehive.jitnn.ops.Indexing.segmentReduce(x, offsets, mode.ordinal());
+    }
+
+    /**
+     * EmbeddingBag (PyTorch's, 1-D input with offsets): the rows of {@code weight} picked by the INT32
+     * {@code indices}, combined per bag by {@code mode}. [bags, D].
+     */
+    public static Tensor embeddingBag(Tensor indices, int[] offsets, Tensor weight, BagMode mode) {
+        return segmentReduce(embedding(indices, weight), offsets, mode);
+    }
+
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */
     public static Tensor swiglu(Tensor gate, Tensor up) {
         return gate.silu().mul(up);

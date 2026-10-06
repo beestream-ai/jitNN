@@ -304,6 +304,32 @@ for mode in (0, 1, 2):
     add(f"pad1d_m{mode}", "pad", [mode, 2, 3], [rnd(2, 3, 6)])
     add(f"pad2d_m{mode}", "pad", [mode, 1, 2, 2, 1], [rnd(1, 2, 4, 5)])
 add("pad3d_reflect", "pad", [1, 1, 1, 2, 0, 1, 1], [rnd(1, 1, 3, 4, 3)])
+# ---- wave 5: scans and sorting (attrs: axis / axis descending)
+add("cumsum_0", "cumsum", [0], [rnd(7, 5)])
+add("cumsum_last", "cumsum", [-1], [rnd(3, 4, 9)])
+add("cumprod_1", "cumprod", [1], [rnd(4, 6, 3, lo=0.5, hi=1.5)])
+with_zeros = rnd(3, 7, lo=-1.5, hi=1.5)
+with_zeros[0, 2] = 0.0
+with_zeros[1, 5] = 0.0
+with_zeros[2, 1] = 0.0
+with_zeros[2, 4] = 0.0
+add("cumprod_zeros", "cumprod", [1], [with_zeros])
+ties = rng.integers(-3, 4, size=(4, 11)).astype(np.float32)
+add("sort_asc", "sort", [1, 0], [rnd(5, 13)])
+add("sort_desc_axis0", "sort", [0, 1], [rnd(9, 4)])
+add("sort_ties", "sort", [1, 0], [ties])
+add("argsort_ties", "argsort", [1, 0], [ties])
+add("argsort_desc", "argsort", [-1, 1], [ties])
+# ---- wave 5: indexing (attrs: axis / axis / mode offsets...)
+add("index_select_0", "index_select", [0], [rnd(6, 5), np.array([4, 0, 4, 2], np.int32)])
+add("index_select_1", "index_select", [1], [rnd(3, 7, 2), np.array([6, 1, 1, 0, 3], np.int32)])
+add("gather_1", "gather", [1], [rnd(4, 6), rng.integers(0, 6, size=(4, 3)).astype(np.int32)])
+add("gather_0", "gather", [0], [rnd(5, 3, 2), rng.integers(0, 5, size=(7, 3, 2)).astype(np.int32)])
+add("scatter_add", "scatter_add", [1], [rnd(4, 6), rng.integers(0, 6, size=(4, 9)).astype(np.int32), rnd(4, 9)])
+uniq = np.stack([rng.permutation(6)[:4] for _ in range(3)]).astype(np.int32)
+add("scatter_unique", "scatter", [1], [rnd(3, 6), uniq, rnd(3, 4)], grads=[False, False, False])
+for mode in (0, 1, 2):
+    add(f"embedding_bag_m{mode}", "embedding_bag", [mode, 0, 3, 3, 7], [np.array([1, 4, 2, 0, 0, 3, 9, 4, 4, 2], np.int32), rnd(10, 5)])
 # ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
 def rnn_case(name, op, t, b, i, h, gates):
     w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
@@ -597,6 +623,22 @@ def forward(op, attrs, t):
         for k in reversed(range(r)):
             torch_pad += [sides[2 * k], sides[2 * k + 1]]
         return torch.nn.functional.pad(t[0], torch_pad, mode=mode, value=0.5 if mode == "constant" else None) if mode == "constant" else torch.nn.functional.pad(t[0], torch_pad, mode=mode)
+    if op in ("cumsum", "cumprod"):
+        return getattr(torch, op)(t[0], dim=attrs[0])
+    if op == "sort":
+        return torch.sort(t[0], dim=attrs[0], descending=bool(attrs[1]), stable=True).values
+    if op == "argsort":
+        return torch.sort(t[0], dim=attrs[0], descending=bool(attrs[1]), stable=True).indices
+    if op == "index_select":
+        return torch.index_select(t[0], attrs[0], t[1].long())
+    if op == "gather":
+        return torch.gather(t[0], attrs[0], t[1].long())
+    if op == "scatter_add":
+        return torch.scatter_add(t[0], attrs[0], t[1].long(), t[2])
+    if op == "scatter":
+        return torch.scatter(t[0], attrs[0], t[1].long(), t[2])
+    if op == "embedding_bag":
+        return torch.nn.functional.embedding_bag(t[0].long(), t[1], torch.tensor(attrs[1:]), mode=["sum", "mean", "max"][attrs[0]])
     raise ValueError(op)
 
 
