@@ -26,6 +26,9 @@ final class OnnxOps {
 
     static final Map<String, Handler> HANDLERS = new HashMap<>();
 
+    /** Fused attention up to this many (batch x heads) rows, unfused beyond ({@code -Djitnn.onnx.fusedAttentionRows}). */
+    static final int FUSED_ATTENTION_ROWS = Integer.getInteger("jitnn.onnx.fusedAttentionRows", 32);
+
     private OnnxOps() {
     }
 
@@ -514,7 +517,21 @@ final class OnnxOps {
                 throw new IllegalStateException("attention rewrite does not fit q " + q.shape() + ", k " + k.shape() + ", v " + v.shape()
                         + "; run with -Djitnn.onnx.rewrite=false and report the model");
             }
-            return one(F.scaledDotProductAttention(q, k, v, present(in, 3) ? t(in, 3) : null, false, n.attrFloat("scale", 1.0f)));
+            float scale = n.attrFloat("scale", 1.0f);
+            Tensor mask = present(in, 3) ? t(in, 3) : null;
+            // the fused kernel wins while batch x heads leaves the GPU short of work; beyond that the
+            // GEMMs with a fused scale-softmax between them are faster (measured on BERT-base, A100)
+            int rows = 1;
+            for (int i = 0; i < q.rank() - 2; i++) {
+                rows *= q.dim(i);
+            }
+            if (rows <= FUSED_ATTENTION_ROWS) {
+                return one(F.scaledDotProductAttention(q, k, v, mask, false, scale));
+            }
+            Tensor scores = q.matmul(k, false, true);
+            Tensor p = mask == null ? org.beehive.jitnn.ops.AttentionSoftmax.apply(scores, scale, false)
+                    : org.beehive.jitnn.ops.AttentionSoftmax.apply(scores.mul(scale).add(mask), 1.0f, false);
+            return one(p.matmul(v));
         });
         HANDLERS.put(Rewrites.LINEAR, (n, in) -> one(F.linear(t(in, 0), t(in, 1), present(in, 2) ? t(in, 2) : null)));
         HANDLERS.put("Gemm", (n, in) -> {
