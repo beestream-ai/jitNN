@@ -324,6 +324,20 @@ add("eigh_batch", "eigh", [], [sym(2, 6, 6)])
 add("svd_tall", "svd", [], [rnd(6, 4)])
 add("svd_wide", "svd", [], [rnd(4, 6)])
 add("svd_batch", "svd", [], [rnd(2, 5, 5)])
+# ---- wave 6: Fourier transforms on (re, im) pairs (attrs: n, dim, norm 0 backward / 1 ortho / 2 forward); stft/istft (attrs: n_fft, hop, center, normalized, window 0 none / 1 hann)
+add("fft", "fft", [-1, -1, 0], [rnd(3, 12, 2)])
+add("fft_pad_ortho", "fft", [16, -1, 1], [rnd(2, 10, 2)])
+add("fft_crop_dim0", "fft", [5, 0, 2], [rnd(6, 4, 2)])
+add("ifft", "ifft", [-1, -1, 0], [rnd(2, 9, 2)])
+add("rfft", "rfft", [-1, -1, 0], [rnd(3, 10)])
+add("rfft_odd_ortho", "rfft", [-1, -1, 1], [rnd(2, 9)])
+add("irfft", "irfft", [-1, -1, 0], [rnd(2, 6, 2)])
+add("irfft_n9", "irfft", [9, -1, 0], [rnd(2, 5, 2)])
+add("fft2", "fft2", [], [rnd(3, 4, 5, 2)])
+add("rfft2", "rfft2", [], [rnd(2, 4, 6)])
+add("stft_hann", "stft", [16, 4, 1, 0, 1], [rnd(2, 64)])
+add("stft_rect_nocenter", "stft", [8, 3, 0, 1, 0], [rnd(30)])
+add("istft_hann", "istft", [16, 4, 1, 0, 1], [rnd(2, 9, 17, 2)])
 add("msle", "msle", [1], [pos(6, 5), pos(6, 5)])
 add("mape", "mape", [1], [rnd(6, 5), rnd(6, 5, lo=0.5, hi=3) * signs(6, 5)])
 # ---- wave 5: norms (attrs: groups eps / eps / size alpha beta k)
@@ -715,6 +729,25 @@ def forward(op, attrs, t):
         u, sv, vh = L.svd(t[0], full_matrices=False)
         sg = signs_of(u)
         return flat(u * sg, sv, vh.mT * sg)
+    if op in ("fft", "ifft", "rfft", "irfft", "fft2", "rfft2", "stft", "istft"):
+        fft = torch.fft
+        cx = lambda x: torch.view_as_complex(x.contiguous())
+        rx = torch.view_as_real
+        if op in ("fft", "ifft", "rfft", "irfft"):
+            norm = ["backward", "ortho", "forward"][attrs[2]]
+            n = None if attrs[0] < 0 else attrs[0]
+            x = t[0] if op == "rfft" else cx(t[0])
+            y = getattr(fft, op)(x, n=n, dim=attrs[1], norm=norm)
+            return y if op == "irfft" else rx(y)
+        if op == "fft2":
+            return rx(fft.fft2(cx(t[0])))
+        if op == "rfft2":
+            return rx(fft.rfft2(t[0]))
+        n_fft, hop, center, normalized, win = attrs
+        window = torch.hann_window(n_fft, dtype=torch.float64) if win else None
+        if op == "stft":
+            return rx(torch.stft(t[0], n_fft, hop, window=window, center=bool(center), normalized=bool(normalized), onesided=True, return_complex=True))
+        return torch.istft(cx(t[0]), n_fft, hop, window=window, center=bool(center), normalized=bool(normalized), onesided=True)
     if op == "nll_mean":
         return torch.nn.functional.nll_loss(t[0], t[1].long())
     if op == "cosine_similarity":
