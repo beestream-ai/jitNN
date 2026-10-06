@@ -31,10 +31,13 @@ def model(name, nodes, inputs, outputs, inits=(), opset=18):
     for n, a in inputs:
         et = TensorProto.INT64 if a.dtype == np.int64 else TensorProto.FLOAT
         vi.append(helper.make_tensor_value_info(n, et, list(a.shape)))
-    outs = [helper.make_tensor_value_info(o, TensorProto.UNDEFINED, None) for o in outputs]
-    g = helper.make_graph(nodes, name, vi, outs, [numpy_helper.from_array(a, n) for n, a in inits])
+    g = helper.make_graph(nodes, name, vi, [], [numpy_helper.from_array(a, n) for n, a in inits])
     m = helper.make_model(g, opset_imports=[helper.make_opsetid("", opset)])
     m.ir_version = 9
+    # graph outputs need their element types: take them from shape inference
+    inferred = {v.name: v for v in onnx.shape_inference.infer_shapes(m).graph.value_info}
+    for o in outputs:
+        m.graph.output.append(inferred[o])
     cases.append((name, m, dict(inputs)))
 
 
@@ -67,8 +70,8 @@ model("gemm_alpha_beta", [N("Gemm", ["a", "w", "c"], ["y"], alpha=0.5, beta=2.0,
 model("conv", [N("Conv", ["x", "w", "b"], ["y"], pads=[1, 1, 1, 1], strides=[1, 1])], [("x", rnd(2, 3, 9, 9))], ["y"], [("w", rnd(4, 3, 3, 3)), ("b", rnd(4))])
 model("conv_stride_groups", [N("Conv", ["x", "w"], ["y"], pads=[1, 1, 1, 1], strides=[2, 2], group=2)], [("x", rnd(1, 4, 10, 10))], ["y"], [("w", rnd(6, 2, 3, 3))])
 model("conv_asym_pads", [N("Conv", ["x", "w"], ["y"], pads=[0, 1, 1, 0])], [("x", rnd(1, 2, 7, 7))], ["y"], [("w", rnd(3, 2, 3, 3))])
-model("conv_same_dilation", [N("Conv", ["x", "w"], ["y"], auto_pad="SAME_UPPER", dilations=[2, 2])], [("x", rnd(1, 2, 8, 8))], ["y"], [("w", rnd(3, 2, 3, 3))])
-model("conv1d", [N("Conv", ["x", "w", "b"], ["y"], pads=[2, 2])], [("x", rnd(2, 3, 20))], ["y"], [("w", rnd(5, 3, 5)), ("b", rnd(5))])
+model("conv_same", [N("Conv", ["x", "w"], ["y"], auto_pad="SAME_UPPER")], [("x", rnd(1, 2, 8, 8))], ["y"], [("w", rnd(3, 2, 3, 3))])
+model("conv1d", [N("Conv", ["x", "w", "b"], ["y"], pads=[2, 2], dilations=[2])], [("x", rnd(2, 3, 20))], ["y"], [("w", rnd(5, 3, 5)), ("b", rnd(5))])
 model("conv_transpose", [N("ConvTranspose", ["x", "w", "b"], ["y"], strides=[2, 2], pads=[1, 1, 1, 1], output_padding=[1, 1])], [("x", rnd(1, 4, 5, 5))], ["y"],
       [("w", rnd(4, 3, 3, 3)), ("b", rnd(3))])
 model("max_pool", [N("MaxPool", ["x"], ["y"], kernel_shape=[3, 3], strides=[2, 2], pads=[1, 1, 1, 1])], [("x", rnd(2, 3, 11, 11))], ["y"])
