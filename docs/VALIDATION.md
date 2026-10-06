@@ -48,8 +48,9 @@ Four layers of checks run on the host and on every device.
      steps), a U-Net segmenting MNIST digits (transposed convolution, bilinear upsampling, skip
      concatenation, 300 steps) in `GenerativeAccelTest`, and two-layer LSTM and GRU byte-level
      language models against cuDNN's (300 steps) in `RecurrentAccelTest`. Step-0 gradients against
-     FP64 as above, the step-0 loss (1e-5), the mean of the last 50 losses (2% VAE, 5% U-Net, 3%
-     language models, 10% for the adversarial DCGAN) and the evaluation metric.
+     FP64 as above, the step-0 loss (1e-5), the mean of the last 50 losses (2% VAE, 3% language
+     models, 10% for the adversarial DCGAN and for the U-Net, whose loss ends near 0.02 where FP32
+     summation order alone moves the curve by 5-7%) and the evaluation metric.
 
 ## Results
 
