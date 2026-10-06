@@ -287,6 +287,10 @@ public final class Golden {
                 int[] a = ints(c, 3);
                 yield SparseMatrix.fromCoo(rows, cols, java.util.Arrays.copyOfRange(a, 0, nnz), java.util.Arrays.copyOfRange(a, nnz, 2 * nnz)).mm(in[0], in[1]);
             }
+            case "nonzero" -> in[0].nonzero();
+            case "nonzero_static" -> F.nonzero(in[0], c.iattr(0), c.iattr(1));
+            case "masked_select" -> in[0].maskedSelect(in[1]);
+            case "unique" -> F.unique(in[0], true, true)[c.iattr(0)];
             case "negative_sampling" -> F.negativeSamplingLoss(in[0], in[1], in[2]);
             case "glove_loss" -> F.gloveLoss(in[0], in[1], in[2], in[3], in[4], in[5]);
             case "gcn" -> {

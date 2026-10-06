@@ -524,6 +524,23 @@ public final class F {
         return reduce(l, reduction);
     }
 
+    /**
+     * torch.nonzero_static: INT32 coordinates [size, rank] of the first {@code size} non-zero
+     * elements, the rest of the rows {@code fill}. Unlike {@link Tensor#nonzero()} it needs no host
+     * read, so it stays inside a compiled plan.
+     */
+    public static Tensor nonzero(Tensor x, int size, int fill) {
+        return org.beehive.jitnn.ops.Compact.nonzero(x, size, fill);
+    }
+
+    /**
+     * torch.unique (sorted): the distinct values of x, then (when asked for, else null) the INT32
+     * index of each element's value among them, shaped like x, and the INT32 count of each value.
+     */
+    public static Tensor[] unique(Tensor x, boolean returnInverse, boolean returnCounts) {
+        return org.beehive.jitnn.ops.Compact.unique(x, returnInverse, returnCounts);
+    }
+
     /** log sigmoid(x) = -softplus(-x), without overflow. */
     public static Tensor logSigmoid(Tensor x) {
         return x.neg().softplus().neg();

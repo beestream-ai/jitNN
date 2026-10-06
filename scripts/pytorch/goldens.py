@@ -345,6 +345,22 @@ add("spmm", "spmm", [5, 6, len(sp_r)] + sp_r + sp_c, [rnd(len(sp_r)), rnd(6, 7)]
 g_src = [0, 1, 1, 2, 3, 4, 5, 5, 0]
 g_dst = [1, 0, 2, 3, 2, 5, 4, 0, 5]
 add("gcn", "gcn", [6, len(g_src)] + g_src + g_dst, [rnd(6, 4), rnd(3, 4)])
+# ---- wave 7: data-dependent sizes (unique attrs: 0 values, 1 inverse, 2 counts)
+def sparse(*shape):
+    a = rnd(*shape)
+    a[rng.uniform(size=shape) < 0.5] = 0
+    return a
+
+
+add("nonzero", "nonzero", [], [sparse(4, 5)], [False])
+add("nonzero_3d", "nonzero", [], [sparse(3, 4, 300)], [False])
+add("nonzero_static", "nonzero_static", [12, -1], [sparse(5, 6)], [False])
+add("masked_select", "masked_select", [], [rnd(5, 6), (rng.uniform(size=(5, 6)) < 0.5).astype(np.float32)], [True, False])
+add("masked_select_broadcast", "masked_select", [], [rnd(700, 6), (rng.uniform(size=6) < 0.5).astype(np.float32)], [True, False])
+dup = rng.integers(0, 7, (40, 30)).astype(np.float32)
+add("unique", "unique", [0], [dup], [False])
+add("unique_inverse", "unique", [1], [dup], [False])
+add("unique_counts", "unique", [2], [dup], [False])
 # ---- wave 6: embedding-model losses
 add("negative_sampling", "negative_sampling", [], [rnd(6, 5, lo=-1, hi=1), rnd(6, 5, lo=-1, hi=1), rnd(6, 4, 5, lo=-1, hi=1)])
 add("glove_loss", "glove_loss", [], [rnd(7, 5, lo=-1, hi=1), rnd(7, 5, lo=-1, hi=1), rnd(7), rnd(7), pos(7), pos(7)], [True, True, True, True, False, False])
@@ -779,6 +795,15 @@ def forward(op, attrs, t):
     if op == "glove_loss":
         wi, wj, bi, bj, lx, w = t
         return (w * ((wi * wj).sum(-1) + bi + bj - lx) ** 2).mean()
+    if op == "nonzero":
+        return torch.nonzero(t[0])
+    if op == "nonzero_static":
+        return torch.nonzero_static(t[0], size=attrs[0], fill_value=attrs[1])
+    if op == "masked_select":
+        return torch.masked_select(t[0], t[1] != 0)
+    if op == "unique":
+        v, inv, cnt = torch.unique(t[0], sorted=True, return_inverse=True, return_counts=True)
+        return [v, inv, cnt][attrs[0]]
     if op == "nll_mean":
         return torch.nn.functional.nll_loss(t[0], t[1].long())
     if op == "cosine_similarity":
