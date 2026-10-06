@@ -17,17 +17,22 @@ import org.beehive.jitnn.onnx.OnnxModel.Node;
  * layer with the weight stored transposed, [N, K], as F.linear takes it (one GEMM with the bias in
  * its epilogue, where jitNN's inference fusions can also fold an activation).
  * <li>The erf form of GELU that exporters write, x * 0.5 * (1 + erf(x / sqrt 2)), becomes one GELU.
+ * <li>Attention written as MatMul(q, k^T) [+ mask] -> Softmax(last axis) -> MatMul(., v) becomes
+ * one call to F.scaledDotProductAttention (jitNN's fused attention), with constant scalings of q
+ * and k^T folded into its scale and the exporter's Reshape-Transpose-Reshape of k undone.
  * </ul>
+ * With {@code half}, the linear layers' weights are stored in FP16.
  * Only nodes whose intermediate results have no other consumer are rewritten.
  */
 final class Rewrites {
 
     static final String LINEAR = "jitnn.Linear";
+    static final String ATTENTION = "jitnn.Attention";
 
     private Rewrites() {
     }
 
-    static List<Node> apply(List<Node> nodes, Map<String, Value> constants, Set<String> graphOutputs) {
+    static List<Node> apply(List<Node> nodes, Map<String, Value> constants, Set<String> graphOutputs, boolean half) {
         Map<String, Integer> uses = new HashMap<>();
         Map<String, Node> producer = new HashMap<>();
         for (Node n : nodes) {
@@ -67,7 +72,8 @@ final class Rewrites {
                 }
                 String wt = n.input(1) + "#transposed";
                 if (!constants.containsKey(wt)) {
-                    constants.put(wt, Value.of(Tensor.persistent(w.tensor.transpose(0, 1).mul(1.0f))));
+                    Tensor t = w.tensor.transpose(0, 1).mul(1.0f);
+                    constants.put(wt, Value.of(half ? Tensor.persistentHalf(t.toFloatArray(), t.shape().dims()) : Tensor.persistent(t)));
                 }
                 List<String> ins = bias == null ? List.of(n.input(0), wt) : List.of(n.input(0), wt, bias);
                 List<String> outs = bias == null ? n.outputs() : add.outputs();
@@ -76,6 +82,9 @@ final class Rewrites {
                     dropped.add(add);
                 }
             }
+            if (n.opType().equals("Softmax") && !replaced.containsKey(n)) {
+                attention(n, producer, consumer, constants, dropped, replaced);
+            }
             if (n.opType().equals("Erf")) {
                 Node gelu = geluRoot(n, producer, consumer, constants, dropped);
                 if (gelu != null) {
@@ -83,14 +92,118 @@ final class Rewrites {
                 }
             }
         }
+        // a node both dropped and replaced keeps its replacement; dropped producers that some other
+        // node still reads are kept (the matcher only removes single-use intermediates)
         List<Node> out = new ArrayList<>();
         for (Node n : nodes) {
-            if (dropped.contains(n)) {
+            if (dropped.contains(n) && !replaced.containsKey(n)) {
                 continue;
             }
             out.add(replaced.getOrDefault(n, n));
         }
         return out;
+    }
+
+    private static float scalarConst(Map<String, Value> constants, String name) {
+        Value v = constants.get(name);
+        float[] f = v == null ? null : v.hostFloats();
+        return f != null && f.length == 1 ? f[0] : Float.NaN;
+    }
+
+    /** x when {@code name} is Mul(x, c) with a constant scalar c (single use): [x, c]; else [name, 1]. */
+    private static Object[] unscale(String name, Map<String, Node> producer, Map<String, Node> consumer, Map<String, Value> constants, List<Node> used) {
+        Node m = producer.get(name);
+        if (m != null && m.opType().equals("Mul") && consumer.containsKey(name)) {
+            float c1 = scalarConst(constants, m.input(1));
+            float c0 = scalarConst(constants, m.input(0));
+            if (!Float.isNaN(c1)) {
+                used.add(m);
+                return new Object[] { m.input(0), c1 };
+            }
+            if (!Float.isNaN(c0)) {
+                used.add(m);
+                return new Object[] { m.input(1), c0 };
+            }
+        }
+        return new Object[] { name, 1.0f };
+    }
+
+    /**
+     * Matches MatMul(a, b) [-> Add(mask)] -> Softmax(axis -1) -> MatMul(p, v), every intermediate
+     * single-use; a = q [* c], b = k^T [* c]. k^T written as Reshape(Transpose(Reshape(k), [0, 2, 1]))
+     * is traced back to k (form 1), else b is used transposed (form 0). The attention node (attributes
+     * scale and form) takes the second MatMul's place, so v is available there.
+     */
+    private static void attention(Node softmax, Map<String, Node> producer, Map<String, Node> consumer, Map<String, Value> constants, Set<Node> dropped,
+            Map<Node, Node> replaced) {
+        if (softmax.attrInt("axis", -1) != -1) {
+            return;
+        }
+        String sIn = softmax.input(0);
+        if (consumer.get(sIn) != softmax) {
+            return;
+        }
+        Node before = producer.get(sIn);
+        String mask = null;
+        Node add = null;
+        if (before != null && before.opType().equals("Add")) {
+            add = before;
+            Node l = producer.get(before.input(0));
+            Node r = producer.get(before.input(1));
+            if (l != null && l.opType().equals("MatMul") && consumer.get(before.input(0)) == before) {
+                mask = before.input(1);
+                before = l;
+            } else if (r != null && r.opType().equals("MatMul") && consumer.get(before.input(1)) == before) {
+                mask = before.input(0);
+                before = r;
+            } else {
+                return;
+            }
+        }
+        if (before == null || !before.opType().equals("MatMul") || replaced.containsKey(before)) {
+            return;
+        }
+        Node pv = consumer.get(softmax.outputs().get(0));
+        if (pv == null || !pv.opType().equals("MatMul") || !pv.input(0).equals(softmax.outputs().get(0))) {
+            return;
+        }
+        List<Node> used = new ArrayList<>();
+        Object[] qa = unscale(before.input(0), producer, consumer, constants, used);
+        Object[] kb = unscale(before.input(1), producer, consumer, constants, used);
+        float scale = (float) qa[1] * (float) kb[1];
+        String kt = (String) kb[0];
+        String k = kt;
+        int form = 0;
+        Node r2 = producer.get(kt);
+        if (r2 != null && r2.opType().equals("Reshape") && consumer.get(kt) != null) {
+            Node tr = producer.get(r2.input(0));
+            if (tr != null && tr.opType().equals("Transpose") && java.util.Arrays.equals(tr.attrInts("perm", null), new long[] { 0, 2, 1 })) {
+                Node r1 = producer.get(tr.input(0));
+                if (r1 != null && r1.opType().equals("Reshape")) {
+                    k = r1.input(0);
+                    form = 1;
+                    used.add(r2);
+                    used.add(tr);
+                    used.add(r1);
+                }
+            }
+        }
+        dropped.add(before);
+        dropped.add(softmax);
+        if (add != null) {
+            dropped.add(add);
+        }
+        for (Node u : used) {
+            dropped.add(u);
+        }
+        Map<String, OnnxModel.Attribute> attrs = new java.util.LinkedHashMap<>();
+        attrs.put("scale", new OnnxModel.Attribute("scale", 1, scale, 0, null, null, null, null, null));
+        attrs.put("form", new OnnxModel.Attribute("form", 2, 0, form, null, null, null, null, null));
+        List<String> ins = new ArrayList<>(List.of((String) qa[0], k, pv.input(1)));
+        if (mask != null) {
+            ins.add(mask);
+        }
+        replaced.put(pv, new Node(softmax.name(), ATTENTION, "", ins, pv.outputs(), attrs));
     }
 
     private static boolean isConst(Map<String, Value> constants, String name, double value) {

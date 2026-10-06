@@ -71,7 +71,7 @@ class OnnxT1AccelTest {
             String[] parts = name.split("_");
             boolean fp16 = name.endsWith("fp16");
             long t0 = System.nanoTime();
-            OnnxSession s = OnnxSession.load(work.resolve(f)).halfPrecision(fp16);
+            OnnxSession s = OnnxSession.load(work.resolve(f), fp16);
             double loadMs = (System.nanoTime() - t0) / 1e6;
             String input = s.inputNames().get(0);
             String output = s.outputNames().get(0);

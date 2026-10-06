@@ -26,8 +26,9 @@ import org.beehive.jitnn.onnx.OnnxModel.TensorData;
  * Tensor logits = s.run(Map.of("x", images)).get("y");
  * }</pre>
  *
- * Floating-point weights of any precision are held in FP32; with {@link #halfPrecision} the matrix
- * products and convolutions take FP16 operands (jitNN's autocast). Integer tensors become INT32
+ * Floating-point weights of any precision are held in FP32; with {@link #load(Path, boolean)} in
+ * half precision the matrix products take FP16 operands (jitNN's autocast) and linear weights are
+ * stored in FP16. Convolutions stay FP32. Integer tensors become INT32
  * on the device. Booleans are FP32 0 / 1.
  */
 public final class OnnxSession {
@@ -35,10 +36,11 @@ public final class OnnxSession {
     private final OnnxModel model;
     private final Map<String, Value> constants = new HashMap<>();
     private final List<Node> nodes;
-    private boolean half;
+    private final boolean half;
 
-    private OnnxSession(OnnxModel model) {
+    private OnnxSession(OnnxModel model, boolean half) {
         this.model = model;
+        this.half = half;
         TreeSet<String> missing = new TreeSet<>();
         for (Node n : model.graph().nodes()) {
             if (!n.opType().equals("Constant") && !OnnxOps.supports(n.opType())) {
@@ -60,17 +62,19 @@ public final class OnnxSession {
             }
         }
         java.util.Set<String> outs = new java.util.HashSet<>(outputNames());
-        nodes = Boolean.parseBoolean(System.getProperty("jitnn.onnx.rewrite", "true")) ? Rewrites.apply(model.graph().nodes(), constants, outs) : model.graph().nodes();
+        nodes = Boolean.parseBoolean(System.getProperty("jitnn.onnx.rewrite", "true")) ? Rewrites.apply(model.graph().nodes(), constants, outs, half) : model.graph().nodes();
     }
 
     public static OnnxSession load(Path file) throws IOException {
-        return new OnnxSession(OnnxModel.load(file));
+        return load(file, false);
     }
 
-    /** FP16 operands for matrix products and convolutions (FP32 accumulation, FP32 elsewhere). */
-    public OnnxSession halfPrecision(boolean on) {
-        this.half = on;
-        return this;
+    /**
+     * With {@code halfPrecision}, the matrix products (linear layers, attention) run on FP16
+     * operands with FP32 accumulation, and the linear layers' weights are stored in FP16.
+     */
+    public static OnnxSession load(Path file, boolean halfPrecision) throws IOException {
+        return new OnnxSession(OnnxModel.load(file), halfPrecision);
     }
 
     public OnnxModel model() {

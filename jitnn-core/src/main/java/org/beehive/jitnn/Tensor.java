@@ -123,6 +123,15 @@ public final class Tensor {
         return p;
     }
 
+    /** Persistent FP16 storage (weights kept in half precision on the device), from FP32 values rounded to nearest. */
+    public static Tensor persistentHalf(float[] values, int... dims) {
+        uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray h = new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(Math.max(values.length, 1));
+        for (int i = 0; i < values.length; i++) {
+            h.set(i, new uk.ac.manchester.tornado.api.types.HalfFloat(values[i]));
+        }
+        return new Tensor(Shape.of(dims), Storage.ofHost(h, DType.F16, true));
+    }
+
     // ---------------------------------------------------------------- internal construction
 
     /** An output tensor for an operator; its storage is allocated when the operator runs. */

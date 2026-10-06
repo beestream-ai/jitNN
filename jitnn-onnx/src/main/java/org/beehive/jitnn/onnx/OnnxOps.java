@@ -506,6 +506,16 @@ final class OnnxOps {
         });
         // ---- matrix products
         HANDLERS.put("MatMul", (n, in) -> one(matmul(t(in, 0), t(in, 1))));
+        HANDLERS.put(Rewrites.ATTENTION, (n, in) -> {
+            Tensor q = t(in, 0);
+            Tensor k = n.attrInt("form", 0) == 1 ? t(in, 1) : t(in, 1).transpose(-2, -1);
+            Tensor v = t(in, 2);
+            if (k.rank() != q.rank() || k.dim(-1) != q.dim(-1) || k.dim(-2) != v.dim(-2)) {
+                throw new IllegalStateException("attention rewrite does not fit q " + q.shape() + ", k " + k.shape() + ", v " + v.shape()
+                        + "; run with -Djitnn.onnx.rewrite=false and report the model");
+            }
+            return one(F.scaledDotProductAttention(q, k, v, present(in, 3) ? t(in, 3) : null, false, n.attrFloat("scale", 1.0f)));
+        });
         HANDLERS.put(Rewrites.LINEAR, (n, in) -> one(F.linear(t(in, 0), t(in, 1), present(in, 2) ? t(in, 2) : null)));
         HANDLERS.put("Gemm", (n, in) -> {
             Tensor a = t(in, 0);
