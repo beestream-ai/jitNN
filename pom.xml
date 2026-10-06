@@ -23,6 +23,7 @@
     <modules>
         <module>jitnn-core</module>
         <module>jitnn-nn</module>
+        <module>jitnn-onnx</module>
     </modules>
 
     <properties>
