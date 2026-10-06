@@ -136,19 +136,6 @@ public final class FlashKernels128 {
         }
     }
 
-    /** delta[r] = sum over c of dO[r, c] * O[r, c] for the n = Z * T rows r = z * T + i (o's layout). */
-    public static void delta(KernelContext kc, FloatArray dout, FloatArray out, FloatArray delta, IntArray meta, int t, int d, int n) {
-        int r = kc.globalIdx;
-        if (r < n) {
-            int z = r / t;
-            int base = at(meta, 3, z, r - z * t);
-            float acc = 0.0f;
-            for (int c = 0; c < d; c++) {
-                acc += dout.get(base + c) * out.get(base + c);
-            }
-            delta.set(r, acc);
-        }
-    }
 
     /** dQ: ds = p (dO . v - delta) with p = exp(s - lse), dQ += scale * ds * k. Grid as forward. */
     public static void backwardQ(KernelContext kc, FloatArray q, FloatArray k, FloatArray v, FloatArray mask, FloatArray dout, FloatArray lse, FloatArray delta,
