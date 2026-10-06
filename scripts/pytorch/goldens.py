@@ -288,6 +288,42 @@ add("margin_ranking_sum", "margin_ranking", [2, 0.3], [rnd(9), rnd(9), signs(9)]
 add("ctc_mean", "ctc", [1, 0, 12, 9, 11, 4, 2, 3], [rnd(12, 3, 6, lo=-3, hi=3), np.array([[1, 2, 2, 5], [3, 3, 0, 0], [4, 1, 4, 0]], np.int32)])
 add("ctc_none_blank3", "ctc", [0, 3, 20, 17, 7, 5], [rnd(20, 2, 5, lo=-3, hi=3), np.array([[1, 0, 1, 2, 4, 4, 2], [2, 2, 1, 0, 4, 0, 0]], np.int32)])
 add("sparsemax", "sparsemax", [], [rnd(6, 9, lo=-3, hi=3)])
+# ---- wave 6: linear algebra (multi-part results flattened and concatenated; vectors signed as jitNN signs them)
+def spd(*shape):
+    m = rng.uniform(-1, 1, size=shape)
+    return (m @ np.swapaxes(m, -1, -2) + shape[-1] * np.eye(shape[-1])).astype(np.float32)
+
+
+def sym(*shape):
+    m = rng.uniform(-2, 2, size=shape)
+    return ((m + np.swapaxes(m, -1, -2)) / 2).astype(np.float32)
+
+
+def tri(n):
+    return (rng.uniform(-1, 1, size=(n, n)) + 3 * np.eye(n)).astype(np.float32)
+
+
+add("lu_factor", "lu_factor", [], [rnd(5, 5)])
+add("lu_factor_batch", "lu_factor", [], [rnd(3, 4, 4)])
+add("solve_triangular_lower", "solve_triangular", [0, 0], [tri(5), rnd(5, 3)])
+add("solve_triangular_upper", "solve_triangular", [1, 0], [tri(5), rnd(5, 3)])
+add("solve_triangular_upper_unit", "solve_triangular", [1, 1], [tri(4), rnd(4, 2)])
+add("solve", "solve", [], [rnd(6, 6), rnd(6, 2)])
+add("solve_batch", "solve", [], [rnd(2, 4, 4), rnd(2, 4, 3)])
+add("inv", "inv", [], [rnd(5, 5)])
+add("det", "det", [], [rnd(5, 5)])
+add("det_batch", "det", [], [rnd(3, 4, 4)])
+add("slogdet", "slogdet", [], [rnd(3, 4, 4)])
+add("cholesky", "cholesky", [], [spd(5, 5)])
+add("cholesky_batch", "cholesky", [], [spd(2, 4, 4)])
+add("qr_tall", "qr", [], [rnd(6, 4)])
+add("qr_batch", "qr", [], [rnd(2, 5, 5)])
+add("qr_wide", "qr", [], [rnd(3, 5)])
+add("eigh", "eigh", [], [sym(5, 5)])
+add("eigh_batch", "eigh", [], [sym(2, 6, 6)])
+add("svd_tall", "svd", [], [rnd(6, 4)])
+add("svd_wide", "svd", [], [rnd(4, 6)])
+add("svd_batch", "svd", [], [rnd(2, 5, 5)])
 add("msle", "msle", [1], [pos(6, 5), pos(6, 5)])
 add("mape", "mape", [1], [rnd(6, 5), rnd(6, 5, lo=0.5, hi=3) * signs(6, 5)])
 # ---- wave 5: norms (attrs: groups eps / eps / size alpha beta k)
@@ -653,6 +689,32 @@ def forward(op, attrs, t):
         support = (1 + k * z > z.cumsum(-1)).to(z.dtype)
         tau = ((support * z).sum(-1, keepdim=True) - 1) / support.sum(-1, keepdim=True)
         return torch.relu(t[0] - tau)
+    if op in ("lu_factor", "solve_triangular", "solve", "inv", "det", "slogdet", "cholesky", "qr", "eigh", "svd"):
+        L = torch.linalg
+        flat = lambda *xs: torch.cat([x.reshape(-1) for x in xs])
+        signs_of = lambda x: torch.sign(torch.gather(x, -2, x.abs().argmax(-2, keepdim=True))).detach()
+        if op == "lu_factor":
+            return L.lu_factor(t[0])[0]
+        if op == "solve_triangular":
+            return L.solve_triangular(t[0], t[1], upper=bool(attrs[0]), unitriangular=bool(attrs[1]))
+        if op == "solve":
+            return L.solve(t[0], t[1])
+        if op == "inv":
+            return L.inv(t[0])
+        if op == "det":
+            return L.det(t[0])
+        if op == "slogdet":
+            return L.slogdet(t[0]).logabsdet
+        if op == "cholesky":
+            return L.cholesky(t[0])
+        if op == "qr":
+            return flat(*L.qr(t[0]))
+        if op == "eigh":
+            w, v = L.eigh(t[0])
+            return flat(w, v * signs_of(v))
+        u, sv, vh = L.svd(t[0], full_matrices=False)
+        sg = signs_of(u)
+        return flat(u * sg, sv, vh.mT * sg)
     if op == "nll_mean":
         return torch.nn.functional.nll_loss(t[0], t[1].long())
     if op == "cosine_similarity":

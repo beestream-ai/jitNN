@@ -264,6 +264,16 @@ public final class Golden {
                 yield F.ctcLoss(in[0].logSoftmax(), in[1], java.util.Arrays.copyOfRange(lens, 0, b), java.util.Arrays.copyOfRange(lens, b, 2 * b), c.iattr(1), red(c));
             }
             case "sparsemax" -> F.sparsemax(in[0]);
+            case "lu_factor" -> Linalg.luFactor(in[0])[0];
+            case "solve_triangular" -> Linalg.solveTriangular(in[0], in[1], c.iattr(0) != 0, c.iattr(1) != 0);
+            case "solve" -> Linalg.solve(in[0], in[1]);
+            case "inv" -> Linalg.inv(in[0]);
+            case "det" -> Linalg.det(in[0]);
+            case "slogdet" -> Linalg.slogdet(in[0])[1];
+            case "cholesky" -> Linalg.cholesky(in[0]);
+            case "qr" -> flat(Linalg.qr(in[0]));
+            case "eigh" -> flat(Linalg.eigh(in[0]));
+            case "svd" -> flat(Linalg.svd(in[0]));
             case "hinge" -> F.hingeLoss(in[0], in[1], red(c));
             case "squared_hinge" -> F.squaredHingeLoss(in[0], in[1], red(c));
             case "cosine_similarity" -> F.cosineSimilarity(in[0], in[1], c.iattr(0), 1e-8f);
@@ -342,6 +352,15 @@ public final class Golden {
     }
 
     /** The integer attributes from index {@code from} on. */
+    /** The parts flattened and concatenated, as the goldens store multi-part results. */
+    private static Tensor flat(Tensor... parts) {
+        Tensor[] flat = new Tensor[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            flat[i] = parts[i].reshape(parts[i].shape().numel());
+        }
+        return Tensor.cat(0, flat);
+    }
+
     private static int[] ints(Case c, int from) {
         int[] v = new int[c.attrs().length - from];
         for (int i = 0; i < v.length; i++) {
@@ -357,7 +376,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag", "rnn_lstm", "rnn_gru", "triplet_margin", "contrastive", "cosine_embedding", "margin_ranking", "ctc", "sparsemax" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag", "rnn_lstm", "rnn_gru", "triplet_margin", "contrastive", "cosine_embedding", "margin_ranking", "ctc", "sparsemax", "lu_factor", "solve_triangular", "solve", "inv", "det", "slogdet", "cholesky", "qr", "eigh", "svd" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;
