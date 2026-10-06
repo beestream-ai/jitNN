@@ -94,10 +94,10 @@ public final class Fp8 {
         int[] dims = a.shape().dims();
         dims[dims.length - 1] = m;
         Tensor y = Tensor.result(Shape.of(dims), DType.F32);
-        Tensor dummyF = Tensor.zeros(1);
-        Tensor x = aFp8 ? dummyF : a;
-        Tensor xq = aFp8 ? a : Tensor.result(Shape.of(1), DType.FP8_E4M3);
-        Tensor.record(GEMM, new Tensor[] { x, xq, aFp8 ? sa : dummyF, w, sw, bias != null ? bias : dummyF }, new Tensor[] { y },
+        // unused operands are passed existing arrays of the right type
+        Tensor x = aFp8 ? sw : a;
+        Tensor xq = aFp8 ? a : w;
+        Tensor.record(GEMM, new Tensor[] { x, xq, aFp8 ? sa : sw, w, sw, bias != null ? bias : sw }, new Tensor[] { y },
                 new int[] { rows, m, k, aFp8 ? format(a.dtype()) : -1, format(w.dtype()), bias != null ? 1 : 0 }, null, true);
         return y;
     }
@@ -142,7 +142,7 @@ public final class Fp8 {
             FloatArray s = e.f32(n.in(1));
             FloatArray y = e.f32(n.out(0));
             int count = n.out(0).numel(), format = n.iattr[0];
-            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, Fp8Kernels::dequantize, e.context(), q, s, y, format, count));
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, Fp8Kernels::dequantize, e.context(), q, s, y, format, Float.NaN, Float.POSITIVE_INFINITY, count));
         }
 
         @Override
@@ -151,7 +151,7 @@ public final class Fp8 {
             FloatArray s = (FloatArray) n.in(1).storage().host();
             FloatArray y = (FloatArray) n.out(0).storage().host();
             for (int i = 0; i < n.out(0).numel(); i++) {
-                y.set(i, Fp8Kernels.decode(q.get(i), n.iattr[0]) * s.get(0));
+                y.set(i, Fp8Kernels.decode(q.get(i), n.iattr[0], Float.NaN, Float.POSITIVE_INFINITY) * s.get(0));
             }
         }
     }
@@ -175,7 +175,7 @@ public final class Fp8 {
             FloatArray y = e.f32(n.out(0));
             int[] a = n.iattr;
             int rows = a[0], m = a[1], k = a[2], af = a[3], wf = a[4], hb = a[5];
-            e.task(Emitter.grid2D(m, rows, Fp8Kernels.TILE), (g, id) -> g.task(id, Fp8Kernels::gemm, e.context(), x, xq, sa, w, sw, bias, y, rows, m, k, af, wf, hb));
+            e.task(Emitter.grid2D(m, rows, Fp8Kernels.TILE), (g, id) -> g.task(id, Fp8Kernels::gemm, e.context(), x, xq, sa, w, sw, bias, y, rows, m, k, af, wf, hb, Float.NaN, Float.POSITIVE_INFINITY));
         }
 
         @Override
@@ -193,8 +193,8 @@ public final class Fp8 {
                 for (int c = 0; c < m; c++) {
                     double acc = 0;
                     for (int i = 0; i < k; i++) {
-                        double av = af >= 0 ? Fp8Kernels.decode(xq.get(r * k + i), af) : x.get(r * k + i);
-                        acc += av * Fp8Kernels.decode(w.get(c * k + i), wf);
+                        double av = af >= 0 ? Fp8Kernels.decode(xq.get(r * k + i), af, Float.NaN, Float.POSITIVE_INFINITY) : x.get(r * k + i);
+                        acc += av * Fp8Kernels.decode(w.get(c * k + i), wf, Float.NaN, Float.POSITIVE_INFINITY);
                     }
                     y.set(r * m + c, (float) (acc * sa * sw + (a[5] == 1 ? bias.get(c) : 0)));
                 }

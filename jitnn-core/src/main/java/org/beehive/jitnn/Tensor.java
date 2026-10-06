@@ -265,7 +265,7 @@ public final class Tensor {
             float[] out = new float[numel()];
             boolean e4m3 = storage.dtype() == DType.FP8_E4M3;
             for (int i = 0; i < out.length; i++) {
-                out[i] = e4m3 ? uk.ac.manchester.tornado.api.types.FP8.e4m3ToFloat(q.get(i)) : uk.ac.manchester.tornado.api.types.FP8.e5m2ToFloat(q.get(i));
+                out[i] = org.beehive.jitnn.kernels.Fp8Kernels.decode(q.get(i), e4m3 ? 0 : 1, Float.NaN, Float.POSITIVE_INFINITY);
             }
             return out;
         }
