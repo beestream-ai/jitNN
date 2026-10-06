@@ -22,6 +22,11 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 - **Graph chaining**: a trace longer than `jitnn.graph.maxTasks` tasks is cut at node boundaries
   into several task graphs in one plan. Each array is owned by the first graph that uses it, which
   uploads and persists it; later graphs `consumeFromDevice` it.
+- **Rewrites before compilation**: `ops.Fusion` fuses a producer into its only consumer when the
+  intermediate is internal (convolution + BatchNorm folding, GELU and ReLU epilogues, add + ReLU).
+- **Devices per thread**: each thread records its own trace, and `Engine.onDevice` sets the device
+  its plans compile for; the plan cache is keyed by device, so ranks on different devices (or
+  backends) share one process.
 - **Buffer reuse**: storages created inside `backward()` (except leaf gradients) or inside
   `Grad.inference` are internal; the compiler gives a dead internal buffer to later outputs of the
   same type and size or smaller, and marks it stale after execution.
@@ -30,14 +35,20 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 
 | Path | Contents |
 |---|---|
-| `jitnn-core/.../jitnn` | `Tensor`, `Shape`, `DType`, `F`, `Grad`, `Autograd` |
+| `jitnn-core/.../jitnn` | `Tensor`, `Shape`, `DType`, `F`, `Grad`, `Autograd`, `Autocast`, `Linalg`, `Fft`, `SparseMatrix` |
 | `jitnn-core/.../engine` | `Engine`, `Trace`, `Node`, `Op`, `Storage`, `TornadoExecutor`, `Emitter`, `Devices` |
-| `jitnn-core/.../ops` | one class per operator: emission, host reference, gradient |
-| `jitnn-core/.../kernels` | the KernelContext kernels |
-| `jitnn-nn/.../nn` | `Module`, `Linear`, `ReLU`, `Sequential`, `optim/` |
+| `jitnn-core/.../ops` | one class per operator: emission, host reference, gradient; `Fusion` (inference fusion), `Fp8` |
+| `jitnn-core/.../kernels` | the KernelContext kernels; `jitllm/` and `jitrex/` hold kernels copied from those projects |
+| `jitnn-core/.../dist` | `Collective`, `HostCollective`, `ProcessGroup` |
+| `jitnn-nn/.../nn` | `Module` and the layers, `DataParallel`, `optim/`, `models/` (CNNs, transformers, generative and recurrent models, embedding models), `text/` (`Vocabulary`, `Corpus`) |
+| `jitnn-nn/.../ml` | the classical machine-learning estimators, `Lbfgs`, `Binner` and `TreeGrower` |
 | `jitnn-nn/.../data` | `Mnist`, `Blobs` |
-| `scripts/codegen` | GEMM, simdgroup GEMM and implicit-GEMM convolution generators (Java has no macros; accumulators must be scalars) |
-| `scripts/pytorch` | golden tensors, the MNIST reference run, jitNN's Philox in numpy |
+| `jitnn-onnx/.../onnx` | `Proto` (protobuf reader), `OnnxModel`, `OnnxSession`, `OnnxOps` (one jitNN mapping per ONNX operator), `Rewrites` (load-time pattern rewrites) |
+| `scripts/codegen` | GEMM, tensor-core GEMM, simdgroup GEMM, implicit-GEMM convolution, fused attention and multi-tensor optimiser generators (Java has no macros; accumulators must be scalars) |
+| `scripts/pytorch` | golden tensors, the MNIST, CNN, transformer, generative and recurrent reference runs, jitNN's Philox in numpy |
+| `scripts/sklearn` | scikit-learn references for the classical machine-learning estimators |
+| `scripts/onnx` | ONNX goldens (ONNX Runtime outputs) and the ONNX Runtime side of the inference comparison |
+| `scripts/bench` | the PyTorch and ONNX Runtime inference comparison, and the same through DJL in `djl/` |
 
 ## Adding an operator
 
@@ -77,4 +88,6 @@ Kernels tagged `WORKAROUND(...)` avoid these:
 | Metal's `tanh` returns NaN for large arguments | `ElementwiseKernels.tanh` goes through exp(-2abs(x)) |
 | TornadoMath has no erf, erfc, rsqrt, log1p, expm1 | `ElementwiseKernels.erfc`, a Chebyshev fit good to 1.2e-7, for exact GELU; `ElementwiseKernels.log1p` (Goldberg's trick) for softplus and BCE with logits |
 | Short-circuit operators inside loops can drop a branch | non-short-circuit AND and OR operators in every kernel |
-| A method over 600 IR nodes (after its own callees are inlined) cannot be inlined into a kernel | the element-wise kernels branch to four op groups (base, activations, math, NaN-aware), each under the limit; a big helper calling smaller ones does not help |
+| TornadoVM inlines a callee only up to 600 IR nodes, counted after the callee's own inlining | the element-wise kernels dispatch to smaller op groups (base, activations, math, NaN-aware), each under the limit; a big helper calling smaller ones does not help |
+| The OpenCL backend writes `Float.NaN` as `NaNF`, which does not compile, and specialises scalar kernel arguments into literals (so a NaN or infinity passed as an argument hits the same problem) | the FP8 decoders read NaN and infinity from a small device array |
+| `cos` and `sin` fail to compile when their argument becomes a compile-time constant | the DFT reads its phases from a twiddle table computed on the host |

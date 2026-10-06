@@ -5,9 +5,14 @@
 | What | Version | Notes |
 |---|---|---|
 | JDK | 22 or newer | jitNN compiles with `--release 22`; tested on Temurin 25.0.3 and JDK 25.0.2 |
-| TornadoVM | `develop`, 7.0.2-jdk22plus-dev | needs the on-demand `TornadoExecutionPlan.transferToDevice(Object...)`, which is not in 7.0.1 |
+| TornadoVM | `develop`, 7.0.2-jdk22plus-dev or newer | needs the on-demand `TornadoExecutionPlan.transferToDevice(Object...)`, which is not in 7.0.1; the current results were taken with `develop` 7.1.1-dev |
 | A device | CUDA, OpenCL or Metal | optional: the reference backend runs on any CPU |
 | Python, `torch`, `numpy` | any recent | optional: only to regenerate the PyTorch references |
+| `scikit-learn` | 1.9.1 for the committed references | optional: only to regenerate the classical machine-learning references |
+| `onnx`, `onnxruntime` | any recent | optional: only to regenerate the ONNX goldens and for the inference comparison |
+
+jitNN itself has no dependencies besides TornadoVM's `tornado-api`; `jitnn-onnx` reads ONNX files
+with its own protobuf reader.
 
 ## TornadoVM
 
@@ -82,4 +87,11 @@ python3 -m venv ~/jitnn-data/torch-venv
 ~/jitnn-data/torch-venv/bin/python scripts/pytorch/goldens.py jitnn-core/src/test/resources/golden
 ```
 
-The golden set is committed, so this is only needed to change or extend it.
+The golden set is committed, so this is only needed to change or extend it. The other references
+are committed too and are regenerated the same way:
+
+```bash
+~/jitnn-data/torch-venv/bin/pip install scikit-learn onnx onnxruntime
+~/jitnn-data/torch-venv/bin/python scripts/sklearn/ml_goldens.py jitnn-nn/src/test/resources/ml
+~/jitnn-data/torch-venv/bin/python scripts/onnx/onnx_goldens.py jitnn-onnx/src/test/resources/onnx
+```
