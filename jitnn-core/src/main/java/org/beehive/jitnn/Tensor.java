@@ -617,6 +617,46 @@ public final class Tensor {
         return sort(axis, descending)[1];
     }
 
+    /** 1 where NaN, else 0 (tested by bit pattern). */
+    public Tensor isNaN() {
+        return Unary.apply(Unary.Kind.IS_NAN, this, 0, 0);
+    }
+
+    /** 1 where +inf or -inf, else 0. */
+    public Tensor isInf() {
+        return Unary.apply(Unary.Kind.IS_INF, this, 0, 0);
+    }
+
+    /** 1 where finite, else 0. */
+    public Tensor isFiniteMask() {
+        return Unary.apply(Unary.Kind.IS_FINITE, this, 0, 0);
+    }
+
+    /** NaN to {@code nan}, +inf to {@code posInf} and -inf to -posInf (torch.nan_to_num with a symmetric infinity). */
+    public Tensor nanToNum(float nan, float posInf) {
+        return Unary.apply(Unary.Kind.NAN_TO_NUM, this, nan, posInf);
+    }
+
+    /** Element-wise maximum propagating NaN (torch.maximum). */
+    public Tensor maximumNaN(Tensor o) {
+        return Binary.apply(Binary.Kind.MAXIMUM, this, o);
+    }
+
+    /** Element-wise minimum propagating NaN (torch.minimum). */
+    public Tensor minimumNaN(Tensor o) {
+        return Binary.apply(Binary.Kind.MINIMUM, this, o);
+    }
+
+    /** Element-wise maximum ignoring a NaN operand (torch.fmax). */
+    public Tensor fmax(Tensor o) {
+        return Binary.apply(Binary.Kind.FMAX, this, o);
+    }
+
+    /** Element-wise minimum ignoring a NaN operand (torch.fmin). */
+    public Tensor fmin(Tensor o) {
+        return Binary.apply(Binary.Kind.FMIN, this, o);
+    }
+
     /** ELU: x for x > 0, else alpha (exp(x) - 1). */
     public Tensor elu(float alpha) {
         return Unary.apply(Unary.Kind.ELU, this, alpha, 0);

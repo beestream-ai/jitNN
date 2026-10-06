@@ -60,7 +60,11 @@ public final class Unary implements Op {
         SIGN(ElementwiseKernels.SIGN),
         LOG1P(ElementwiseKernels.LOG1P),
         EXPM1(ElementwiseKernels.EXPM1),
-        LOGICAL_NOT(ElementwiseKernels.LOGICAL_NOT);
+        LOGICAL_NOT(ElementwiseKernels.LOGICAL_NOT),
+        IS_NAN(ElementwiseKernels.IS_NAN),
+        IS_INF(ElementwiseKernels.IS_INF),
+        IS_FINITE(ElementwiseKernels.IS_FINITE),
+        NAN_TO_NUM(ElementwiseKernels.NAN_TO_NUM);
 
         final int code;
 
@@ -168,7 +172,8 @@ public final class Unary implements Op {
             case SIGN -> null;
             case LOG1P -> gy.div(x.add(1.0f));
             case EXPM1 -> gy.mul(y.add(1.0f));
-            case LOGICAL_NOT -> null;
+            case LOGICAL_NOT, IS_NAN, IS_INF, IS_FINITE -> null;
+            case NAN_TO_NUM -> gy.mul(x.isFiniteMask());
         };
         return new Tensor[] { gx };
     }

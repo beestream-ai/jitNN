@@ -58,7 +58,11 @@ public final class Binary implements Op {
         LE(ElementwiseKernels.LE),
         LOGICAL_AND(ElementwiseKernels.LOGICAL_AND),
         LOGICAL_OR(ElementwiseKernels.LOGICAL_OR),
-        LOGICAL_XOR(ElementwiseKernels.LOGICAL_XOR);
+        LOGICAL_XOR(ElementwiseKernels.LOGICAL_XOR),
+        MAXIMUM(ElementwiseKernels.MAXIMUM),
+        MINIMUM(ElementwiseKernels.MINIMUM),
+        FMAX(ElementwiseKernels.FMAX),
+        FMIN(ElementwiseKernels.FMIN);
 
         final int code;
 
@@ -175,6 +179,8 @@ public final class Binary implements Op {
             case SUB -> new Tensor[] { ga ? gy.sumTo(sa) : null, gb ? gy.neg().sumTo(sb) : null };
             case MUL -> new Tensor[] { ga ? gy.mul(b).sumTo(sa) : null, gb ? gy.mul(a).sumTo(sb) : null };
             case DIV -> new Tensor[] { ga ? gy.div(b).sumTo(sa) : null, gb ? gy.mul(a).div(b.square()).neg().sumTo(sb) : null };
+            case MAXIMUM, FMAX -> new Tensor[] { ga ? gy.mul(a.ge(b)).sumTo(sa) : null, gb ? gy.mul(a.lt(b)).sumTo(sb) : null };
+            case MINIMUM, FMIN -> new Tensor[] { ga ? gy.mul(b.ge(a)).sumTo(sa) : null, gb ? gy.mul(b.lt(a)).sumTo(sb) : null };
             case MAX -> new Tensor[] { ga ? gy.mul(a.ge(b)).sumTo(sa) : null, gb ? gy.mul(a.lt(b)).sumTo(sb) : null };
             case MIN -> new Tensor[] { ga ? gy.mul(b.ge(a)).sumTo(sa) : null, gb ? gy.mul(b.lt(a)).sumTo(sb) : null };
             case FIRST -> new Tensor[] { ga ? gy.sumTo(sa) : null, null };

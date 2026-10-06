@@ -88,6 +88,14 @@ public final class ElementwiseKernels {
     public static final int LOGICAL_AND = 41;
     public static final int LOGICAL_OR = 42;
     public static final int LOGICAL_XOR = 43;
+    /** max(x, y), NaN when either is NaN (torch.maximum). */
+    public static final int MAXIMUM = 44;
+    /** min(x, y), NaN when either is NaN (torch.minimum). */
+    public static final int MINIMUM = 45;
+    /** max(x, y) ignoring a NaN operand (torch.fmax). */
+    public static final int FMAX = 46;
+    /** min(x, y) ignoring a NaN operand (torch.fmin). */
+    public static final int FMIN = 47;
 
     // Unary op codes: out = f(x; alpha, beta).
     public static final int NEG = 0;
@@ -156,6 +164,12 @@ public final class ElementwiseKernels {
     public static final int LOG1P = 45;
     public static final int EXPM1 = 46;
     public static final int LOGICAL_NOT = 47;
+    // NaN-aware (wave 5): tested by bit pattern, as TornadoVM folds x != x (J19)
+    public static final int IS_NAN = 48;
+    public static final int IS_INF = 49;
+    public static final int IS_FINITE = 50;
+    /** NaN to alpha, +inf to beta, -inf to -beta. */
+    public static final int NAN_TO_NUM = 51;
 
     private static final float SQRT_HALF = 0.70710678f;
     private static final float INV_SQRT_2PI = 0.39894228f;
@@ -258,6 +272,54 @@ public final class ElementwiseKernels {
         return r;
     }
 
+    /** NaN by bit pattern: every exponent bit set and a non-zero mantissa. */
+    public static boolean isNaN(float x) {
+        int bits = Float.floatToRawIntBits(x);
+        return ((bits & 0x7F800000) == 0x7F800000) & ((bits & 0x007FFFFF) != 0);
+    }
+
+    /** Infinity by bit pattern: every exponent bit set and a zero mantissa. */
+    public static boolean isInf(float x) {
+        int bits = Float.floatToRawIntBits(x);
+        return ((bits & 0x7F800000) == 0x7F800000) & ((bits & 0x007FFFFF) == 0);
+    }
+
+    /** The NaN-aware unary ops. */
+    public static float unaryNaN(int op, float x, float alpha, float beta) {
+        float r;
+        if (op == IS_NAN) {
+            r = isNaN(x) ? 1.0f : 0.0f;
+        } else if (op == IS_INF) {
+            r = isInf(x) ? 1.0f : 0.0f;
+        } else if (op == IS_FINITE) {
+            r = (Float.floatToRawIntBits(x) & 0x7F800000) != 0x7F800000 ? 1.0f : 0.0f;
+        } else if (op == NAN_TO_NUM) {
+            r = isNaN(x) ? alpha : (isInf(x) ? (x > 0.0f ? beta : -beta) : x);
+        } else {
+            r = x;
+        }
+        return r;
+    }
+
+    /** The NaN-aware binary ops. */
+    public static float binaryNaN(int op, float x, float y, float alpha, float beta) {
+        boolean nx = isNaN(x);
+        boolean ny = isNaN(y);
+        float r;
+        if (op == MAXIMUM) {
+            r = nx ? x : (ny ? y : (x > y ? x : y));
+        } else if (op == MINIMUM) {
+            r = nx ? x : (ny ? y : (x < y ? x : y));
+        } else if (op == FMAX) {
+            r = nx ? y : (ny ? x : (x > y ? x : y));
+        } else if (op == FMIN) {
+            r = nx ? y : (ny ? x : (x < y ? x : y));
+        } else {
+            r = x;
+        }
+        return r;
+    }
+
     /** Round half to even (PyTorch's round). */
     public static float roundHalfEven(float x) {
         float f = TornadoMath.floor(x);
@@ -282,7 +344,9 @@ public final class ElementwiseKernels {
     /** Binary op {@code op}; kernels branch to the groups themselves, as for {@link #unaryOp}. */
     public static float binaryOp(int op, float x, float y, float alpha, float beta) {
         float r;
-        if (op >= ATAN2) {
+        if (op >= MAXIMUM) {
+            r = binaryNaN(op, x, y, alpha, beta);
+        } else if (op >= ATAN2) {
             r = binaryMath(op, x, y, alpha, beta);
         } else if (op >= ELU_GRAD) {
             r = binaryActivationGrad(op, x, y, alpha, beta);
@@ -417,7 +481,9 @@ public final class ElementwiseKernels {
      */
     public static float unaryOp(int op, float x, float alpha, float beta) {
         float r;
-        if (op >= SIN) {
+        if (op >= IS_NAN) {
+            r = unaryNaN(op, x, alpha, beta);
+        } else if (op >= SIN) {
             r = unaryMath(op, x, alpha, beta);
         } else if (op >= ELU) {
             r = unaryActivation(op, x, alpha, beta);
@@ -557,7 +623,9 @@ public final class ElementwiseKernels {
             float x = a.get(i);
             float y = b.get(i);
             float r;
-            if (op >= ATAN2) {
+            if (op >= MAXIMUM) {
+                r = binaryNaN(op, x, y, alpha, beta);
+            } else if (op >= ATAN2) {
                 r = binaryMath(op, x, y, alpha, beta);
             } else if (op >= ELU_GRAD) {
                 r = binaryActivationGrad(op, x, y, alpha, beta);
@@ -589,7 +657,9 @@ public final class ElementwiseKernels {
             float x = a.get(ai);
             float y = b.get(bi);
             float r;
-            if (op >= ATAN2) {
+            if (op >= MAXIMUM) {
+                r = binaryNaN(op, x, y, alpha, beta);
+            } else if (op >= ATAN2) {
                 r = binaryMath(op, x, y, alpha, beta);
             } else if (op >= ELU_GRAD) {
                 r = binaryActivationGrad(op, x, y, alpha, beta);
@@ -605,7 +675,9 @@ public final class ElementwiseKernels {
         if (i < n) {
             float v = x.get(i);
             float r;
-            if (op >= SIN) {
+            if (op >= IS_NAN) {
+                r = unaryNaN(op, v, alpha, beta);
+            } else if (op >= SIN) {
                 r = unaryMath(op, v, alpha, beta);
             } else if (op >= ELU) {
                 r = unaryActivation(op, v, alpha, beta);

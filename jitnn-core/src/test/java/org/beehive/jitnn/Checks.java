@@ -18,6 +18,9 @@ public final class Checks {
         double worst = 0;
         int at = -1;
         for (int i = 0; i < expected.length; i++) {
+            if (Float.isNaN(expected[i]) && Float.isNaN(actual[i]) || Float.isInfinite(expected[i]) && expected[i] == actual[i]) {
+                continue;
+            }
             double err = Math.abs(expected[i] - actual[i]);
             double bound = atol + rtol * Math.abs(expected[i]);
             if (!(err <= bound)) {

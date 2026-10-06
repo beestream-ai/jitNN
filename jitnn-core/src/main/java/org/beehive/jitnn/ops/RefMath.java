@@ -69,6 +69,10 @@ final class RefMath {
             case ElementwiseKernels.LOGICAL_AND -> x != 0 && y != 0 ? 1 : 0;
             case ElementwiseKernels.LOGICAL_OR -> x != 0 || y != 0 ? 1 : 0;
             case ElementwiseKernels.LOGICAL_XOR -> (x != 0) != (y != 0) ? 1 : 0;
+            case ElementwiseKernels.MAXIMUM -> Double.isNaN(x) || Double.isNaN(y) ? Double.NaN : Math.max(x, y);
+            case ElementwiseKernels.MINIMUM -> Double.isNaN(x) || Double.isNaN(y) ? Double.NaN : Math.min(x, y);
+            case ElementwiseKernels.FMAX -> Double.isNaN(x) ? y : (Double.isNaN(y) ? x : Math.max(x, y));
+            case ElementwiseKernels.FMIN -> Double.isNaN(x) ? y : (Double.isNaN(y) ? x : Math.min(x, y));
             default -> x;
         };
     }
@@ -122,6 +126,10 @@ final class RefMath {
             case ElementwiseKernels.LOG1P -> Math.log1p(x);
             case ElementwiseKernels.EXPM1 -> Math.expm1(x);
             case ElementwiseKernels.LOGICAL_NOT -> x == 0 ? 1 : 0;
+            case ElementwiseKernels.IS_NAN -> Double.isNaN(x) ? 1 : 0;
+            case ElementwiseKernels.IS_INF -> Double.isInfinite(x) ? 1 : 0;
+            case ElementwiseKernels.IS_FINITE -> Double.isFinite(x) ? 1 : 0;
+            case ElementwiseKernels.NAN_TO_NUM -> Double.isNaN(x) ? alpha : (Double.isInfinite(x) ? (x > 0 ? beta : -beta) : x);
             default -> alpha;
         };
     }

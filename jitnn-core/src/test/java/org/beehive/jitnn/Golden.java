@@ -299,6 +299,14 @@ public final class Golden {
             case "center_crop" -> F.centerCrop(in[0], c.iattr(0), c.iattr(1));
             case "normalize_image" -> F.normalizeImage(in[0], new float[] { 0.485f, 0.456f, 0.406f }, new float[] { 0.229f, 0.224f, 0.225f });
             case "rgb_to_grayscale" -> F.rgbToGrayscale(in[0]);
+            case "isnan" -> in[0].isNaN();
+            case "isinf" -> in[0].isInf();
+            case "isfinite" -> in[0].isFiniteMask();
+            case "nan_to_num" -> in[0].nanToNum(c.fattr(0), c.fattr(1));
+            case "maximum_nan" -> in[0].maximumNaN(in[1]);
+            case "minimum_nan" -> in[0].minimumNaN(in[1]);
+            case "fmax" -> in[0].fmax(in[1]);
+            case "fmin" -> in[0].fmin(in[1]);
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
     }

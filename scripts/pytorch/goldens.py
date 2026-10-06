@@ -343,6 +343,22 @@ add("flip_c", "flip", [1], [rnd(2, 3, 4, 5)])
 add("center_crop", "center_crop", [3, 4], [rnd(2, 3, 6, 7)])
 add("normalize_image", "normalize_image", [], [rnd(2, 3, 4, 5, lo=0, hi=1)])
 add("rgb_to_grayscale", "rgb_to_grayscale", [], [rnd(2, 3, 4, 5, lo=0, hi=1)])
+# ---- wave 5: NaN-aware operators (NaN and infinities injected)
+def specials(*d):
+    a = rnd(*d)
+    flat = a.reshape(-1)
+    flat[::5] = np.nan
+    flat[1::7] = np.inf
+    flat[3::11] = -np.inf
+    return a
+nan_x, nan_y = specials(6, 7), specials(6, 7)
+for op in ("isnan", "isinf", "isfinite"):
+    add(op, op, [], [nan_x], grads=[False])
+add("nan_to_num", "nan_to_num", [0.5, 7.0], [nan_x], grads=[False])
+add("nan_to_num_grad", "nan_to_num", [0.5, 7.0], [rnd(4, 5)])
+for op in ("maximum_nan", "minimum_nan", "fmax", "fmin"):
+    add(op, op, [], [nan_x, nan_y], grads=[False, False])
+    add(f"{op}_plain", op, [], [rnd(5, 6), rnd(6)])
 # ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
 def rnn_case(name, op, t, b, i, h, gates):
     w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
@@ -680,6 +696,14 @@ def forward(op, attrs, t):
     if op == "rgb_to_grayscale":
         w = torch.tensor([0.2989, 0.587, 0.114], dtype=torch.float32).double().reshape(1, 3, 1, 1)
         return (t[0] * w).sum(1, keepdim=True)
+    if op in ("isnan", "isinf", "isfinite"):
+        return getattr(torch, op)(t[0]).to(torch.float64)
+    if op == "nan_to_num":
+        return torch.nan_to_num(t[0], nan=attrs[0], posinf=attrs[1], neginf=-attrs[1])
+    if op in ("maximum_nan", "minimum_nan"):
+        return getattr(torch, op.split("_")[0])(t[0], t[1])
+    if op in ("fmax", "fmin"):
+        return getattr(torch, op)(t[0], t[1])
     raise ValueError(op)
 
 
