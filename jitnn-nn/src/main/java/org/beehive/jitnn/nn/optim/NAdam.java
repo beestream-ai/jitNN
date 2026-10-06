@@ -42,7 +42,7 @@ public final class NAdam extends Optimizer {
         double muNext = beta1 * (1 - 0.5 * Math.pow(0.96, (t + 1) * momentumDecay));
         muProduct *= mu;
         Tensor stats = takeStats();
-        Tensor hyper = Tensor.of(new float[] { lr, beta1, beta2, eps, weightDecay, 0, 0, 0, (float) (1 - Math.pow(beta2, t)), (float) (lr * (1 - mu) / (1 - muProduct)), (float) (lr * muNext / (1 - muProduct * muNext)) }, 12);
+        Tensor hyper = Tensor.of(new float[] { lr, beta1, beta2, eps, weightDecay, 0, 0, 0, (float) (1 - Math.pow(beta2, t)), (float) (lr * (1 - mu) / (1 - muProduct)), (float) (lr * muNext / (1 - muProduct * muNext)) }, 11);
         List<Tensor> ps = new ArrayList<>();
         List<Tensor> gs = new ArrayList<>();
         List<Tensor> ms = new ArrayList<>();

@@ -279,13 +279,23 @@ public final class ElementwiseKernels {
         return 0.5f * erfc(-x * SQRT_HALF);
     }
 
+    /** Binary op {@code op}; kernels branch to the groups themselves, as for {@link #unaryOp}. */
     public static float binaryOp(int op, float x, float y, float alpha, float beta) {
         float r;
         if (op >= ATAN2) {
             r = binaryMath(op, x, y, alpha, beta);
         } else if (op >= ELU_GRAD) {
             r = binaryActivationGrad(op, x, y, alpha, beta);
-        } else if (op == ADD) {
+        } else {
+            r = binaryBase(op, x, y, alpha, beta);
+        }
+        return r;
+    }
+
+    /** Binary ops of waves 1-4. */
+    public static float binaryBase(int op, float x, float y, float alpha, float beta) {
+        float r;
+        if (op == ADD) {
             r = x + y;
         } else if (op == SUB) {
             r = x - y;
@@ -350,7 +360,7 @@ public final class ElementwiseKernels {
     }
 
     /** Wave 5 activation gradients and PReLU (split out to stay under TornadoVM's inlining limit). */
-    private static float binaryActivationGrad(int op, float x, float y, float alpha, float beta) {
+    public static float binaryActivationGrad(int op, float x, float y, float alpha, float beta) {
         float r;
         if (op == ELU_GRAD) {
             r = x > 0.0f ? y : y * alpha * TornadoMath.exp(x);
@@ -381,7 +391,7 @@ public final class ElementwiseKernels {
     }
 
     /** atan2, comparisons and logic (split out to stay under TornadoVM's inlining limit). */
-    private static float binaryMath(int op, float x, float y, float alpha, float beta) {
+    public static float binaryMath(int op, float x, float y, float alpha, float beta) {
         float r;
         if (op == ATAN2) {
             r = TornadoMath.atan2(x, y);
@@ -401,13 +411,26 @@ public final class ElementwiseKernels {
         return r;
     }
 
+    /**
+     * Unary op {@code op}. Kernels branch to the three groups themselves (see {@link #unary}): one
+     * method holding them all exceeds TornadoVM's inlining limit of 600 nodes.
+     */
     public static float unaryOp(int op, float x, float alpha, float beta) {
         float r;
         if (op >= SIN) {
             r = unaryMath(op, x, alpha, beta);
         } else if (op >= ELU) {
             r = unaryActivation(op, x, alpha, beta);
-        } else if (op == NEG) {
+        } else {
+            r = unaryBase(op, x, alpha, beta);
+        }
+        return r;
+    }
+
+    /** Unary ops of waves 1-4. */
+    public static float unaryBase(int op, float x, float alpha, float beta) {
+        float r;
+        if (op == NEG) {
             r = -x;
         } else if (op == EXP) {
             r = TornadoMath.exp(x);
@@ -450,7 +473,7 @@ public final class ElementwiseKernels {
     }
 
     /** Wave 5 activations (split out to stay under TornadoVM's inlining limit). */
-    private static float unaryActivation(int op, float x, float alpha, float beta) {
+    public static float unaryActivation(int op, float x, float alpha, float beta) {
         float r;
         if (op == ELU) {
             r = x > 0.0f ? x : alpha * expm1(x);
@@ -477,7 +500,7 @@ public final class ElementwiseKernels {
     }
 
     /** Trigonometric, hyperbolic, rounding and logic functions (split out to stay under TornadoVM's inlining limit). */
-    private static float unaryMath(int op, float x, float alpha, float beta) {
+    public static float unaryMath(int op, float x, float alpha, float beta) {
         float r;
         if (op == SIN) {
             r = TornadoMath.sin(x);
@@ -531,7 +554,17 @@ public final class ElementwiseKernels {
     public static void binary(KernelContext kc, FloatArray a, FloatArray b, FloatArray out, int op, float alpha, float beta, int n) {
         int i = kc.globalIdx;
         if (i < n) {
-            out.set(i, binaryOp(op, a.get(i), b.get(i), alpha, beta));
+            float x = a.get(i);
+            float y = b.get(i);
+            float r;
+            if (op >= ATAN2) {
+                r = binaryMath(op, x, y, alpha, beta);
+            } else if (op >= ELU_GRAD) {
+                r = binaryActivationGrad(op, x, y, alpha, beta);
+            } else {
+                r = binaryBase(op, x, y, alpha, beta);
+            }
+            out.set(i, r);
         }
     }
 
@@ -553,14 +586,33 @@ public final class ElementwiseKernels {
                 ai += c * meta.get(1 + rank + d);
                 bi += c * meta.get(1 + 2 * rank + d);
             }
-            out.set(i, binaryOp(op, a.get(ai), b.get(bi), alpha, beta));
+            float x = a.get(ai);
+            float y = b.get(bi);
+            float r;
+            if (op >= ATAN2) {
+                r = binaryMath(op, x, y, alpha, beta);
+            } else if (op >= ELU_GRAD) {
+                r = binaryActivationGrad(op, x, y, alpha, beta);
+            } else {
+                r = binaryBase(op, x, y, alpha, beta);
+            }
+            out.set(i, r);
         }
     }
 
     public static void unary(KernelContext kc, FloatArray x, FloatArray out, int op, float alpha, float beta, int n) {
         int i = kc.globalIdx;
         if (i < n) {
-            out.set(i, unaryOp(op, x.get(i), alpha, beta));
+            float v = x.get(i);
+            float r;
+            if (op >= SIN) {
+                r = unaryMath(op, v, alpha, beta);
+            } else if (op >= ELU) {
+                r = unaryActivation(op, v, alpha, beta);
+            } else {
+                r = unaryBase(op, v, alpha, beta);
+            }
+            out.set(i, r);
         }
     }
 

@@ -282,6 +282,13 @@ add("poisson_log", "poisson_log", [1], [rnd(6, 5), pos(6, 5)])
 add("poisson", "poisson", [1], [pos(6, 5), pos(6, 5)])
 add("msle", "msle", [1], [pos(6, 5), pos(6, 5)])
 add("mape", "mape", [1], [rnd(6, 5), rnd(6, 5, lo=0.5, hi=3) * signs(6, 5)])
+# ---- wave 5: norms (attrs: groups eps / eps / size alpha beta k)
+add("group_norm", "group_norm", [3, 1e-5], [rnd(2, 6, 4, 5), rnd(6, lo=0.5, hi=1.5), rnd(6)])
+add("group_norm_1", "group_norm", [1, 1e-5], [rnd(3, 4, 7), rnd(4, lo=0.5, hi=1.5), rnd(4)])
+add("instance_norm", "instance_norm", [1e-5], [rnd(2, 3, 6, 5)])
+add("lrn", "lrn", [3, 1e-2, 0.75, 1.0], [rnd(2, 7, 4, 3)])
+add("lrn_even", "lrn", [4, 0.5, 0.6, 2.0], [rnd(1, 9, 5)])
+add("weight_norm", "weight_norm", [], [rnd(5, 3, 2, 2), rnd(5, lo=0.5, hi=2)])
 # ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
 def rnn_case(name, op, t, b, i, h, gates):
     w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
@@ -549,6 +556,14 @@ def forward(op, attrs, t):
         return torch.nn.functional.nll_loss(t[0], t[1].long())
     if op == "cosine_similarity":
         return torch.nn.functional.cosine_similarity(t[0], t[1], dim=attrs[0], eps=1e-8)
+    if op == "group_norm":
+        return torch.nn.functional.group_norm(t[0], attrs[0], t[1], t[2], eps=attrs[1])
+    if op == "instance_norm":
+        return torch.nn.functional.instance_norm(t[0], eps=attrs[0])
+    if op == "lrn":
+        return torch.nn.functional.local_response_norm(t[0], attrs[0], alpha=attrs[1], beta=attrs[2], k=attrs[3])
+    if op == "weight_norm":
+        return torch._weight_norm(t[0], t[1].reshape(-1, 1, 1, 1), 0)
     raise ValueError(op)
 
 

@@ -36,7 +36,7 @@ public final class AdaMax extends Optimizer {
     public void step() {
         t++;
         Tensor stats = takeStats();
-        Tensor hyper = Tensor.of(new float[] { lr, beta1, beta2, eps, (float) (1 - Math.pow(beta1, t)), weightDecay }, 7);
+        Tensor hyper = Tensor.of(new float[] { lr, beta1, beta2, eps, (float) (1 - Math.pow(beta1, t)), weightDecay }, 6);
         List<Tensor> ps = new ArrayList<>();
         List<Tensor> gs = new ArrayList<>();
         List<Tensor> ms = new ArrayList<>();

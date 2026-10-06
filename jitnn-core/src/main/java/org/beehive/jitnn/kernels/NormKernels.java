@@ -289,4 +289,48 @@ public final class NormKernels {
             out.set(c, s);
         }
     }
+
+    /**
+     * Local response normalisation across channels (PyTorch's local_response_norm): for x
+     * [N, C, P], s = k + alpha / size * sum of x^2 over channels c - size/2 .. c + (size - 1)/2, and
+     * y = x s^-beta. Writes y and s (kept for the gradient). total = N * C * P.
+     */
+    public static void lrnForward(KernelContext kc, FloatArray x, FloatArray y, FloatArray s, int c, int plane, int size, float alpha, float beta, float k, int total) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int p = i % plane;
+            int ch = (i / plane) % c;
+            int base = i - ch * plane;
+            float acc = 0.0f;
+            for (int j = ch - size / 2; j <= ch + (size - 1) / 2; j++) {
+                if ((j >= 0) & (j < c)) {
+                    float v = x.get(base + j * plane);
+                    acc += v * v;
+                }
+            }
+            float si = k + alpha / size * acc;
+            s.set(i, si);
+            y.set(i, x.get(i) * TornadoMath.pow(si, -beta));
+        }
+    }
+
+    /**
+     * Gradient of {@link #lrnForward}: dx_c = dy_c s_c^-beta - 2 alpha beta / size x_c sum over the
+     * channels j whose window holds c of dy_j x_j s_j^(-beta - 1). One thread per element, gathering.
+     */
+    public static void lrnBackward(KernelContext kc, FloatArray dy, FloatArray x, FloatArray s, FloatArray dx, int c, int plane, int size, float alpha, float beta, int total) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int ch = (i / plane) % c;
+            int base = i - ch * plane;
+            float acc = 0.0f;
+            for (int j = ch - (size - 1) / 2; j <= ch + size / 2; j++) {
+                if ((j >= 0) & (j < c)) {
+                    int at = base + j * plane;
+                    acc += dy.get(at) * x.get(at) * TornadoMath.pow(s.get(at), -beta - 1.0f);
+                }
+            }
+            dx.set(i, dy.get(i) * TornadoMath.pow(s.get(i), -beta) - 2.0f * alpha * beta / size * x.get(i) * acc);
+        }
+    }
 }

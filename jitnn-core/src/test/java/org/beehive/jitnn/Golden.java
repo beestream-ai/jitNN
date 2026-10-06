@@ -262,6 +262,10 @@ public final class Golden {
             case "poisson" -> F.poissonNllLoss(in[0], in[1], false, 1e-8f, red(c));
             case "msle" -> F.msleLoss(in[0], in[1], red(c));
             case "mape" -> F.mapeLoss(in[0], in[1], red(c));
+            case "group_norm" -> F.groupNorm(in[0], c.iattr(0), in[1], in[2], c.fattr(1));
+            case "instance_norm" -> F.instanceNorm(in[0], null, null, c.fattr(0));
+            case "lrn" -> F.localResponseNorm(in[0], c.iattr(0), c.fattr(1), c.fattr(2), c.fattr(3));
+            case "weight_norm" -> F.weightNorm(in[0], in[1]);
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
     }
@@ -273,7 +277,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

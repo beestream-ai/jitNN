@@ -132,6 +132,51 @@ public final class F {
         return RowNorm.layerNorm(x, weight, bias, eps);
     }
 
+    /**
+     * GroupNorm (Wu and He) of x [N, C, ...] in {@code groups} groups of channels: each (sample,
+     * group) normalised over its channels and positions, then a per-channel affine (weight and bias
+     * may be null, as PyTorch with affine=False).
+     */
+    public static Tensor groupNorm(Tensor x, int groups, Tensor weight, Tensor bias, float eps) {
+        int n = x.dim(0);
+        int c = x.dim(1);
+        if (c % groups != 0) {
+            throw new IllegalArgumentException(c + " channels do not split into " + groups + " groups");
+        }
+        int cols = x.numel() / (n * groups);
+        Tensor y = RowNorm.layerNorm(x.reshape(n * groups, cols), Tensor.ones(cols), null, eps).reshape(n, c, -1);
+        if (weight != null) {
+            y = y.mul(weight.reshape(1, c, 1));
+        }
+        if (bias != null) {
+            y = y.add(bias.reshape(1, c, 1));
+        }
+        return y.reshape(x.shape().dims());
+    }
+
+    /** InstanceNorm: GroupNorm with one channel per group (affine when weight and bias are given). */
+    public static Tensor instanceNorm(Tensor x, Tensor weight, Tensor bias, float eps) {
+        return groupNorm(x, x.dim(1), weight, bias, eps);
+    }
+
+    /** Local response normalisation across channels, PyTorch's local_response_norm (k 1, alpha 1e-4, beta 0.75 by default). */
+    public static Tensor localResponseNorm(Tensor x, int size, float alpha, float beta, float k) {
+        return org.beehive.jitnn.ops.Lrn.apply(x, size, alpha, beta, k);
+    }
+
+    /**
+     * Weight normalisation (Salimans and Kingma): w = g v / ||v|| with the norm over every axis but
+     * 0, g of shape [out] (PyTorch's weight_norm with dim 0).
+     */
+    public static Tensor weightNorm(Tensor v, Tensor g) {
+        int out = v.dim(0);
+        Tensor norm = v.reshape(out, -1).square().sum(1, false).sqrt();
+        int[] dims = new int[v.rank()];
+        java.util.Arrays.fill(dims, 1);
+        dims[0] = out;
+        return v.mul(g.reshape(out).div(norm).reshape(dims));
+    }
+
     /** RMSNorm over the last axis: x / sqrt(mean(x^2) + eps) * weight. */
     public static Tensor rmsNorm(Tensor x, Tensor weight, float eps) {
         return RowNorm.rmsNorm(x, weight, eps);
