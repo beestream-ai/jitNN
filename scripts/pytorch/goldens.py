@@ -330,6 +330,19 @@ uniq = np.stack([rng.permutation(6)[:4] for _ in range(3)]).astype(np.int32)
 add("scatter_unique", "scatter", [1], [rnd(3, 6), uniq, rnd(3, 4)], grads=[False, False, False])
 for mode in (0, 1, 2):
     add(f"embedding_bag_m{mode}", "embedding_bag", [mode, 0, 3, 3, 7], [np.array([1, 4, 2, 0, 0, 3, 9, 4, 4, 2], np.int32), rnd(10, 5)])
+# ---- wave 5: masked and bidirectional recurrent layers (attrs: bidirectional, lengths...)
+def rnn_weights(gates, i, h):
+    w = lambda *d: rnd(*d, lo=-0.5, hi=0.5)
+    return [w(gates * h, i), w(gates * h, h), w(gates * h), w(gates * h)]
+add("lstm_masked", "rnn_lstm", [0, 5, 3, 1], [rnd(5, 3, 4, lo=-1, hi=1)] + rnn_weights(4, 4, 6) + [rnd(1, 3, 6, lo=-1, hi=1), rnd(1, 3, 6, lo=-1, hi=1)])
+add("lstm_bidirectional", "rnn_lstm", [1, 4, 4], [rnd(4, 2, 3, lo=-1, hi=1)] + rnn_weights(4, 3, 5) + rnn_weights(4, 3, 5))
+add("gru_bidirectional_masked", "rnn_gru", [1, 6, 2, 4], [rnd(6, 3, 4, lo=-1, hi=1)] + rnn_weights(3, 4, 5) + rnn_weights(3, 4, 5))
+# ---- wave 5: image operations
+add("flip_hw", "flip", [2, 3], [rnd(2, 3, 4, 5)])
+add("flip_c", "flip", [1], [rnd(2, 3, 4, 5)])
+add("center_crop", "center_crop", [3, 4], [rnd(2, 3, 6, 7)])
+add("normalize_image", "normalize_image", [], [rnd(2, 3, 4, 5, lo=0, hi=1)])
+add("rgb_to_grayscale", "rgb_to_grayscale", [], [rnd(2, 3, 4, 5, lo=0, hi=1)])
 # ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
 def rnn_case(name, op, t, b, i, h, gates):
     w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
@@ -639,6 +652,34 @@ def forward(op, attrs, t):
         return torch.scatter(t[0], attrs[0], t[1].long(), t[2])
     if op == "embedding_bag":
         return torch.nn.functional.embedding_bag(t[0].long(), t[1], torch.tensor(attrs[1:]), mode=["sum", "mean", "max"][attrs[0]])
+    if op in ("rnn_lstm", "rnn_gru"):
+        bidir, lengths = bool(attrs[0]), attrs[1:]
+        cls = torch.nn.LSTM if op == "rnn_lstm" else torch.nn.GRU
+        x = t[0]
+        h = t[2].shape[1]
+        net = cls(x.shape[2], h, bidirectional=bidir).double()
+        names = ["weight_ih_l0", "weight_hh_l0", "bias_ih_l0", "bias_hh_l0"]
+        if bidir:
+            names += [n + "_reverse" for n in names]
+        params = dict(zip(names, t[1:1 + len(names)]))
+        states = t[1 + len(names):]
+        packed = torch.nn.utils.rnn.pack_padded_sequence(x, torch.tensor(lengths), enforce_sorted=False)
+        hx = (states[0], states[1]) if op == "rnn_lstm" and states else None
+        out, _ = torch.func.functional_call(net, params, (packed, hx))
+        return torch.nn.utils.rnn.pad_packed_sequence(out, total_length=x.shape[0])[0]
+    if op == "flip":
+        return torch.flip(t[0], attrs)
+    if op == "center_crop":
+        h, w = t[0].shape[-2:]
+        top, left = int(round((h - attrs[0]) / 2.0)), int(round((w - attrs[1]) / 2.0))
+        return t[0][..., top:top + attrs[0], left:left + attrs[1]]
+    if op == "normalize_image":
+        mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).double().reshape(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).double().reshape(1, 3, 1, 1)
+        return (t[0] - mean) * (1 / std)
+    if op == "rgb_to_grayscale":
+        w = torch.tensor([0.2989, 0.587, 0.114], dtype=torch.float32).double().reshape(1, 3, 1, 1)
+        return (t[0] * w).sum(1, keepdim=True)
     raise ValueError(op)
 
 

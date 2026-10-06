@@ -69,8 +69,15 @@ class OpsAccelTest {
         Supplier<Tensor> w = () -> Tensor.uniform(42, -0.5f, 0.5f, 300, 256);
         // one quantisation step (max |x| / 127 = 1/127) where rounding a half differs
         same("q8 round trip", () -> F.dequantize(F.quantizeQ8(x.get())), 0, 1.0 / 127 + 1e-6);
-        same("q8 linear", () -> F.linearQ8(x.get(), F.quantizeQ8(w.get()), Tensor.uniform(43, -1, 1, 300)), 1e-3, 1e-3);
-        same("q8 linear batched", () -> F.linearQ8(Tensor.uniform(44, -1, 1, 2, 3, 256), F.quantizeQ8(w.get()), null), 1e-3, 1e-3);
+        // the products from the same Q8_0 bytes (quantised once on the device: a value on a rounding
+        // boundary can land one step apart between devices)
+        Tensor qw = Engine.with(Backend.TORNADO, () -> {
+            Tensor q = F.quantizeQ8(w.get());
+            q.toFloatArray();
+            return q;
+        });
+        same("q8 linear", () -> F.linearQ8(x.get(), qw, Tensor.uniform(43, -1, 1, 300)), 1e-5, 1e-5);
+        same("q8 linear batched", () -> F.linearQ8(Tensor.uniform(44, -1, 1, 2, 3, 256), qw, null), 1e-5, 1e-5);
         float[] exact = on(Backend.TORNADO, () -> F.linear(x.get(), w.get(), null));
         float[] quantised = on(Backend.TORNADO, () -> F.linearQ8(x.get(), F.quantizeQ8(w.get()), null));
         double err = 0;

@@ -294,8 +294,33 @@ public final class Golden {
             case "scatter_add" -> in[0].scatterAdd(c.iattr(0), in[1], in[2]);
             case "scatter" -> in[0].scatter(c.iattr(0), in[1], in[2]);
             case "embedding_bag" -> F.embeddingBag(in[0], ints(c, 1), in[1], F.BagMode.values()[c.iattr(0)]);
+            case "rnn_lstm", "rnn_gru" -> recurrent(c, in);
+            case "flip" -> F.flip(in[0], ints(c, 0));
+            case "center_crop" -> F.centerCrop(in[0], c.iattr(0), c.iattr(1));
+            case "normalize_image" -> F.normalizeImage(in[0], new float[] { 0.485f, 0.456f, 0.406f }, new float[] { 0.229f, 0.224f, 0.225f });
+            case "rgb_to_grayscale" -> F.rgbToGrayscale(in[0]);
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
+    }
+
+    /** One masked, optionally bidirectional LSTM or GRU layer, as the nn modules compose it. */
+    private static Tensor recurrent(Case c, Tensor[] in) {
+        boolean lstm = c.op().equals("rnn_lstm");
+        boolean bidir = c.iattr(0) != 0;
+        int[] lengths = ints(c, 1);
+        Tensor x = in[0];
+        int b = x.dim(1);
+        int h = in[2].dim(1);
+        Tensor[] outs = new Tensor[bidir ? 2 : 1];
+        for (int d = 0; d < outs.length; d++) {
+            int o = 1 + 4 * d;
+            Tensor input = d == 0 ? x : F.reverseSequences(x, lengths);
+            Tensor h0 = !bidir && lstm && in.length > 5 ? in[5].reshape(b, h) : Tensor.zeros(b, h);
+            Tensor c0 = !bidir && lstm && in.length > 6 ? in[6].reshape(b, h) : Tensor.zeros(b, h);
+            Tensor y = lstm ? F.lstm(input, in[o], in[o + 1], in[o + 2], in[o + 3], h0, c0, lengths)[0] : F.gru(input, in[o], in[o + 1], in[o + 2], in[o + 3], h0, lengths)[0];
+            outs[d] = d == 0 ? y : F.reverseSequences(y, lengths);
+        }
+        return bidir ? Tensor.cat(2, outs) : outs[0];
     }
 
     /** The integer attributes from index {@code from} on. */
@@ -314,7 +339,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag", "rnn_lstm", "rnn_gru" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

@@ -10,6 +10,7 @@ import org.beehive.jitnn.kernels.RnnKernels;
 
 import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
 /**
  * The recurrence of one LSTM or GRU layer over a whole sequence, PyTorch's equations and gate
@@ -19,7 +20,8 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
  * dW_hh from a single GEMM over the whole sequence.
  *
  * <p>Gradients flow from the output sequence y (and so from h_n, a slice of it); the final cell
- * state c_n is returned without a gradient. iattr = [T, B, H].
+ * state c_n is returned without a gradient. INT32 {@code lengths} [B] masks padded sequences
+ * (steps past a sequence's length output 0 and keep its state). iattr = [T, B, H].
  */
 public final class Recurrent {
 
@@ -38,7 +40,13 @@ public final class Recurrent {
      * c_n [B, H]} (c_n without gradient).
      */
     public static Tensor[] lstm(Tensor xg, Tensor whh, Tensor bhh, Tensor h0, Tensor c0) {
+        return lstm(xg, whh, bhh, h0, c0, null);
+    }
+
+    /** As {@link #lstm(Tensor, Tensor, Tensor, Tensor, Tensor)} for padded sequences of {@code lengths} (null: all full); c_n is each sequence's last state. */
+    public static Tensor[] lstm(Tensor xg, Tensor whh, Tensor bhh, Tensor h0, Tensor c0, Tensor lengths) {
         int[] a = check(xg, whh, bhh, h0, 4);
+        Tensor len = lengthsOf(lengths, a);
         Checks.f32(c0);
         if (!c0.shape().equals(h0.shape())) {
             throw new IllegalArgumentException("lstm: c0 " + c0.shape() + " vs h0 " + h0.shape());
@@ -46,17 +54,23 @@ public final class Recurrent {
         Tensor y = Tensor.result(Shape.of(a[T], a[B], a[H]), DType.F32);
         Tensor cs = Tensor.result(y.shape(), DType.F32);
         Tensor gates = Tensor.result(xg.shape(), DType.F32);
-        Tensor.record(LSTM, new Tensor[] { xg, whh, bhh, h0, c0 }, new Tensor[] { y, cs, gates }, a, null, true);
+        Tensor.record(LSTM, new Tensor[] { xg, whh, bhh, h0, c0, len }, new Tensor[] { y, cs, gates }, a, null, true);
         return new Tensor[] { y, cs.detach().narrow(0, a[T] - 1, 1).reshape(a[B], a[H]) };
     }
 
     /** GRU layer: xg [T, B, 3H], whh [3H, H], bhh [3H], h0 [B, H]. Returns y [T, B, H]. */
     public static Tensor gru(Tensor xg, Tensor whh, Tensor bhh, Tensor h0) {
+        return gru(xg, whh, bhh, h0, null);
+    }
+
+    /** As {@link #gru(Tensor, Tensor, Tensor, Tensor)} for padded sequences of {@code lengths} (null: all full). */
+    public static Tensor gru(Tensor xg, Tensor whh, Tensor bhh, Tensor h0, Tensor lengths) {
         int[] a = check(xg, whh, bhh, h0, 3);
+        Tensor len = lengthsOf(lengths, a);
         Tensor y = Tensor.result(Shape.of(a[T], a[B], a[H]), DType.F32);
         Tensor gates = Tensor.result(xg.shape(), DType.F32);
         Tensor hn = Tensor.result(y.shape(), DType.F32);
-        Tensor.record(GRU, new Tensor[] { xg, whh, bhh, h0 }, new Tensor[] { y, gates, hn }, a, null, true);
+        Tensor.record(GRU, new Tensor[] { xg, whh, bhh, h0, len }, new Tensor[] { y, gates, hn }, a, null, true);
         return y;
     }
 
@@ -70,6 +84,23 @@ public final class Recurrent {
             throw new IllegalArgumentException("recurrent layer: xg " + xg.shape() + ", W_hh " + whh.shape() + ", b_hh " + bhh.shape() + " and h0 " + h0.shape() + " do not match");
         }
         return new int[] { xg.dim(0), b, h };
+    }
+
+    /** INT32 [B] sequence lengths in 1 .. T; all T when null. */
+    private static Tensor lengthsOf(Tensor lengths, int[] a) {
+        if (lengths == null) {
+            int[] full = new int[a[B]];
+            java.util.Arrays.fill(full, a[T]);
+            return Tensor.of(full, a[B]);
+        }
+        if (lengths.dtype() != DType.I32 || lengths.numel() != a[B]) {
+            throw new IllegalArgumentException("sequence lengths must be INT32 [" + a[B] + "], got " + lengths.shape() + " " + lengths.dtype());
+        }
+        return lengths;
+    }
+
+    private static int[] hostLengths(Node n, int index) {
+        return ((Tensor) n.in(index)).toIntArray();
     }
 
     private static WorkerGrid cells(int[] a) {
@@ -130,10 +161,11 @@ public final class Recurrent {
             FloatArray y = e.f32(n.out(0));
             FloatArray cs = e.f32(n.out(1));
             FloatArray gates = e.f32(n.out(2));
+            IntArray len = e.i32(n.in(5));
             int b = a[B], h = a[H];
             for (int t = 0; t < a[T]; t++) {
                 int step = t;
-                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmForward, e.context(), xg, whh, bhh, h0, c0, y, cs, gates, step, b, h));
+                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmForward, e.context(), xg, whh, bhh, h0, c0, y, cs, gates, len, step, b, h));
             }
         }
 
@@ -149,11 +181,17 @@ public final class Recurrent {
             double[] y = new double[steps * b * h];
             double[] cs = new double[y.length];
             double[] gates = new double[xg.length];
+            int[] len = hostLengths(n, 5);
             for (int t = 0; t < steps; t++) {
                 double[] hn = new double[b * h];
                 double[] cn = new double[b * h];
                 for (int bi = 0; bi < b; bi++) {
                     for (int u = 0; u < h; u++) {
+                        if (t >= len[bi]) {
+                            hn[bi * h + u] = hp[bi * h + u];
+                            cn[bi * h + u] = cp[bi * h + u];
+                            continue;
+                        }
                         double[] act = new double[4];
                         for (int q = 0; q < 4; q++) {
                             act[q] = xg[(t * b + bi) * 4 * h + q * h + u] + bias[q * h + u] + dot(hp, bi * h, w, q * h + u, h);
@@ -172,7 +210,11 @@ public final class Recurrent {
                         gates[row + 3 * h + u] = o;
                     }
                 }
-                System.arraycopy(hn, 0, y, t * b * h, b * h);
+                for (int bi = 0; bi < b; bi++) {
+                    for (int u = 0; u < h; u++) {
+                        y[(t * b + bi) * h + u] = t >= len[bi] ? 0 : hn[bi * h + u];
+                    }
+                }
                 System.arraycopy(cn, 0, cs, t * b * h, b * h);
                 hp = hn;
                 cp = cn;
@@ -190,15 +232,15 @@ public final class Recurrent {
             Tensor dGates = Tensor.result(xg.shape(), DType.F32);
             Tensor dh0 = Tensor.result(n.in(3).shape(), DType.F32);
             Tensor dc0 = Tensor.result(n.in(4).shape(), DType.F32);
-            Tensor.record(LSTM_BACKWARD, new Tensor[] { gy, whh, n.out(2), n.out(1), n.in(4) }, new Tensor[] { dGates, dh0, dc0 }, a.clone(), null, true);
+            Tensor.record(LSTM_BACKWARD, new Tensor[] { gy, whh, n.out(2), n.out(1), n.in(4), n.in(5) }, new Tensor[] { dGates, dh0, dc0 }, a.clone(), null, true);
             Tensor flat = dGates.reshape(a[T] * a[B], 4 * a[H]);
             Tensor dW = whh.requiresGrad() ? flat.matmul(previous(n.in(3), n.out(0), a), true, false) : null;
             Tensor db = n.in(2).requiresGrad() ? flat.sum(0, false) : null;
-            return new Tensor[] { xg.requiresGrad() ? dGates : null, dW, db, n.in(3).requiresGrad() ? dh0 : null, n.in(4).requiresGrad() ? dc0 : null };
+            return new Tensor[] { xg.requiresGrad() ? dGates : null, dW, db, n.in(3).requiresGrad() ? dh0 : null, n.in(4).requiresGrad() ? dc0 : null, null };
         }
     }
 
-    /** inputs [dy, W_hh, gates, cell states, c0]; outputs [dGates, dh0, dc0]. */
+    /** inputs [dy, W_hh, gates, cell states, c0, lengths]; outputs [dGates, dh0, dc0]. */
     static final class LstmBackward implements Op {
 
         @Override
@@ -218,10 +260,11 @@ public final class Recurrent {
             FloatArray dh0 = e.f32(n.out(1));
             FloatArray dc0 = e.f32(n.out(2));
             FloatArray dc = e.scratch(a[T] * a[B] * a[H]);
+            IntArray len = e.i32(n.in(5));
             int steps = a[T], b = a[B], h = a[H];
             for (int t = steps - 1; t >= 0; t--) {
                 int step = t;
-                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmBackward, e.context(), dy, whh, gates, cs, c0, dGates, dc, step, steps, b, h));
+                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmBackward, e.context(), dy, whh, gates, cs, c0, dGates, dc, len, step, steps, b, h));
             }
             e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmInitial, e.context(), whh, gates, dGates, dc, dh0, dc0, b, h));
         }
@@ -238,11 +281,16 @@ public final class Recurrent {
             double[] dG = new double[gates.length];
             double[] dhNext = new double[b * h];
             double[] dcNext = new double[b * h];
+            int[] len = hostLengths(n, 5);
             for (int t = steps - 1; t >= 0; t--) {
                 for (int bi = 0; bi < b; bi++) {
                     for (int u = 0; u < h; u++) {
                         int cell = (t * b + bi) * h + u;
                         int row = (t * b + bi) * 4 * h;
+                        if (t >= len[bi]) {
+                            dcNext[bi * h + u] = 0;
+                            continue;
+                        }
                         double i = gates[row + u], f = gates[row + h + u], g = gates[row + 2 * h + u], o = gates[row + 3 * h + u];
                         double dh = dy[cell] + dhNext[bi * h + u];
                         double tc = Math.tanh(cs[cell]);
@@ -289,10 +337,11 @@ public final class Recurrent {
             FloatArray y = e.f32(n.out(0));
             FloatArray gates = e.f32(n.out(1));
             FloatArray hn = e.f32(n.out(2));
+            IntArray len = e.i32(n.in(4));
             int b = a[B], h = a[H];
             for (int t = 0; t < a[T]; t++) {
                 int step = t;
-                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruForward, e.context(), xg, whh, bhh, h0, y, gates, hn, step, b, h));
+                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruForward, e.context(), xg, whh, bhh, h0, y, gates, hn, len, step, b, h));
             }
         }
 
@@ -307,11 +356,16 @@ public final class Recurrent {
             double[] y = new double[steps * b * h];
             double[] gates = new double[xg.length];
             double[] hns = new double[y.length];
+            int[] len = hostLengths(n, 4);
             for (int t = 0; t < steps; t++) {
                 double[] next = new double[b * h];
                 for (int bi = 0; bi < b; bi++) {
                     for (int u = 0; u < h; u++) {
                         int row = (t * b + bi) * 3 * h;
+                        if (t >= len[bi]) {
+                            next[bi * h + u] = hp[bi * h + u];
+                            continue;
+                        }
                         double r = sigmoid(xg[row + u] + bias[u] + dot(hp, bi * h, w, u, h));
                         double z = sigmoid(xg[row + h + u] + bias[h + u] + dot(hp, bi * h, w, h + u, h));
                         double hn = bias[2 * h + u] + dot(hp, bi * h, w, 2 * h + u, h);
@@ -323,7 +377,11 @@ public final class Recurrent {
                         hns[(t * b + bi) * h + u] = hn;
                     }
                 }
-                System.arraycopy(next, 0, y, t * b * h, b * h);
+                for (int bi = 0; bi < b; bi++) {
+                    for (int u = 0; u < h; u++) {
+                        y[(t * b + bi) * h + u] = t >= len[bi] ? 0 : next[bi * h + u];
+                    }
+                }
                 hp = next;
             }
             store(n.out(0), y);
@@ -339,15 +397,15 @@ public final class Recurrent {
             Tensor dXg = Tensor.result(xg.shape(), DType.F32);
             Tensor dHg = Tensor.result(xg.shape(), DType.F32);
             Tensor dh0 = Tensor.result(n.in(3).shape(), DType.F32);
-            Tensor.record(GRU_BACKWARD, new Tensor[] { gy, whh, n.out(0), n.in(3), n.out(1), n.out(2) }, new Tensor[] { dXg, dHg, dh0 }, a.clone(), null, true);
+            Tensor.record(GRU_BACKWARD, new Tensor[] { gy, whh, n.out(0), n.in(3), n.out(1), n.out(2), n.in(4) }, new Tensor[] { dXg, dHg, dh0 }, a.clone(), null, true);
             Tensor flat = dHg.reshape(a[T] * a[B], 3 * a[H]);
             Tensor dW = whh.requiresGrad() ? flat.matmul(previous(n.in(3), n.out(0), a), true, false) : null;
             Tensor db = n.in(2).requiresGrad() ? flat.sum(0, false) : null;
-            return new Tensor[] { xg.requiresGrad() ? dXg : null, dW, db, n.in(3).requiresGrad() ? dh0 : null };
+            return new Tensor[] { xg.requiresGrad() ? dXg : null, dW, db, n.in(3).requiresGrad() ? dh0 : null, null };
         }
     }
 
-    /** inputs [dy, W_hh, y, h0, gates, hn]; outputs [dXg, dHg, dh0]. */
+    /** inputs [dy, W_hh, y, h0, gates, hn, lengths]; outputs [dXg, dHg, dh0]. */
     static final class GruBackward implements Op {
 
         @Override
@@ -368,10 +426,11 @@ public final class Recurrent {
             FloatArray dHg = e.f32(n.out(1));
             FloatArray dh0 = e.f32(n.out(2));
             FloatArray dhs = e.scratch(a[T] * a[B] * a[H]);
+            IntArray len = e.i32(n.in(6));
             int steps = a[T], b = a[B], h = a[H];
             for (int t = steps - 1; t >= 0; t--) {
                 int step = t;
-                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruBackward, e.context(), dy, whh, y, h0, gates, hn, dXg, dHg, dhs, step, steps, b, h));
+                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruBackward, e.context(), dy, whh, y, h0, gates, hn, dXg, dHg, dhs, len, step, steps, b, h));
             }
             e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruInitial, e.context(), whh, gates, dHg, dhs, dh0, b, h));
         }
@@ -389,12 +448,16 @@ public final class Recurrent {
             double[] dXg = new double[gates.length];
             double[] dHg = new double[gates.length];
             double[] dhNext = new double[b * h];
+            int[] len = hostLengths(n, 6);
             for (int t = steps - 1; t >= 0; t--) {
                 double[] dhPrev = new double[b * h];
                 for (int bi = 0; bi < b; bi++) {
                     for (int u = 0; u < h; u++) {
                         int cell = (t * b + bi) * h + u;
                         int row = (t * b + bi) * 3 * h;
+                        if (t >= len[bi]) {
+                            continue;
+                        }
                         double r = gates[row + u], z = gates[row + h + u], nv = gates[row + 2 * h + u];
                         double dh = dy[cell] + dhNext[bi * h + u];
                         double hp = t == 0 ? h0[bi * h + u] : y[cell - b * h];

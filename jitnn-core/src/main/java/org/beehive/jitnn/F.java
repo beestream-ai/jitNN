@@ -530,12 +530,57 @@ public final class F {
      * ([B, H] each); c_n carries no gradient.
      */
     public static Tensor[] lstm(Tensor x, Tensor wih, Tensor whh, Tensor bih, Tensor bhh, Tensor h0, Tensor c0) {
+        return lstm(x, wih, whh, bih, bhh, h0, c0, null);
+    }
+
+    /**
+     * As {@link #lstm(Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)} for padded batches:
+     * INT32 {@code lengths} [B] (null: all T); outputs past a sequence's length are 0 and h_n, c_n
+     * are each sequence's last valid state.
+     */
+    public static Tensor[] lstm(Tensor x, Tensor wih, Tensor whh, Tensor bih, Tensor bhh, Tensor h0, Tensor c0, int[] lengths) {
         int t = x.dim(0);
         int b = x.dim(1);
         int h = whh.dim(1);
         Tensor xg = linear(x.reshape(t * b, x.dim(2)), wih, bih).reshape(t, b, 4 * h);
-        Tensor[] r = Recurrent.lstm(xg, whh, bhh, h0, c0);
-        return new Tensor[] { r[0], r[0].narrow(0, t - 1, 1).reshape(b, h), r[1] };
+        Tensor[] r = Recurrent.lstm(xg, whh, bhh, h0, c0, lengths == null ? null : Tensor.of(lengths, b));
+        return new Tensor[] { r[0], lastSteps(r[0], lengths), r[1] };
+    }
+
+    /** y [T, B, H] at each sequence's last valid step: [B, H]. */
+    private static Tensor lastSteps(Tensor y, int[] lengths) {
+        int t = y.dim(0);
+        int b = y.dim(1);
+        int h = y.dim(2);
+        if (lengths == null) {
+            return y.narrow(0, t - 1, 1).reshape(b, h);
+        }
+        int[] idx = new int[b * h];
+        for (int i = 0; i < idx.length; i++) {
+            idx[i] = lengths[i / h] - 1;
+        }
+        return y.gather(0, Tensor.of(idx, 1, b, h)).reshape(b, h);
+    }
+
+    /**
+     * x [T, B, ...] with each sequence reversed within its length (padding left in place), as a
+     * bidirectional layer reads it; lengths null reverses the whole time axis.
+     */
+    public static Tensor reverseSequences(Tensor x, int[] lengths) {
+        int t = x.dim(0);
+        int b = x.dim(1);
+        int inner = x.numel() / (t * b);
+        int[] idx = new int[x.numel()];
+        for (int s = 0; s < t; s++) {
+            for (int bi = 0; bi < b; bi++) {
+                int len = lengths == null ? t : lengths[bi];
+                int src = s < len ? len - 1 - s : s;
+                for (int q = 0; q < inner; q++) {
+                    idx[(s * b + bi) * inner + q] = src;
+                }
+            }
+        }
+        return x.gather(0, Tensor.of(idx, x.shape().dims()));
     }
 
     /**
@@ -543,12 +588,17 @@ public final class F {
      * wih [3H, I], whh [3H, H], biases [3H], h0 [B, H]. Returns {y [T, B, H], h_n [B, H]}.
      */
     public static Tensor[] gru(Tensor x, Tensor wih, Tensor whh, Tensor bih, Tensor bhh, Tensor h0) {
+        return gru(x, wih, whh, bih, bhh, h0, null);
+    }
+
+    /** As {@link #gru(Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)} for padded batches of {@code lengths}. */
+    public static Tensor[] gru(Tensor x, Tensor wih, Tensor whh, Tensor bih, Tensor bhh, Tensor h0, int[] lengths) {
         int t = x.dim(0);
         int b = x.dim(1);
         int h = whh.dim(1);
         Tensor xg = linear(x.reshape(t * b, x.dim(2)), wih, bih).reshape(t, b, 3 * h);
-        Tensor y = Recurrent.gru(xg, whh, bhh, h0);
-        return new Tensor[] { y, y.narrow(0, t - 1, 1).reshape(b, h) };
+        Tensor y = Recurrent.gru(xg, whh, bhh, h0, lengths == null ? null : Tensor.of(lengths, b));
+        return new Tensor[] { y, lastSteps(y, lengths) };
     }
 
     /**
@@ -622,6 +672,53 @@ public final class F {
     /** y = x W^T + b with Q8_0 weights W [out, in]; the gradient reaches x, not W. */
     public static Tensor linearQ8(Tensor x, Tensor weight, Tensor bias) {
         return org.beehive.jitnn.ops.Quant.linear(x, weight, bias);
+    }
+
+    /** x reversed along each of {@code axes} (torch.flip). */
+    public static Tensor flip(Tensor x, int... axes) {
+        Tensor y = x;
+        for (int axis : axes) {
+            int n = x.dim(axis);
+            int[] idx = new int[n];
+            for (int i = 0; i < n; i++) {
+                idx[i] = n - 1 - i;
+            }
+            y = y.indexSelect(axis, Tensor.of(idx, n));
+        }
+        return y;
+    }
+
+    /** The central height x width window of images [..., H, W] (torchvision's center_crop, top-left rounding down). */
+    public static Tensor centerCrop(Tensor x, int height, int width) {
+        int h = x.dim(-2);
+        int w = x.dim(-1);
+        if (height > h || width > w) {
+            throw new IllegalArgumentException("crop " + height + "x" + width + " larger than " + x.shape());
+        }
+        int top = (int) Math.round((h - height) / 2.0);
+        int left = (int) Math.round((w - width) / 2.0);
+        return x.narrow(-2, top, height).narrow(-1, left, width);
+    }
+
+    /** Per-channel (x - mean) / std of images [N, C, H, W] (torchvision's normalize). */
+    public static Tensor normalizeImage(Tensor x, float[] mean, float[] std) {
+        int c = x.dim(1);
+        if (mean.length != c || std.length != c) {
+            throw new IllegalArgumentException("normalize: " + c + " channels, " + mean.length + " means, " + std.length + " deviations");
+        }
+        float[] scale = new float[c];
+        for (int i = 0; i < c; i++) {
+            scale[i] = 1.0f / std[i];
+        }
+        return x.sub(Tensor.of(mean, 1, c, 1, 1)).mul(Tensor.of(scale, 1, c, 1, 1));
+    }
+
+    /** RGB images [N, 3, H, W] to luminance [N, 1, H, W] with torchvision's weights (0.2989, 0.587, 0.114). */
+    public static Tensor rgbToGrayscale(Tensor x) {
+        if (x.dim(1) != 3) {
+            throw new IllegalArgumentException("rgbToGrayscale needs 3 channels, got " + x.shape());
+        }
+        return x.mul(Tensor.of(new float[] { 0.2989f, 0.587f, 0.114f }, 1, 3, 1, 1)).sum(1, true);
     }
 
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */
