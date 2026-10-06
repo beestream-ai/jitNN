@@ -85,6 +85,11 @@ public final class Emitter {
         return use((uk.ac.manchester.tornado.api.types.arrays.ByteArray) arrays.get(t.storage()));
     }
 
+    /** GGUF block-quantised tensors: their raw blocks. */
+    public uk.ac.manchester.tornado.api.types.arrays.ByteArray blocks(Tensor t) {
+        return use((uk.ac.manchester.tornado.api.types.arrays.ByteArray) arrays.get(t.storage()));
+    }
+
     /** FP8 tensors: one byte per value. */
     public uk.ac.manchester.tornado.api.types.arrays.ByteArray fp8(Tensor t) {
         return use((uk.ac.manchester.tornado.api.types.arrays.ByteArray) arrays.get(t.storage()));

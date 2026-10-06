@@ -368,6 +368,24 @@ add("fp8_fake_quantize", "fp8_fake", [0, -5], [rnd(7, 11)])
 add("fp8_linear_e4m3", "fp8_linear", [0, -6], [rnd(5, 40), rnd(9, 40), rnd(9)], [True, False, True])
 add("fp8_linear_e5m2", "fp8_linear", [1, -4], [rnd(3, 2, 17), rnd(6, 17), rnd(6)], [True, False, True])
 add("fp8_scaled_mm", "fp8_scaled_mm", [0, -6], [rnd(18, 33), rnd(21, 33)], [False, False])
+# ---- GGUF block formats: random valid blocks (bytes as int32 0..255), dequantised by llama.cpp's gguf package
+# (attrs: format 0 Q4_0, 1 Q4_1, 2 Q4_K, 3 Q5_K, 4 Q6_K; output rows N)
+GGUF = [("Q4_0", 32, 18, [0]), ("Q4_1", 32, 20, [0, 2]), ("Q4_K", 256, 144, [0, 2]), ("Q5_K", 256, 176, [0, 2]), ("Q6_K", 256, 210, [208])]
+
+
+def gguf_blocks(fmt, n, k):
+    _, qk, nb, scales = GGUF[fmt]
+    raw = rng.integers(0, 256, size=(n * k // qk, nb), dtype=np.uint8)
+    for off in scales:
+        raw[:, off:off + 2] = rng.uniform(0.002, 0.03, size=(raw.shape[0], 1)).astype(np.float16).view(np.uint8)
+    return raw.reshape(-1).astype(np.int32)
+
+
+for fmt in range(5):
+    name = GGUF[fmt][0].lower()
+    for rows, n in [(1, 23), (5, 24), (40, 20)]:
+        add(f"gguf_linear_{name}_r{rows}", "gguf_linear", [fmt, n], [rnd(rows, 512), gguf_blocks(fmt, n, 512), rnd(n)], [True, False, True])
+    add(f"gguf_dequant_{name}", "gguf_dequant", [fmt, 3], [gguf_blocks(fmt, 3, 512)], [False])
 # ---- wave 6: embedding-model losses
 add("negative_sampling", "negative_sampling", [], [rnd(6, 5, lo=-1, hi=1), rnd(6, 5, lo=-1, hi=1), rnd(6, 4, 5, lo=-1, hi=1)])
 add("glove_loss", "glove_loss", [], [rnd(7, 5, lo=-1, hi=1), rnd(7, 5, lo=-1, hi=1), rnd(7), rnd(7), pos(7), pos(7)], [True, True, True, True, False, False])
@@ -822,6 +840,15 @@ def forward(op, attrs, t):
         if op == "fp8_linear":
             return t[0] @ rt(t[1]).T + t[2]
         return rt(t[0]) @ rt(t[1]).T
+    if op in ("gguf_linear", "gguf_dequant"):
+        import gguf
+        qt = getattr(gguf.GGMLQuantizationType, GGUF[attrs[0]][0])
+        raw = t[1] if op == "gguf_linear" else t[0]
+        n = attrs[1]
+        w = torch.from_numpy(gguf.quants.dequantize(raw.numpy().astype(np.uint8).reshape(n, -1), qt).astype(np.float64))
+        if op == "gguf_dequant":
+            return w
+        return t[0] @ w.T + t[2]
     if op == "nll_mean":
         return torch.nn.functional.nll_loss(t[0], t[1].long())
     if op == "cosine_similarity":

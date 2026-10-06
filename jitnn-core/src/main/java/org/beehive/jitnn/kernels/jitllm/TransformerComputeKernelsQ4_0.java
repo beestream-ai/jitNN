@@ -1055,7 +1055,7 @@ public final class TransformerComputeKernelsQ4_0 {
     }
 
     /** Rows a tiled batched projection decodes each weight for. */
-    private static final int ROW_TILE = 8;
+    public static final int ROW_TILE = 8;
 
     // @formatter:off
     /**
@@ -1071,7 +1071,7 @@ public final class TransformerComputeKernelsQ4_0 {
      * shared-memory reduction costing what the saved traffic bought.
      */
     // @formatter:on
-    private static final int COL_TILE = 4;
+    public static final int COL_TILE = 4;
 
     /** Output rows a tiled batched projection covers per workgroup. */
     public static int colTile() {

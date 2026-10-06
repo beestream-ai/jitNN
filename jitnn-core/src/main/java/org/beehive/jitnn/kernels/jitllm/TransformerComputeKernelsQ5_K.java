@@ -59,13 +59,13 @@ public final class TransformerComputeKernelsQ5_K {
      * loads, a packed 6-bit scale pair and a fifth-bit extraction per weight — so the tile is worth
      * more here than there: it is the number of times that decode is *not* repeated.
      */
-    private static final int ROW_TILE = 8;
+    public static final int ROW_TILE = 8;
 
     /**
      * Output rows a tiled batch workgroup covers, as in {@code TransformerComputeKernelsQ4_0}: the
      * activation tile is read once and reused across them.
      */
-    private static final int COL_TILE = 2;
+    public static final int COL_TILE = 2;
 
     /** Output rows a tiled batch workgroup covers. */
     public static int colTile() {

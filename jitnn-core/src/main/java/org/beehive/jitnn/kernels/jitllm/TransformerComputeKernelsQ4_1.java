@@ -36,10 +36,10 @@ public final class TransformerComputeKernelsQ4_1 {
     private static final int QS_OFFSET = 4;
 
     /** Prompt rows a tiled batch workgroup covers, as in {@code TransformerComputeKernelsQ4_0}. */
-    private static final int ROW_TILE = 8;
+    public static final int ROW_TILE = 8;
 
     /** Output rows a tiled batch workgroup covers, as in {@code TransformerComputeKernelsQ4_0}. */
-    private static final int COL_TILE = 2;
+    public static final int COL_TILE = 2;
 
     /** Output rows a tiled batch workgroup covers. */
     public static int colTile() {
