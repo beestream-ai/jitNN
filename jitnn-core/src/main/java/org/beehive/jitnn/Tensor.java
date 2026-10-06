@@ -123,6 +123,23 @@ public final class Tensor {
         return p;
     }
 
+    /**
+     * A weight in one of GGUF's block-quantised formats (Q8_0, Q4_0, Q4_1, Q4_K, Q5_K, Q6_K) from its
+     * raw blocks, as a GGUF file stores them: persistent, so it stays on the device. The last axis
+     * must be a multiple of the format's block size.
+     */
+    public static Tensor quantized(DType type, byte[] blocks, int... dims) {
+        Shape s = Shape.of(dims);
+        if (!type.isBlockQuantized() || dims.length == 0 || dims[dims.length - 1] % type.blockValues() != 0) {
+            throw new IllegalArgumentException(type + " weight of shape " + s + ": not a GGUF block format or last axis not a multiple of its block");
+        }
+        long bytes = (long) s.numel() / type.blockValues() * type.blockBytes();
+        if (blocks.length != bytes) {
+            throw new IllegalArgumentException(type + " weight of shape " + s + " needs " + bytes + " bytes, got " + blocks.length);
+        }
+        return new Tensor(s, Storage.ofHost(uk.ac.manchester.tornado.api.types.arrays.ByteArray.fromArray(blocks), type, s.numel(), true));
+    }
+
     /** Persistent FP16 storage (weights kept in half precision on the device), from FP32 values rounded to nearest. */
     public static Tensor persistentHalf(float[] values, int... dims) {
         uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray h = new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(Math.max(values.length, 1));
@@ -275,6 +292,14 @@ public final class Tensor {
             boolean e4m3 = storage.dtype() == DType.FP8_E4M3;
             for (int i = 0; i < out.length; i++) {
                 out[i] = org.beehive.jitnn.kernels.Fp8Kernels.decode(q.get(i), e4m3 ? 0 : 1, Float.NaN, Float.POSITIVE_INFINITY);
+            }
+            return out;
+        }
+        if (storage.dtype().isBlockQuantized() && storage.dtype() != DType.Q8_0) {
+            uk.ac.manchester.tornado.api.types.arrays.ByteArray q = (uk.ac.manchester.tornado.api.types.arrays.ByteArray) storage.host();
+            float[] out = new float[numel()];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = org.beehive.jitnn.kernels.GgufKernels.value(q, org.beehive.jitnn.kernels.GgufKernels.code(storage.dtype()), i);
             }
             return out;
         }

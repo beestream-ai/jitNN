@@ -296,6 +296,8 @@ public final class Golden {
             case "fp8_linear" -> org.beehive.jitnn.ops.Fp8.linear(in[0], null, org.beehive.jitnn.ops.Fp8.quantize(in[1], fp8Scale(c), fp8(c)), fp8Scale(c), in[2]);
             case "fp8_scaled_mm" -> org.beehive.jitnn.ops.Fp8.linear(org.beehive.jitnn.ops.Fp8.quantize(in[0], fp8Scale(c), fp8(c)), fp8Scale(c),
                     org.beehive.jitnn.ops.Fp8.quantize(in[1], fp8Scale(c), fp8(c)), fp8Scale(c), null);
+            case "gguf_linear" -> org.beehive.jitnn.ops.Gguf.linear(in[0], gguf(c, in[1], in[0].dim(-1)), in[2]);
+            case "gguf_dequant" -> org.beehive.jitnn.ops.Gguf.dequantize(gguf(c, in[0], 512));
             case "negative_sampling" -> F.negativeSamplingLoss(in[0], in[1], in[2]);
             case "glove_loss" -> F.gloveLoss(in[0], in[1], in[2], in[3], in[4], in[5]);
             case "gcn" -> {
@@ -381,6 +383,17 @@ public final class Golden {
     }
 
     /** The integer attributes from index {@code from} on. */
+    /** A GGUF weight [N, K] from block bytes stored as INT32 values 0..255. */
+    private static Tensor gguf(Case c, Tensor bytes, int k) {
+        int[] v = bytes.toIntArray();
+        byte[] b = new byte[v.length];
+        for (int i = 0; i < v.length; i++) {
+            b[i] = (byte) v[i];
+        }
+        DType t = new DType[] { DType.Q4_0, DType.Q4_1, DType.Q4_K, DType.Q5_K, DType.Q6_K }[c.iattr(0)];
+        return Tensor.quantized(t, b, c.iattr(1), k);
+    }
+
     private static DType fp8(Case c) {
         return c.iattr(0) == 0 ? DType.FP8_E4M3 : DType.FP8_E5M2;
     }
@@ -426,7 +439,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag", "rnn_lstm", "rnn_gru", "triplet_margin", "contrastive", "cosine_embedding", "margin_ranking", "ctc", "sparsemax", "lu_factor", "solve_triangular", "solve", "inv", "det", "slogdet", "cholesky", "qr", "eigh", "svd", "fft", "ifft", "rfft", "irfft", "fft2", "rfft2", "stft", "istft", "spmm", "gcn", "negative_sampling", "glove_loss", "fp8_linear", "fp8_scaled_mm" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag", "rnn_lstm", "rnn_gru", "triplet_margin", "contrastive", "cosine_embedding", "margin_ranking", "ctc", "sparsemax", "lu_factor", "solve_triangular", "solve", "inv", "det", "slogdet", "cholesky", "qr", "eigh", "svd", "fft", "ifft", "rfft", "irfft", "fft2", "rfft2", "stft", "istft", "spmm", "gcn", "negative_sampling", "glove_loss", "fp8_linear", "fp8_scaled_mm", "gguf_linear", "gguf_dequant" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

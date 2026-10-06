@@ -6,3 +6,4 @@ target/
 .vscode/
 hs_err_pid*.log
 __pycache__/
+.claude/
