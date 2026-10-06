@@ -310,6 +310,33 @@ public final class F {
         return new Tensor[] { y, y.narrow(0, t - 1, 1).reshape(b, h) };
     }
 
+    /**
+     * PReLU: x where x > 0, else a x, with a learnable slope {@code weight} of one element or one
+     * per channel (axis 1 of x, as PyTorch).
+     */
+    public static Tensor prelu(Tensor x, Tensor weight) {
+        Tensor a = weight;
+        if (weight.numel() > 1 && x.rank() > 1) {
+            int[] dims = new int[x.rank()];
+            java.util.Arrays.fill(dims, 1);
+            dims[1] = weight.numel();
+            a = weight.reshape(dims);
+        }
+        return Binary.apply(Binary.Kind.PRELU, x, a);
+    }
+
+    /**
+     * RReLU (Xu et al., 2015): in training, a slope drawn uniformly from [lower, upper) for every
+     * element, seeded by the INT32 [2] {@code seed} tensor (see {@link Tensor#seed}); in
+     * evaluation the mean slope (lower + upper) / 2.
+     */
+    public static Tensor rrelu(Tensor x, float lower, float upper, boolean training, Tensor seed) {
+        if (!training) {
+            return x.leakyRelu((lower + upper) / 2);
+        }
+        return Binary.apply(Binary.Kind.PRELU, x, Tensor.uniform(seed, lower, upper, x.shape().dims()));
+    }
+
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */
     public static Tensor swiglu(Tensor gate, Tensor up) {
         return gate.silu().mul(up);

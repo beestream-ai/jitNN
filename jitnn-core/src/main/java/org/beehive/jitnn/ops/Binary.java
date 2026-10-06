@@ -42,7 +42,17 @@ public final class Binary implements Op {
         BCE_DY(ElementwiseKernels.BCE_DY),
         BCE_LOGITS(ElementwiseKernels.BCE_LOGITS),
         BCE_LOGITS_DX(ElementwiseKernels.BCE_LOGITS_DX),
-        ADD_RELU(ElementwiseKernels.ADD_RELU);
+        ADD_RELU(ElementwiseKernels.ADD_RELU),
+        ELU_GRAD(ElementwiseKernels.ELU_GRAD),
+        SELU_GRAD(ElementwiseKernels.SELU_GRAD),
+        CELU_GRAD(ElementwiseKernels.CELU_GRAD),
+        MISH_GRAD(ElementwiseKernels.MISH_GRAD),
+        SOFTSIGN_GRAD(ElementwiseKernels.SOFTSIGN_GRAD),
+        HARD_SIGMOID_GRAD(ElementwiseKernels.HARD_SIGMOID_GRAD),
+        HARD_SWISH_GRAD(ElementwiseKernels.HARD_SWISH_GRAD),
+        THRESHOLD_GRAD(ElementwiseKernels.THRESHOLD_GRAD),
+        PRELU(ElementwiseKernels.PRELU),
+        PRELU_SLOPE(ElementwiseKernels.PRELU_SLOPE);
 
         final int code;
 
@@ -163,6 +173,7 @@ public final class Binary implements Op {
             case MIN -> new Tensor[] { ga ? gy.mul(b.ge(a)).sumTo(sa) : null, gb ? gy.mul(b.lt(a)).sumTo(sb) : null };
             case FIRST -> new Tensor[] { ga ? gy.sumTo(sa) : null, null };
             case BCE -> new Tensor[] { ga ? gy.mul(apply(Kind.BCE_DX, a, b)).sumTo(sa) : null, gb ? gy.mul(apply(Kind.BCE_DY, a, b)).sumTo(sb) : null };
+            case PRELU -> new Tensor[] { ga ? gy.mul(apply(Kind.PRELU_SLOPE, a, b)).sumTo(sa) : null, gb ? gy.mul(a.minimum(Tensor.scalar(0.0f))).sumTo(sb) : null };
             case ADD_RELU -> {
                 Tensor g = apply(Kind.RELU_GRAD, n.out(0), gy);
                 yield new Tensor[] { ga ? g.sumTo(sa) : null, gb ? g.sumTo(sb) : null };

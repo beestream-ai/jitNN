@@ -237,6 +237,14 @@ add("resize_bilinear", "interpolate", [1, 0, 7, 9], [rnd(2, 3, 4, 5)])
 add("resize_bilinear_down", "interpolate", [1, 0, 3, 2], [rnd(1, 2, 7, 5)])
 add("resize_nearest", "interpolate", [0, 0, 3, 7], [rnd(2, 2, 5, 4)])
 add("resize_align_1", "interpolate", [1, 1, 1, 6], [rnd(1, 2, 3, 4)])
+# ---- wave 5: activations (attrs: alpha / slope / threshold / min max)
+for op, attrs in [("elu", [1.0]), ("elu_0.5", [0.5]), ("selu", []), ("celu", [1.3]), ("mish", []), ("softsign", []),
+                  ("hardsigmoid", []), ("hardswish", []), ("hardtanh", [-0.7, 1.2]), ("thresholded_relu", [0.4]), ("cube", [])]:
+    add(op, op.split("_0")[0], attrs, [rnd(13, 11, lo=-5, hi=5)])
+add("elu_small", "elu", [1.0], [rnd(9, 7, lo=-1e-3, hi=1e-3)])
+add("prelu_shared", "prelu", [], [rnd(4, 3, 5), rnd(1)])
+add("prelu_channels", "prelu", [], [rnd(2, 6, 4, 3), rnd(6)])
+add("rrelu_eval", "rrelu_eval", [0.125, 1 / 3], [rnd(9, 8)])
 # ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
 def rnn_case(name, op, t, b, i, h, gates):
     w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
@@ -454,6 +462,20 @@ def forward(op, attrs, t):
         return torch._VF.lstm(t[0], (t[5].unsqueeze(0), t[6].unsqueeze(0)), t[1:5], True, 1, 0.0, True, False, False)[0]
     if op == "gru":
         return torch._VF.gru(t[0], t[5].unsqueeze(0), t[1:5], True, 1, 0.0, True, False, False)[0]
+    if op in ("elu", "celu"):
+        return getattr(torch.nn.functional, op)(t[0], attrs[0])
+    if op in ("selu", "mish", "softsign", "hardsigmoid", "hardswish"):
+        return getattr(torch.nn.functional, op)(t[0])
+    if op == "hardtanh":
+        return torch.nn.functional.hardtanh(t[0], attrs[0], attrs[1])
+    if op == "thresholded_relu":
+        return torch.where(t[0] > attrs[0], t[0], torch.zeros_like(t[0]))
+    if op == "cube":
+        return t[0] ** 3
+    if op == "prelu":
+        return torch.nn.functional.prelu(t[0], t[1])
+    if op == "rrelu_eval":
+        return torch.nn.functional.rrelu(t[0], attrs[0], attrs[1], training=False)
     raise ValueError(op)
 
 

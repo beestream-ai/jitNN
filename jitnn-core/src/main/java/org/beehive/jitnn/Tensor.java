@@ -433,6 +433,56 @@ public final class Tensor {
         return Unary.apply(Unary.Kind.LEAKY_RELU, this, slope, 0);
     }
 
+    /** ELU: x for x > 0, else alpha (exp(x) - 1). */
+    public Tensor elu(float alpha) {
+        return Unary.apply(Unary.Kind.ELU, this, alpha, 0);
+    }
+
+    /** SELU with PyTorch's constants (alpha 1.6732632, scale 1.0507010). */
+    public Tensor selu() {
+        return Unary.apply(Unary.Kind.SELU, this, 0, 0);
+    }
+
+    /** CELU: max(0, x) + min(0, alpha (exp(x / alpha) - 1)). */
+    public Tensor celu(float alpha) {
+        return Unary.apply(Unary.Kind.CELU, this, alpha, 0);
+    }
+
+    /** Mish: x tanh(softplus(x)). */
+    public Tensor mish() {
+        return Unary.apply(Unary.Kind.MISH, this, 0, 0);
+    }
+
+    /** Softsign: x / (1 + |x|). */
+    public Tensor softsign() {
+        return Unary.apply(Unary.Kind.SOFTSIGN, this, 0, 0);
+    }
+
+    /** HardSigmoid, PyTorch's form: clamp(x / 6 + 1/2, 0, 1). */
+    public Tensor hardSigmoid() {
+        return Unary.apply(Unary.Kind.HARD_SIGMOID, this, 0, 0);
+    }
+
+    /** HardSwish: x hardSigmoid(x). */
+    public Tensor hardSwish() {
+        return Unary.apply(Unary.Kind.HARD_SWISH, this, 0, 0);
+    }
+
+    /** HardTanh: x clamped to [lo, hi] (PyTorch's default -1, 1). */
+    public Tensor hardTanh(float lo, float hi) {
+        return clamp(lo, hi);
+    }
+
+    /** ThresholdedReLU (Keras): x where x > theta, else 0. */
+    public Tensor thresholdedRelu(float theta) {
+        return Unary.apply(Unary.Kind.THRESHOLD, this, theta, 0);
+    }
+
+    /** x^3 (DL4J's Cube activation). */
+    public Tensor cube() {
+        return square().mul(this);
+    }
+
     /** Softplus, log(1 + exp(x)) (beta 1), computed without overflow. */
     public Tensor softplus() {
         return Unary.apply(Unary.Kind.SOFTPLUS, this, 0, 0);

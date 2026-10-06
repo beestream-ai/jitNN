@@ -61,6 +61,26 @@ public final class ElementwiseKernels {
     public static final int BCE_LOGITS_DX = 26;
     /** relu(x + y): a residual connection and its activation in one pass. */
     public static final int ADD_RELU = 27;
+    /** y where x > 0, else y alpha exp(x) (x is the input; alpha in alpha). */
+    public static final int ELU_GRAD = 28;
+    /** SELU's derivative times y. */
+    public static final int SELU_GRAD = 29;
+    /** y where x > 0, else y exp(x / alpha). */
+    public static final int CELU_GRAD = 30;
+    /** Mish's derivative times y. */
+    public static final int MISH_GRAD = 31;
+    /** y / (1 + |x|)^2. */
+    public static final int SOFTSIGN_GRAD = 32;
+    /** y / 6 inside (-3, 3), else 0. */
+    public static final int HARD_SIGMOID_GRAD = 33;
+    /** y times HardSwish's derivative. */
+    public static final int HARD_SWISH_GRAD = 34;
+    /** y where x > alpha, else 0. */
+    public static final int THRESHOLD_GRAD = 35;
+    /** x where x > 0, else y x (y is the slope). */
+    public static final int PRELU = 36;
+    /** 1 where x > 0, else y (the slope): dPReLU/dx. */
+    public static final int PRELU_SLOPE = 37;
 
     // Unary op codes: out = f(x; alpha, beta).
     public static final int NEG = 0;
@@ -91,11 +111,29 @@ public final class ElementwiseKernels {
     public static final int LEAKY_RELU = 17;
     /** log(1 + exp(x)), overflow-free. */
     public static final int SOFTPLUS = 18;
+    /** alpha (expm1(x)) for x <= 0. */
+    public static final int ELU = 19;
+    /** SELU's scale (x, or alpha expm1(x) for x <= 0), PyTorch's constants. */
+    public static final int SELU = 20;
+    /** max(0, x) + min(0, alpha expm1(x / alpha)). */
+    public static final int CELU = 21;
+    /** x tanh(softplus(x)). */
+    public static final int MISH = 22;
+    /** x / (1 + |x|). */
+    public static final int SOFTSIGN = 23;
+    /** clamp(x / 6 + 1/2, 0, 1). */
+    public static final int HARD_SIGMOID = 24;
+    /** x clamp(x / 6 + 1/2, 0, 1). */
+    public static final int HARD_SWISH = 25;
+    /** x where x > alpha, else 0 (Keras's ThresholdedReLU). */
+    public static final int THRESHOLD = 26;
 
     private static final float SQRT_HALF = 0.70710678f;
     private static final float INV_SQRT_2PI = 0.39894228f;
     private static final float SQRT_2_OVER_PI = 0.79788456f;
     private static final float GELU_CUBIC = 0.044715f;
+    private static final float SELU_ALPHA = 1.6732632423543772f;
+    private static final float SELU_SCALE = 1.0507009873554805f;
 
     private ElementwiseKernels() {
     }
@@ -143,6 +181,23 @@ public final class ElementwiseKernels {
         float u = 1.0f + z;
         float d = u - 1.0f;
         return d == 0.0f ? z : TornadoMath.log(u) * (z / d);
+    }
+
+    /**
+     * exp(x) - 1, accurate near 0 (Kahan's trick: the rounding of u = exp(x) cancels in
+     * (u - 1) x / log(u)). WORKAROUND(J7): TornadoMath has no expm1.
+     */
+    public static float expm1(float x) {
+        float u = TornadoMath.exp(x);
+        float r;
+        if (u == 1.0f) {
+            r = x;
+        } else if (u - 1.0f == -1.0f) {
+            r = -1.0f;
+        } else {
+            r = (u - 1.0f) * x / TornadoMath.log(u);
+        }
+        return r;
     }
 
     /** Overflow-free softplus: max(x, 0) + log1p(exp(-|x|)). */
@@ -225,6 +280,28 @@ public final class ElementwiseKernels {
         } else if (op == ADD_RELU) {
             float s = x + y;
             r = s > 0.0f ? s : 0.0f;
+        } else if (op == ELU_GRAD) {
+            r = x > 0.0f ? y : y * alpha * TornadoMath.exp(x);
+        } else if (op == SELU_GRAD) {
+            r = x > 0.0f ? y * SELU_SCALE : y * SELU_SCALE * SELU_ALPHA * TornadoMath.exp(x);
+        } else if (op == CELU_GRAD) {
+            r = x > 0.0f ? y : y * TornadoMath.exp(x / alpha);
+        } else if (op == MISH_GRAD) {
+            float t = tanh(softplus(x));
+            r = y * (t + x * sigmoid(x) * (1.0f - t * t));
+        } else if (op == SOFTSIGN_GRAD) {
+            float d = 1.0f + TornadoMath.abs(x);
+            r = y / (d * d);
+        } else if (op == HARD_SIGMOID_GRAD) {
+            r = (x > -3.0f) & (x < 3.0f) ? y / 6.0f : 0.0f;
+        } else if (op == HARD_SWISH_GRAD) {
+            r = x < -3.0f ? 0.0f : (x > 3.0f ? y : y * (2.0f * x + 3.0f) / 6.0f);
+        } else if (op == THRESHOLD_GRAD) {
+            r = x > alpha ? y : 0.0f;
+        } else if (op == PRELU) {
+            r = x > 0.0f ? x : y * x;
+        } else if (op == PRELU_SLOPE) {
+            r = x > 0.0f ? 1.0f : y;
         } else {
             r = x;
         }
@@ -269,6 +346,24 @@ public final class ElementwiseKernels {
             r = x > 0.0f ? x : alpha * x;
         } else if (op == SOFTPLUS) {
             r = softplus(x);
+        } else if (op == ELU) {
+            r = x > 0.0f ? x : alpha * expm1(x);
+        } else if (op == SELU) {
+            r = x > 0.0f ? SELU_SCALE * x : SELU_SCALE * SELU_ALPHA * expm1(x);
+        } else if (op == CELU) {
+            r = x > 0.0f ? x : alpha * expm1(x / alpha);
+        } else if (op == MISH) {
+            r = x * tanh(softplus(x));
+        } else if (op == SOFTSIGN) {
+            r = x / (1.0f + TornadoMath.abs(x));
+        } else if (op == HARD_SIGMOID) {
+            float h = x / 6.0f + 0.5f;
+            r = h < 0.0f ? 0.0f : (h > 1.0f ? 1.0f : h);
+        } else if (op == HARD_SWISH) {
+            float h = x / 6.0f + 0.5f;
+            r = x * (h < 0.0f ? 0.0f : (h > 1.0f ? 1.0f : h));
+        } else if (op == THRESHOLD) {
+            r = x > alpha ? x : 0.0f;
         } else {
             r = alpha;
         }

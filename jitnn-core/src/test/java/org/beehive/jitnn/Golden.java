@@ -209,6 +209,18 @@ public final class Golden {
             case "interpolate" -> F.interpolate(in[0], c.iattr(2), c.iattr(3), c.iattr(0) != 0, c.iattr(1) != 0);
             case "lstm" -> F.lstm(in[0], in[1], in[2], in[3], in[4], in[5], in[6])[0];
             case "gru" -> F.gru(in[0], in[1], in[2], in[3], in[4], in[5])[0];
+            case "elu" -> in[0].elu(c.fattr(0));
+            case "celu" -> in[0].celu(c.fattr(0));
+            case "selu" -> in[0].selu();
+            case "mish" -> in[0].mish();
+            case "softsign" -> in[0].softsign();
+            case "hardsigmoid" -> in[0].hardSigmoid();
+            case "hardswish" -> in[0].hardSwish();
+            case "hardtanh" -> in[0].hardTanh(c.fattr(0), c.fattr(1));
+            case "thresholded_relu" -> in[0].thresholdedRelu(c.fattr(0));
+            case "cube" -> in[0].cube();
+            case "prelu" -> F.prelu(in[0], in[1]);
+            case "rrelu_eval" -> F.rrelu(in[0], c.fattr(0), c.fattr(1), false, null);
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
     }
@@ -216,7 +228,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

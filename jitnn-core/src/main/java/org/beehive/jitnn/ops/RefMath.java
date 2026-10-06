@@ -8,6 +8,9 @@ import org.beehive.jitnn.kernels.ElementwiseKernels;
  */
 final class RefMath {
 
+    static final double SELU_ALPHA = 1.6732632423543772;
+    static final double SELU_SCALE = 1.0507009873554805;
+
     private RefMath() {
     }
 
@@ -47,6 +50,19 @@ final class RefMath {
             case ElementwiseKernels.BCE_LOGITS -> (1 - y) * x + Math.max(-x, 0) + Math.log1p(Math.exp(-Math.abs(x)));
             case ElementwiseKernels.BCE_LOGITS_DX -> 1 / (1 + Math.exp(-x)) - y;
             case ElementwiseKernels.ADD_RELU -> Math.max(x + y, 0);
+            case ElementwiseKernels.ELU_GRAD -> x > 0 ? y : y * alpha * Math.exp(x);
+            case ElementwiseKernels.SELU_GRAD -> x > 0 ? y * SELU_SCALE : y * SELU_SCALE * SELU_ALPHA * Math.exp(x);
+            case ElementwiseKernels.CELU_GRAD -> x > 0 ? y : y * Math.exp(x / alpha);
+            case ElementwiseKernels.MISH_GRAD -> {
+                double t = Math.tanh(Math.log1p(Math.exp(x)));
+                yield y * (t + x / (1 + Math.exp(-x)) * (1 - t * t));
+            }
+            case ElementwiseKernels.SOFTSIGN_GRAD -> y / ((1 + Math.abs(x)) * (1 + Math.abs(x)));
+            case ElementwiseKernels.HARD_SIGMOID_GRAD -> x > -3 && x < 3 ? y / 6 : 0;
+            case ElementwiseKernels.HARD_SWISH_GRAD -> x < -3 ? 0 : (x > 3 ? y : y * (2 * x + 3) / 6);
+            case ElementwiseKernels.THRESHOLD_GRAD -> x > alpha ? y : 0;
+            case ElementwiseKernels.PRELU -> x > 0 ? x : y * x;
+            case ElementwiseKernels.PRELU_SLOPE -> x > 0 ? 1 : y;
             default -> x;
         };
     }
@@ -71,6 +87,14 @@ final class RefMath {
             case ElementwiseKernels.SILU -> x / (1 + Math.exp(-x));
             case ElementwiseKernels.LEAKY_RELU -> x > 0 ? x : alpha * x;
             case ElementwiseKernels.SOFTPLUS -> Math.max(x, 0) + Math.log1p(Math.exp(-Math.abs(x)));
+            case ElementwiseKernels.ELU -> x > 0 ? x : alpha * Math.expm1(x);
+            case ElementwiseKernels.SELU -> x > 0 ? SELU_SCALE * x : SELU_SCALE * SELU_ALPHA * Math.expm1(x);
+            case ElementwiseKernels.CELU -> x > 0 ? x : alpha * Math.expm1(x / alpha);
+            case ElementwiseKernels.MISH -> x * Math.tanh(Math.max(x, 0) + Math.log1p(Math.exp(-Math.abs(x))));
+            case ElementwiseKernels.SOFTSIGN -> x / (1 + Math.abs(x));
+            case ElementwiseKernels.HARD_SIGMOID -> Math.min(Math.max(x / 6 + 0.5, 0), 1);
+            case ElementwiseKernels.HARD_SWISH -> x * Math.min(Math.max(x / 6 + 0.5, 0), 1);
+            case ElementwiseKernels.THRESHOLD -> x > alpha ? x : 0;
             default -> alpha;
         };
     }

@@ -108,6 +108,21 @@ class GradientTest {
     }
 
     @Test
+    void wave5Activations() {
+        float[] v = { 1.3f, -0.4f, 2.2f, -2.5f, 0.6f, -1.1f };
+        gradCheck("elu", x -> x[0].elu(0.7f).square().sum(), new float[][] { v }, new int[][] { S23 });
+        gradCheck("selu", x -> x[0].selu().square().sum(), new float[][] { v }, new int[][] { S23 });
+        gradCheck("celu", x -> x[0].celu(1.4f).square().sum(), new float[][] { v }, new int[][] { S23 });
+        gradCheck("mish", x -> x[0].mish().square().sum(), new float[][] { v }, new int[][] { S23 });
+        gradCheck("softsign", x -> x[0].softsign().square().sum(), new float[][] { v }, new int[][] { S23 });
+        gradCheck("hardsigmoid", x -> x[0].hardSigmoid().square().sum(), new float[][] { v }, new int[][] { S23 });
+        gradCheck("hardswish", x -> x[0].hardSwish().square().sum(), new float[][] { { 1.3f, -0.4f, 3.7f, -3.5f, 0.6f, -1.1f } }, new int[][] { S23 });
+        gradCheck("thresholded relu", x -> x[0].thresholdedRelu(0.5f).square().sum(), new float[][] { v }, new int[][] { S23 });
+        gradCheck("cube", x -> x[0].cube().sum(), new float[][] { v }, new int[][] { S23 });
+        gradCheck("prelu", x -> F.prelu(x[0], x[1]).square().sum(), new float[][] { v, { 0.3f, -0.2f } }, new int[][] { { 1, 2, 3 }, { 2 } });
+    }
+
+    @Test
     void reductions() {
         gradCheck("sum axis", x -> x[0].sum(0, false).square().sum(), new float[][] { A23 }, new int[][] { S23 });
         gradCheck("mean keepdim", x -> x[0].mean(1, true).square().sum(), new float[][] { A23 }, new int[][] { S23 });

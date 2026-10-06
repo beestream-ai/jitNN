@@ -31,7 +31,15 @@ public final class Unary implements Op {
         GELU_TANH(ElementwiseKernels.GELU_TANH),
         SILU(ElementwiseKernels.SILU),
         LEAKY_RELU(ElementwiseKernels.LEAKY_RELU),
-        SOFTPLUS(ElementwiseKernels.SOFTPLUS);
+        SOFTPLUS(ElementwiseKernels.SOFTPLUS),
+        ELU(ElementwiseKernels.ELU),
+        SELU(ElementwiseKernels.SELU),
+        CELU(ElementwiseKernels.CELU),
+        MISH(ElementwiseKernels.MISH),
+        SOFTSIGN(ElementwiseKernels.SOFTSIGN),
+        HARD_SIGMOID(ElementwiseKernels.HARD_SIGMOID),
+        HARD_SWISH(ElementwiseKernels.HARD_SWISH),
+        THRESHOLD(ElementwiseKernels.THRESHOLD);
 
         final int code;
 
@@ -111,6 +119,14 @@ public final class Unary implements Op {
             case SILU -> Binary.apply(Binary.Kind.SILU_GRAD, x, gy);
             case LEAKY_RELU -> Binary.apply(Binary.Kind.LEAKY_RELU_GRAD, x, gy, alpha, 0.0f);
             case SOFTPLUS -> Binary.apply(Binary.Kind.SOFTPLUS_GRAD, x, gy);
+            case ELU -> Binary.apply(Binary.Kind.ELU_GRAD, x, gy, alpha, 0.0f);
+            case SELU -> Binary.apply(Binary.Kind.SELU_GRAD, x, gy);
+            case CELU -> Binary.apply(Binary.Kind.CELU_GRAD, x, gy, alpha, 0.0f);
+            case MISH -> Binary.apply(Binary.Kind.MISH_GRAD, x, gy);
+            case SOFTSIGN -> Binary.apply(Binary.Kind.SOFTSIGN_GRAD, x, gy);
+            case HARD_SIGMOID -> Binary.apply(Binary.Kind.HARD_SIGMOID_GRAD, x, gy);
+            case HARD_SWISH -> Binary.apply(Binary.Kind.HARD_SWISH_GRAD, x, gy);
+            case THRESHOLD -> Binary.apply(Binary.Kind.THRESHOLD_GRAD, x, gy, alpha, 0.0f);
         };
         return new Tensor[] { gx };
     }
