@@ -8,6 +8,7 @@
 | TornadoVM | `develop`, 7.0.2-jdk22plus-dev or newer | needs the on-demand `TornadoExecutionPlan.transferToDevice(Object...)`, which is not in 7.0.1; the current results were taken with `develop` 7.1.1-dev |
 | A device | CUDA, OpenCL or Metal | optional: the reference backend runs on any CPU |
 | Python, `torch`, `numpy` | any recent | optional: only to regenerate the PyTorch references |
+| `gguf` (llama.cpp's Python package) | any recent | optional: only to regenerate the goldens for GGUF's quantised formats |
 | `scikit-learn` | 1.9.1 for the committed references | optional: only to regenerate the classical machine-learning references |
 | `onnx`, `onnxruntime` | any recent | optional: only to regenerate the ONNX goldens and for the inference comparison |
 

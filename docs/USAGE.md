@@ -3,8 +3,8 @@
 ## Tensors
 
 A `Tensor` is an n-dimensional, contiguous, row-major array. Its `DType` is `F32` (the default),
-`I32` (labels and indices), `F16` or `BF16` (mixed precision), `Q8_0` (GGUF's 8-bit blocks) or
-`FP8_E4M3`/`FP8_E5M2` (8-bit floats).
+`I32` (labels and indices), `F16` or `BF16` (mixed precision), `Q8_0`, `Q4_0`, `Q4_1`, `Q4_K`,
+`Q5_K` or `Q6_K` (GGUF's quantised blocks, for weights) or `FP8_E4M3`/`FP8_E5M2` (8-bit floats).
 
 ```java
 Tensor x = Tensor.of(new float[] { 1, 2, 3, 4, 5, 6 }, 2, 3);   // data, then shape
@@ -296,6 +296,23 @@ Tensor proba = logit.predictProba(Tensor.of(testFeatures, m, d));      // [m, cl
 
 The others are `KNeighbors`, `Pca`, `LinearRegression` (least squares and ridge), `LinearSvc`,
 `NaiveBayes`, `GradientBoosting`, `Tsne` and single decision trees (`RandomForest.tree`).
+
+## Quantised weights from GGUF files
+
+Weights in GGUF's block formats are used as they are stored: `Tensor.quantized` wraps the raw
+blocks of a weight [out, in] (the bytes a GGUF file holds for that tensor), and `Gguf.linear`
+multiplies by it without expanding it, with jitllm's kernels for one input row (decoding) or a
+few (up to 32), and through a dequantised copy for larger batches.
+
+```java
+byte[] blocks = ...;                                             // a Q4_K tensor's bytes, 4096 x 4096
+Tensor w = Tensor.quantized(DType.Q4_K, blocks, 4096, 4096);
+Tensor y = Gguf.linear(x, w, null);                              // x [..., 4096] -> [..., 4096]
+Tensor full = Gguf.dequantize(w);                                // FP32 copy, when needed
+```
+
+The gradient reaches `x` (through the dequantised weight), not the quantised weight. Q8_0 weights
+go through the same call.
 
 ## FP8
 

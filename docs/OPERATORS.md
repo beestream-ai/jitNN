@@ -97,6 +97,7 @@ language model). The final cell state of an LSTM carries no gradient.
 | Scans and sorting | cumsum, cumprod, sort, argsort (stable) | `ScanKernels`: a scan per line; sort by rank | reverse cumsum; cumprod's exact with zeros; through the ranks |
 | Indexing | index_select, gather, scatter, scatter_add, segment sum/mean/max, EmbeddingBag | `IndexKernels` | gathering (no atomics); scatter (replace) has none |
 | INT8 | Q8_0 tensors (GGUF's 32-value blocks), quantise, dequantise, Q8_0 linear | jitllm's: `Q8Kernels` (adapted), `NativeProjectionKernels.dequantizeQ8_0ToFP32`; warp product on CUDA and Metal, shared-memory tree elsewhere | to the input, through the dequantised weight |
+| GGUF weights | Q4_0, Q4_1, Q4_K, Q5_K and Q6_K weights from their raw blocks (`Tensor.quantized`), dequantise, linear (`Gguf.linear`) | jitllm's matrix-vector kernels on the blocks: one row per work-group (warp-shuffle form on CUDA and Metal); up to 32 input rows, the row-tiled kernel for Q4_0, Q4_1 and Q5_K; more rows, dequantise (`GgufKernels`) and the GEMM | to the input, through the dequantised weight |
 | Sequences | masked (lengths) and bidirectional LSTM and GRU layers, per-sequence reversal | `RnnKernels` with lengths | masked steps pass none |
 | Images | flip, centre crop, normalisation, RGB to greyscale | composed | autograd |
 | NaN-aware | isNaN, isInf, isFinite, nanToNum, maximum/minimum propagating NaN, fmax/fmin ignoring it | bit-pattern tests (TornadoVM folds the `x != x` test away) | where defined |

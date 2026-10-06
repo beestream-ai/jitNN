@@ -9,14 +9,16 @@ Five layers of checks run on the host and on every device.
    broadcasting binaries, every unary, reductions, all four GEMM transposes, permute, reshape,
    softmax, log-softmax, cross-entropy, fused linear and an MLP chain. This currently runs in FP32
    with a loose tolerance, until jitNN has an FP64 type.
-3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes the golden set, 429 cases: 415
+3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes the golden set, 449 cases: 435
    operator cases (element-wise, reductions, GEMM, convolution, BatchNorm, pooling, the
    transformer activations, slicing and joining, embedding, LayerNorm and RMSNorm, batched
    matmul, attention with causal and padding masks, multi-head attention against
    `nn.MultiheadAttention`, RoPE, top-k, FP16/BF16 casts and half-precision GEMMs, the losses,
    transposed convolution, resizing, LSTM and GRU layers against PyTorch's own, the extended
    operator set, CTC and the metric losses, linear algebra against `torch.linalg`, Fourier
-   transforms against `torch.fft`, sparse products, nonzero, masked select, unique and FP8), in
+   transforms against `torch.fft`, sparse products, nonzero, masked select, unique, FP8, and linear layers and dequantisation on
+   GGUF's Q4_0, Q4_1, Q4_K, Q5_K and Q6_K blocks, with random blocks dequantised by llama.cpp's
+   `gguf` package as the reference), in
    FP64 (inputs, output and every input gradient, on odd, size-1 and broadcast shapes), and 14
    optimiser cases (three steps each of `torch.optim`, or for LAMB and LARS, which `torch.optim`
    lacks, of PyTorch implementations in the script), plus Philox values
@@ -124,7 +126,7 @@ classical machine-learning, FP8, collective and ONNX checks yet.
 
 | Check | Reference | CUDA (A100) | OpenCL (A100) |
 |---|---|---|---|
-| PyTorch golden set: 415 operator cases | pass | pass | pass |
+| PyTorch golden set: 435 operator cases | pass | pass | pass |
 | PyTorch optimiser goldens (14) | pass | pass | pass |
 | ONNX goldens (78 models) against ONNX Runtime (CPU) | pass | pass | pass |
 | Model gates (56; two inference benchmarks skipped by default) | | pass | pass |

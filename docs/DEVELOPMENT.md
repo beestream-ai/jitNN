@@ -60,17 +60,16 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 4. Add a finite-difference check to `GradientTest`, a case to `scripts/pytorch/goldens.py` (then
    regenerate the goldens and map it in `Golden.apply`), and a device check to `OpsAccelTest`.
 
-## Kernels copied from jitllm and jitrex
+## Kernels from jitllm
 
-`kernels/jitllm` holds the GPU kernels of jitllm (the LLM inference engine: GEMV and tensor-core
-GEMMs, quantised Q4/Q5/Q6/Q8 matmuls, paged and flash attention for prefill and decode, RMSNorm,
-RoPE, SwiGLU/GeGLU, MoE routing and experts, Gated DeltaNet), and `kernels/jitrex` holds those of
-jitrex (TiRex-2: sLSTM and mLSTM recurrences, variate attention, the portable FP16 GEMM and a CUDA
-Tile API GEMM). They are forward-only inference kernels, kept as they are in their source
-repositories apart from the package name and their few `@Parallel` loops, which were turned into
-KernelContext kernels. An operator adopts one by wrapping it and adding goldens and a reference;
-so far `MmaGemmKernels` (jitllm's 128 x 128 tensor-core GEMM, with a bfloat16 twin and a
-strided variant that serves every transpose and split-K) is in use.
+`kernels/jitllm` holds the kernels jitNN takes from jitllm, its LLM inference engine, kept as
+they are there apart from the package name: the matrix-vector products on GGUF's Q4_0, Q4_1,
+Q4_K, Q5_K and Q6_K blocks (`TransformerComputeKernelsQ4_0` ... `Q6_K`: one work-group per
+output row, a warp-shuffle form for CUDA and Metal, and a row-tiled form for small batches of
+Q4_0, Q4_1 and Q5_K) and the Q8_0 dequantisation (`NativeProjectionKernels`). jitNN's own
+`Q8Kernels` and `MmaGemmKernels` (the 128 x 128 tensor-core GEMM) are adapted from jitllm's.
+Only kernels that an operator launches are kept; the rest of jitllm's and jitrex's kernels can be
+taken from those repositories when an operator needs them, with goldens and a reference.
 
 ## TornadoVM workarounds
 

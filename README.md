@@ -42,7 +42,7 @@ Fourier transforms, sparse and graph operators, classical machine learning and a
 
 | Area | Contents |
 |---|---|
-| Tensors and autograd | FP32, INT32, FP16, BF16, Q8_0 and FP8 (E4M3, E5M2) tensors; broadcasting; reverse-mode autograd; autocast and loss scaling |
+| Tensors and autograd | FP32, INT32, FP16, BF16, FP8 (E4M3, E5M2) tensors, and GGUF's Q8_0, Q4_0, Q4_1, Q4_K, Q5_K and Q6_K weights; broadcasting; reverse-mode autograd; autocast and loss scaling |
 | Layers | linear, convolutions (1-D, 2-D, 3-D, grouped, depthwise, transposed), pooling, normalisation, attention (fused), RoPE, embeddings, LSTM and GRU, graph convolution, over 20 activations |
 | Losses | cross-entropy, NLL, MSE, BCE, KL, L1, Huber, hinge, Poisson, CTC, triplet, contrastive, cosine embedding, margin ranking, and more |
 | Optimisers | SGD (momentum, Nesterov), Adam, AdamW, AMSGrad, AdaGrad, RMSProp, AdaDelta, AdaMax, NAdam, LAMB, LARS; schedules, clipping, loss scaling |
