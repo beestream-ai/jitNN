@@ -1,14 +1,14 @@
 package org.beehive.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;
-import uk.ac.manchester.tornado.api.math.TornadoMath;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
 /**
  * Discrete Fourier transforms along the last axis, complex numbers as (re, im) pairs. One general
  * kernel serves the forward and inverse, real-to-complex, complex-to-real and adjoint transforms:
- * y_k = scale sum_{j < nIn} w_j x_j e^{i step (k j mod n)} for k < nOut, with y_k = 0 for k >= n,
- * where step = +-2 pi / n. It is a direct O(n^2) sum (one thread per output), exact in its phase.
+ * y_k = scale sum_{j < nIn} w_j x_j e^{+-2 pi i (k j mod n) / n} for k < nOut, with y_k = 0 for k >= n.
+ * The phases come from a host-computed table twiddle [n, 2] (cos, sin), which keeps them exact and
+ * avoids device sin/cos. It is a direct O(n^2) sum (one thread per output), exact in its phase.
  */
 public final class FftKernels {
 
@@ -28,7 +28,7 @@ public final class FftKernels {
      * x [rows, inStride] (realIn = 1) or [rows, inStride, 2]; y [rows, nOut] (realOut = 1, the real
      * part) or [rows, nOut, 2].
      */
-    public static void dft(KernelContext kc, FloatArray x, FloatArray y, int inStride, int nIn, int nOut, int n, float step, float scale, int realIn, int realOut,
+    public static void dft(KernelContext kc, FloatArray x, FloatArray twiddle, FloatArray y, int inStride, int nIn, int nOut, int n, float scale, int realIn, int realOut,
             int weight, int total) {
         int id = kc.globalIdx;
         if (id < total) {
@@ -39,8 +39,8 @@ public final class FftKernels {
             if (k < n) {
                 for (int j = 0; j < nIn; j++) {
                     int ph = (k * j) % n;
-                    float c = TornadoMath.cos(step * ph);
-                    float s = TornadoMath.sin(step * ph);
+                    float c = twiddle.get(2 * ph);
+                    float s = twiddle.get(2 * ph + 1);
                     float xr;
                     float xi = 0.0f;
                     if (realIn == 1) {

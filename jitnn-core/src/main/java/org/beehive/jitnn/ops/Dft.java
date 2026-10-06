@@ -39,7 +39,13 @@ public final class Dft implements Op {
             dims[lead + 1] = 2;
         }
         Tensor y = Tensor.result(Shape.of(dims), DType.F32);
-        Tensor.record(OP, new Tensor[] { x }, new Tensor[] { y }, new int[] { stride, nIn, nOut, n, sign, realIn ? 1 : 0, realOut ? 1 : 0, weight }, new float[] { scale }, true);
+        float[] tw = new float[2 * n];
+        for (int p = 0; p < n; p++) {
+            double ang = sign * 2 * Math.PI * p / n;
+            tw[2 * p] = (float) Math.cos(ang);
+            tw[2 * p + 1] = (float) Math.sin(ang);
+        }
+        Tensor.record(OP, new Tensor[] { x, Tensor.of(tw, n, 2) }, new Tensor[] { y }, new int[] { stride, nIn, nOut, n, sign, realIn ? 1 : 0, realOut ? 1 : 0, weight }, new float[] { scale }, true);
         return y;
     }
 
@@ -56,13 +62,13 @@ public final class Dft implements Op {
     @Override
     public void emit(Emitter e, Node node) {
         FloatArray x = e.f32(node.in(0));
+        FloatArray tw = e.f32(node.in(1));
         FloatArray y = e.f32(node.out(0));
         int[] a = node.iattr;
         int stride = a[0], nIn = a[1], nOut = a[2], n = a[3], realIn = a[5], realOut = a[6], weight = a[7];
-        float step = (float) (a[4] * 2 * Math.PI / n);
         float scale = node.fattr[0];
         int total = rows(node) * nOut;
-        e.task(Emitter.grid1D(total), (g, id) -> g.task(id, FftKernels::dft, e.context(), x, y, stride, nIn, nOut, n, step, scale, realIn, realOut, weight, total));
+        e.task(Emitter.grid1D(total), (g, id) -> g.task(id, FftKernels::dft, e.context(), x, tw, y, stride, nIn, nOut, n, scale, realIn, realOut, weight, total));
     }
 
     @Override
@@ -110,6 +116,6 @@ public final class Dft implements Op {
     public Tensor[] backward(Node node, Tensor g) {
         int[] a = node.iattr;
         int weight = a[7] == FftKernels.WEIGHT_IN ? FftKernels.WEIGHT_OUT : a[7] == FftKernels.WEIGHT_OUT ? FftKernels.WEIGHT_IN : FftKernels.WEIGHT_NONE;
-        return new Tensor[] { apply(g, Math.min(a[2], a[3]), a[0], a[3], -a[4], node.fattr[0], a[6] == 1, a[5] == 1, weight) };
+        return new Tensor[] { apply(g, Math.min(a[2], a[3]), a[0], a[3], -a[4], node.fattr[0], a[6] == 1, a[5] == 1, weight), null };
     }
 }
