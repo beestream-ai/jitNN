@@ -338,6 +338,13 @@ add("rfft2", "rfft2", [], [rnd(2, 4, 6)])
 add("stft_hann", "stft", [16, 4, 1, 0, 1], [rnd(2, 64)])
 add("stft_rect_nocenter", "stft", [8, 3, 0, 1, 0], [rnd(30)])
 add("istft_hann", "istft", [16, 4, 1, 0, 1], [rnd(2, 9, 17, 2)])
+# ---- wave 6: sparse times dense (attrs: rows, cols, nnz, row indices, column indices; duplicates add up) and GCN (attrs: nodes, edges, sources, destinations)
+sp_r = [0, 2, 2, 4, 1, 0, 3, 4, 2, 1, 4]
+sp_c = [1, 0, 5, 3, 3, 1, 2, 0, 4, 0, 5]
+add("spmm", "spmm", [5, 6, len(sp_r)] + sp_r + sp_c, [rnd(len(sp_r)), rnd(6, 7)])
+g_src = [0, 1, 1, 2, 3, 4, 5, 5, 0]
+g_dst = [1, 0, 2, 3, 2, 5, 4, 0, 5]
+add("gcn", "gcn", [6, len(g_src)] + g_src + g_dst, [rnd(6, 4), rnd(3, 4)])
 add("msle", "msle", [1], [pos(6, 5), pos(6, 5)])
 add("mape", "mape", [1], [rnd(6, 5), rnd(6, 5, lo=0.5, hi=3) * signs(6, 5)])
 # ---- wave 5: norms (attrs: groups eps / eps / size alpha beta k)
@@ -748,6 +755,20 @@ def forward(op, attrs, t):
         if op == "stft":
             return rx(torch.stft(t[0], n_fft, hop, window=window, center=bool(center), normalized=bool(normalized), onesided=True, return_complex=True))
         return torch.istft(cx(t[0]), n_fft, hop, window=window, center=bool(center), normalized=bool(normalized), onesided=True)
+    if op == "spmm":
+        rows, cols, nnz = attrs[:3]
+        a = torch.zeros(rows, cols).index_put((torch.tensor(attrs[3:3 + nnz]), torch.tensor(attrs[3 + nnz:])), t[0], accumulate=True)
+        return a @ t[1]
+    if op == "gcn":
+        n, e = attrs[:2]
+        src, dst = attrs[2:2 + e], attrs[2 + e:]
+        a = torch.zeros(n, n)
+        for s_, d_ in zip(src, dst):
+            a[d_, s_] += 1
+        a = a + torch.eye(n)
+        deg = a.sum(1)
+        norm = a / torch.sqrt(deg[:, None] * deg[None, :])
+        return norm @ (t[0] @ t[1].T)
     if op == "nll_mean":
         return torch.nn.functional.nll_loss(t[0], t[1].long())
     if op == "cosine_similarity":
