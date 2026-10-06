@@ -35,6 +35,11 @@ public final class Fp8 {
         };
     }
 
+    /** [NaN, +infinity] for the decoders (see {@link Fp8Kernels}). */
+    static Tensor special() {
+        return Tensor.of(new float[] { Float.NaN, Float.POSITIVE_INFINITY }, 2);
+    }
+
     static float max(DType t) {
         return t == DType.FP8_E4M3 ? FP8.E4M3_MAX : FP8.E5M2_MAX;
     }
@@ -61,7 +66,7 @@ public final class Fp8 {
 
     public static Tensor dequantize(Tensor q, Tensor scale) {
         Tensor y = Tensor.result(q.shape(), DType.F32);
-        Tensor.record(DEQUANTIZE, new Tensor[] { q, scale }, new Tensor[] { y }, new int[] { format(q.dtype()) }, null, true);
+        Tensor.record(DEQUANTIZE, new Tensor[] { q, scale, special() }, new Tensor[] { y }, new int[] { format(q.dtype()) }, null, true);
         return y;
     }
 
@@ -97,7 +102,7 @@ public final class Fp8 {
         // unused operands are passed existing arrays of the right type
         Tensor x = aFp8 ? sw : a;
         Tensor xq = aFp8 ? a : w;
-        Tensor.record(GEMM, new Tensor[] { x, xq, aFp8 ? sa : sw, w, sw, bias != null ? bias : sw }, new Tensor[] { y },
+        Tensor.record(GEMM, new Tensor[] { x, xq, aFp8 ? sa : sw, w, sw, bias != null ? bias : sw, special() }, new Tensor[] { y },
                 new int[] { rows, m, k, aFp8 ? format(a.dtype()) : -1, format(w.dtype()), bias != null ? 1 : 0 }, null, true);
         return y;
     }
@@ -140,9 +145,10 @@ public final class Fp8 {
         public void emit(Emitter e, Node n) {
             ByteArray q = e.fp8(n.in(0));
             FloatArray s = e.f32(n.in(1));
+            FloatArray sp = e.f32(n.in(2));
             FloatArray y = e.f32(n.out(0));
             int count = n.out(0).numel(), format = n.iattr[0];
-            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, Fp8Kernels::dequantize, e.context(), q, s, y, format, Float.NaN, Float.POSITIVE_INFINITY, count));
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, Fp8Kernels::dequantize, e.context(), q, s, sp, y, format, count));
         }
 
         @Override
@@ -156,7 +162,7 @@ public final class Fp8 {
         }
     }
 
-    /** inputs [x, xq, sa, w, sw, bias]; iattr = [rows, m, k, aFormat (-1: FP32), wFormat, hasBias]. */
+    /** inputs [x, xq, sa, w, sw, bias, special]; iattr = [rows, m, k, aFormat (-1: FP32), wFormat, hasBias]. */
     static final class Gemm implements Op {
 
         @Override
@@ -172,10 +178,11 @@ public final class Fp8 {
             ByteArray w = e.fp8(n.in(3));
             FloatArray sw = e.f32(n.in(4));
             FloatArray bias = e.f32(n.in(5));
+            FloatArray sp = e.f32(n.in(6));
             FloatArray y = e.f32(n.out(0));
             int[] a = n.iattr;
             int rows = a[0], m = a[1], k = a[2], af = a[3], wf = a[4], hb = a[5];
-            e.task(Emitter.grid2D(m, rows, Fp8Kernels.TILE), (g, id) -> g.task(id, Fp8Kernels::gemm, e.context(), x, xq, sa, w, sw, bias, y, rows, m, k, af, wf, hb, Float.NaN, Float.POSITIVE_INFINITY));
+            e.task(Emitter.grid2D(m, rows, Fp8Kernels.TILE), (g, id) -> g.task(id, Fp8Kernels::gemm, e.context(), x, xq, sa, w, sw, bias, sp, y, rows, m, k, af, wf, hb));
         }
 
         @Override
@@ -208,7 +215,7 @@ public final class Fp8 {
             Tensor g2 = g.reshape(a[0], m);
             Tensor gx = a[3] < 0 ? g2.matmul(dequantize(n.in(3), n.in(4))).reshape(n.in(0).shape().dims()) : null;
             Tensor gb = a[5] == 1 ? g2.sum(0, false) : null;
-            return new Tensor[] { gx, null, null, null, null, gb };
+            return new Tensor[] { gx, null, null, null, null, gb, null };
         }
     }
 }

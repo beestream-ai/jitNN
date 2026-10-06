@@ -12,7 +12,8 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
  * The GEMMs decode their FP8 operands while loading tiles into local memory and accumulate in FP32.
  *
  * <p>WORKAROUND(TornadoVM J23): the OpenCL backend emits {@code Float.NaN} as {@code NaNF}, which
- * does not compile, so NaN and infinity reach the decoder as kernel arguments, not literals.
+ * does not compile (scalar kernel arguments are specialised into literals too), so NaN and
+ * infinity reach the decoder through a two-element array, special = [NaN, +infinity].
  */
 public final class Fp8Kernels {
 
@@ -80,10 +81,10 @@ public final class Fp8Kernels {
         }
     }
 
-    public static void dequantize(KernelContext kc, ByteArray q, FloatArray scale, FloatArray y, int format, float nan, float inf, int n) {
+    public static void dequantize(KernelContext kc, ByteArray q, FloatArray scale, FloatArray special, FloatArray y, int format, int n) {
         int i = kc.globalIdx;
         if (i < n) {
-            y.set(i, decode(q.get(i), format, nan, inf) * scale.get(0));
+            y.set(i, decode(q.get(i), format, special.get(0), special.get(1)) * scale.get(0));
         }
     }
 
@@ -91,8 +92,10 @@ public final class Fp8Kernels {
      * y [rows, m] = x [rows, k] (FP32, or FP8 when aFormat >= 0, scaled by sa) times w^T, w [m, k]
      * FP8 scaled by sw, plus bias when hasBias = 1. 16 x 16 tiles, one output per thread.
      */
-    public static void gemm(KernelContext kc, FloatArray x, ByteArray xq, FloatArray sa, ByteArray w, FloatArray sw, FloatArray bias, FloatArray y, int rows, int m, int k,
-            int aFormat, int wFormat, int hasBias, float nan, float inf) {
+    public static void gemm(KernelContext kc, FloatArray x, ByteArray xq, FloatArray sa, ByteArray w, FloatArray sw, FloatArray bias, FloatArray special, FloatArray y, int rows, int m, int k,
+            int aFormat, int wFormat, int hasBias) {
+        float nan = special.get(0);
+        float inf = special.get(1);
         float[] as = kc.allocateFloatLocalArray(TILE * TILE);
         float[] bs = kc.allocateFloatLocalArray(TILE * TILE);
         int tx = kc.localIdx;
