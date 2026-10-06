@@ -230,6 +230,22 @@ public final class MatMul implements Op {
         return TENSOR_CORES && e.isCuda();
     }
 
+    /**
+     * K slices for a forward tensor-core product on whole 128 x 128 tiles: doubled while the
+     * work-groups stay under the split-K target and each slice is a multiple of 16, at least 64 deep.
+     */
+    static int mmaSlices(int m, int n, int k) {
+        if (!SPLIT_K) {
+            return 1;
+        }
+        int tiles = (m / MmaGemmKernels.TILE) * (n / MmaGemmKernels.TILE);
+        int slices = 1;
+        while (tiles * slices * 2 <= SPLIT_TARGET && k % (slices * 2 * 16) == 0 && k / (slices * 2) >= 64) {
+            slices *= 2;
+        }
+        return slices;
+    }
+
     /** True when the 128 x 128 tensor-core kernels cover the product (whole tiles, K in steps of 16). */
     static boolean wholeTiles(int m, int n, int k) {
         return m % MmaGemmKernels.TILE == 0 && n % MmaGemmKernels.TILE == 0 && k % 16 == 0;
@@ -279,6 +295,15 @@ public final class MatMul implements Op {
     static void emitGemmHalf(Emitter e, Tensor at, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (useTensorCores(e)) {
             if (wholeTiles(m, n, k)) {
+                int slices = mmaSlices(m, n, k);
+                if (slices > 1) {
+                    // too few 128 x 128 tiles to fill the GPU: K slices, summed with the epilogue
+                    FloatArray part = e.scratch(slices * m * n);
+                    emitMmaTiles(e, at, bt, part, m, n, k, ta, tb, slices);
+                    int mn = m * n;
+                    e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::sumSplitK, e.context(), part, c, bias, slices, mn, n, epilogue));
+                    return;
+                }
                 // jitllm's pipelined 128 x 128 tensor-core GEMM, on strided operands (any transpose)
                 emitMmaTiles(e, at, bt, c, m, n, k, ta, tb, 1);
                 if (epilogue != 0) {
