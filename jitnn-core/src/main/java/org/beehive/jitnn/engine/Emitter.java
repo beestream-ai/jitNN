@@ -85,6 +85,11 @@ public final class Emitter {
         return use((uk.ac.manchester.tornado.api.types.arrays.ByteArray) arrays.get(t.storage()));
     }
 
+    /** FP8 tensors: one byte per value. */
+    public uk.ac.manchester.tornado.api.types.arrays.ByteArray fp8(Tensor t) {
+        return use((uk.ac.manchester.tornado.api.types.arrays.ByteArray) arrays.get(t.storage()));
+    }
+
     /** bfloat16 tensors are stored as their raw 16-bit patterns. */
     public uk.ac.manchester.tornado.api.types.arrays.ShortArray bf16(Tensor t) {
         return use((uk.ac.manchester.tornado.api.types.arrays.ShortArray) arrays.get(t.storage()));
