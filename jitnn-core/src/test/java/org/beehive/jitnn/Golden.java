@@ -254,6 +254,16 @@ public final class Golden {
             case "huber" -> F.huberLoss(in[0], in[1], c.fattr(1), red(c));
             case "smooth_l1" -> F.smoothL1Loss(in[0], in[1], c.fattr(1), red(c));
             case "nll_mean" -> F.nllLoss(in[0], in[1], F.Reduction.MEAN);
+            case "triplet_margin" -> F.tripletMarginLoss(in[0], in[1], in[2], c.fattr(1), red(c));
+            case "contrastive" -> F.contrastiveLoss(in[0], in[1], in[2], c.fattr(1), red(c));
+            case "cosine_embedding" -> F.cosineEmbeddingLoss(in[0], in[1], in[2], c.fattr(1), red(c));
+            case "margin_ranking" -> F.marginRankingLoss(in[0], in[1], in[2], c.fattr(1), red(c));
+            case "ctc" -> {
+                int b = in[0].dim(1);
+                int[] lens = ints(c, 2);
+                yield F.ctcLoss(in[0].logSoftmax(), in[1], java.util.Arrays.copyOfRange(lens, 0, b), java.util.Arrays.copyOfRange(lens, b, 2 * b), c.iattr(1), red(c));
+            }
+            case "sparsemax" -> F.sparsemax(in[0]);
             case "hinge" -> F.hingeLoss(in[0], in[1], red(c));
             case "squared_hinge" -> F.squaredHingeLoss(in[0], in[1], red(c));
             case "cosine_similarity" -> F.cosineSimilarity(in[0], in[1], c.iattr(0), 1e-8f);
@@ -347,7 +357,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag", "rnn_lstm", "rnn_gru" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag", "rnn_lstm", "rnn_gru", "triplet_margin", "contrastive", "cosine_embedding", "margin_ranking", "ctc", "sparsemax" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

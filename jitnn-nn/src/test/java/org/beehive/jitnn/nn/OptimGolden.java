@@ -20,6 +20,8 @@ import org.beehive.jitnn.nn.optim.AdaDelta;
 import org.beehive.jitnn.nn.optim.AdaGrad;
 import org.beehive.jitnn.nn.optim.AdaMax;
 import org.beehive.jitnn.nn.optim.Adam;
+import org.beehive.jitnn.nn.optim.Lamb;
+import org.beehive.jitnn.nn.optim.Lars;
 import org.beehive.jitnn.nn.optim.NAdam;
 import org.beehive.jitnn.nn.optim.RMSProp;
 import org.beehive.jitnn.nn.optim.Optimizer;
@@ -78,6 +80,8 @@ final class OptimGolden {
             case "adadelta" -> new AdaDelta(params, 1.0f, 0.9f, 1e-6f, 0.01f);
             case "adamax" -> new AdaMax(params, 0.02f, 0.9f, 0.999f, 1e-8f, 0.01f);
             case "nadam" -> new NAdam(params, 0.01f, 0.9f, 0.999f, 1e-8f, 0.01f, 0.004f);
+            case "lamb" -> new Lamb(params, 0.01f, 0.9f, 0.999f, 1e-6f, 0.01f);
+            case "lars" -> new Lars(params, 0.1f, 0.9f, 1e-4f, 0.001f, 1e-9f);
             default -> throw new IllegalArgumentException(name);
         };
         for (int k = 0; k < 3; k++) {

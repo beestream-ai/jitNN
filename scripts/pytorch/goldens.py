@@ -280,6 +280,14 @@ add("cosine_similarity", "cosine_similarity", [1], [rnd(6, 9), rnd(6, 9)])
 add("cosine_proximity", "cosine_proximity", [1], [rnd(6, 9), rnd(6, 9)])
 add("poisson_log", "poisson_log", [1], [rnd(6, 5), pos(6, 5)])
 add("poisson", "poisson", [1], [pos(6, 5), pos(6, 5)])
+# ---- wave 6: metric losses (attrs: reduction, then margin), CTC (attrs: reduction, blank, input lengths, target lengths), sparsemax
+add("triplet_margin", "triplet_margin", [1, 1.0], [rnd(7, 6), rnd(7, 6), rnd(7, 6)])
+add("contrastive", "contrastive", [1, 1.5], [rnd(8, 5, lo=-1, hi=1), rnd(8, 5, lo=-1, hi=1), (rng.uniform(size=8) < 0.5).astype(np.float32)], [True, True, False])
+add("cosine_embedding", "cosine_embedding", [1, 0.2], [rnd(8, 6), rnd(8, 6), signs(8)], [True, True, False])
+add("margin_ranking_sum", "margin_ranking", [2, 0.3], [rnd(9), rnd(9), signs(9)], [True, True, False])
+add("ctc_mean", "ctc", [1, 0, 12, 9, 11, 4, 2, 3], [rnd(12, 3, 6, lo=-3, hi=3), np.array([[1, 2, 2, 5], [3, 3, 0, 0], [4, 1, 4, 0]], np.int32)])
+add("ctc_none_blank3", "ctc", [0, 3, 20, 17, 7, 5], [rnd(20, 2, 5, lo=-3, hi=3), np.array([[1, 0, 1, 2, 4, 4, 2], [2, 2, 1, 0, 4, 0, 0]], np.int32)])
+add("sparsemax", "sparsemax", [], [rnd(6, 9, lo=-3, hi=3)])
 add("msle", "msle", [1], [pos(6, 5), pos(6, 5)])
 add("mape", "mape", [1], [rnd(6, 5), rnd(6, 5, lo=0.5, hi=3) * signs(6, 5)])
 # ---- wave 5: norms (attrs: groups eps / eps / size alpha beta k)
@@ -622,6 +630,29 @@ def forward(op, attrs, t):
              "mape": lambda: 100 * (y - x).abs() / y.abs().clamp_min(1e-7),
              "cosine_proximity": lambda: -torch.nn.functional.cosine_similarity(x, y, dim=-1, eps=1e-8)}[op]()
         return l.mean() if red == "mean" else (l.sum() if red == "sum" else l)
+    if op in ("triplet_margin", "contrastive", "cosine_embedding", "margin_ranking"):
+        red = ["none", "mean", "sum"][attrs[0]]
+        F = torch.nn.functional
+        if op == "triplet_margin":
+            return F.triplet_margin_loss(t[0], t[1], t[2], margin=attrs[1], reduction=red)
+        if op == "cosine_embedding":
+            return F.cosine_embedding_loss(t[0], t[1], t[2], margin=attrs[1], reduction=red)
+        if op == "margin_ranking":
+            return F.margin_ranking_loss(t[0], t[1], t[2], margin=attrs[1], reduction=red)
+        d = F.pairwise_distance(t[0], t[1])
+        l = t[2] * d ** 2 + (1 - t[2]) * torch.relu(attrs[1] - d) ** 2
+        return l.mean() if red == "mean" else (l.sum() if red == "sum" else l)
+    if op == "ctc":
+        b = t[0].shape[1]
+        lens = attrs[2:]
+        return torch.nn.functional.ctc_loss(torch.log_softmax(t[0], -1), t[1].long(), torch.tensor(lens[:b]), torch.tensor(lens[b:]), blank=attrs[1],
+                                            reduction=["none", "mean", "sum"][attrs[0]])
+    if op == "sparsemax":
+        z = torch.sort(t[0], -1, descending=True)[0]
+        k = torch.arange(1, z.shape[-1] + 1, dtype=z.dtype)
+        support = (1 + k * z > z.cumsum(-1)).to(z.dtype)
+        tau = ((support * z).sum(-1, keepdim=True) - 1) / support.sum(-1, keepdim=True)
+        return torch.relu(t[0] - tau)
     if op == "nll_mean":
         return torch.nn.functional.nll_loss(t[0], t[1].long())
     if op == "cosine_similarity":
@@ -747,6 +778,51 @@ for name, make in [
     ("adamax", lambda p: torch.optim.Adamax([p], lr=0.02, weight_decay=0.01)),
     ("nadam", lambda p: torch.optim.NAdam([p], lr=0.01, weight_decay=0.01)),
 ]:
+    p0 = rnd(37)
+    p = torch.tensor(p0.astype(np.float64), requires_grad=True)
+    opt = make(p)
+    lines.append(f"case opt_{name} optim {name}")
+    arrays.append((f"opt_{name}", "p0", p0))
+    for k in range(3):
+        g = rnd(37)
+        arrays.append((f"opt_{name}", f"g{k}", g))
+        p.grad = torch.tensor(g.astype(np.float64))
+        opt.step()
+    arrays.append((f"opt_{name}", "out", p.detach().numpy().astype(np.float32)))
+
+# ---- layer-wise optimisers, not in torch.optim: their update rules in FP64
+class Lamb:
+    def __init__(self, p, lr, b1, b2, eps, wd):
+        self.p, self.lr, self.b1, self.b2, self.eps, self.wd, self.t = p, lr, b1, b2, eps, wd, 0
+        self.m, self.v = torch.zeros_like(p), torch.zeros_like(p)
+
+    def step(self):
+        with torch.no_grad():
+            self.t += 1
+            g = self.p.grad
+            self.m = self.b1 * self.m + (1 - self.b1) * g
+            self.v = self.b2 * self.v + (1 - self.b2) * g * g
+            u = (self.m / (1 - self.b1 ** self.t)) / ((self.v / (1 - self.b2 ** self.t)).sqrt() + self.eps) + self.wd * self.p
+            wn, un = self.p.norm(), u.norm()
+            r = wn / un if wn > 0 and un > 0 else 1.0
+            self.p -= self.lr * r * u
+
+
+class Lars:
+    def __init__(self, p, lr, momentum, wd, eta, eps):
+        self.p, self.lr, self.mu, self.wd, self.eta, self.eps = p, lr, momentum, wd, eta, eps
+        self.buf = torch.zeros_like(p)
+
+    def step(self):
+        with torch.no_grad():
+            g = self.p.grad
+            wn, gn = self.p.norm(), g.norm()
+            local = self.eta * wn / (gn + self.wd * wn + self.eps) if wn > 0 and gn > 0 else 1.0
+            self.buf = self.mu * self.buf + self.lr * local * (g + self.wd * self.p)
+            self.p -= self.buf
+
+
+for name, make in [("lamb", lambda p: Lamb(p, 0.01, 0.9, 0.999, 1e-6, 0.01)), ("lars", lambda p: Lars(p, 0.1, 0.9, 1e-4, 0.001, 1e-9))]:
     p0 = rnd(37)
     p = torch.tensor(p0.astype(np.float64), requires_grad=True)
     opt = make(p)
