@@ -506,6 +506,7 @@ final class OnnxOps {
         });
         // ---- matrix products
         HANDLERS.put("MatMul", (n, in) -> one(matmul(t(in, 0), t(in, 1))));
+        HANDLERS.put(Rewrites.LINEAR, (n, in) -> one(F.linear(t(in, 0), t(in, 1), present(in, 2) ? t(in, 2) : null)));
         HANDLERS.put("Gemm", (n, in) -> {
             Tensor a = t(in, 0);
             Tensor b = t(in, 1);

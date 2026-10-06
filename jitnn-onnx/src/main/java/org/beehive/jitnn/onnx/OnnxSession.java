@@ -34,6 +34,7 @@ public final class OnnxSession {
 
     private final OnnxModel model;
     private final Map<String, Value> constants = new HashMap<>();
+    private final List<Node> nodes;
     private boolean half;
 
     private OnnxSession(OnnxModel model) {
@@ -53,6 +54,13 @@ public final class OnnxSession {
         for (TensorData t : model.graph().initializers().values()) {
             constants.put(t.name(), constant(t));
         }
+        for (Node n : model.graph().nodes()) {
+            if (n.opType().equals("Constant") && n.outputs().size() == 1) {
+                constants.put(n.outputs().get(0), constantNode(n));
+            }
+        }
+        java.util.Set<String> outs = new java.util.HashSet<>(outputNames());
+        nodes = Boolean.parseBoolean(System.getProperty("jitnn.onnx.rewrite", "true")) ? Rewrites.apply(model.graph().nodes(), constants, outs) : model.graph().nodes();
     }
 
     public static OnnxSession load(Path file) throws IOException {
@@ -120,7 +128,10 @@ public final class OnnxSession {
         // intermediates are internal (their buffers are reused, and jitNN's inference fusions apply), as in Grad.inference
         try (Grad.Scope ignored = Grad.disabled(); AutoCloseable internal = org.beehive.jitnn.engine.Storage.internalScope();
                 Grad.Scope cast = half ? Autocast.enable(DType.F16) : null) {
-            for (Node n : model.graph().nodes()) {
+            for (Node n : nodes) {
+                if (n.opType().equals("Constant")) {
+                    continue;
+                }
                 List<Value> in = new ArrayList<>();
                 for (String name : n.inputs()) {
                     if (name.isEmpty()) {
@@ -134,14 +145,10 @@ public final class OnnxSession {
                     in.add(v);
                 }
                 List<Value> out;
-                if (n.opType().equals("Constant")) {
-                    out = List.of(constantNode(n));
-                } else {
-                    try {
-                        out = OnnxOps.HANDLERS.get(n.opType()).apply(n, in);
-                    } catch (RuntimeException e) {
-                        throw new IllegalStateException("ONNX " + n.opType() + " node '" + n.name() + "' with inputs " + in + ": " + e.getMessage(), e);
-                    }
+                try {
+                    out = OnnxOps.HANDLERS.get(n.opType()).apply(n, in);
+                } catch (RuntimeException e) {
+                    throw new IllegalStateException("ONNX " + n.opType() + " node '" + n.name() + "' with inputs " + in + ": " + e.getMessage(), e);
                 }
                 for (int k = 0; k < n.outputs().size() && k < out.size(); k++) {
                     if (!n.outputs().get(k).isEmpty()) {
