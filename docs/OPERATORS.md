@@ -80,12 +80,37 @@ every step (VAE sampling, GAN latents) replays the compiled step instead of reco
 `nn.models`: `Vae`, `Dcgan.Generator`/`Dcgan.Discriminator`, `UNet` and `CharRnn` (an LSTM or GRU
 language model). The final cell state of an LSTM carries no gradient.
 
+## Wave 5 (operators done on CUDA and OpenCL; Metal not run yet)
+
+| Family | Operators | Kernels | Gradient |
+|---|---|---|---|
+| Activations | ELU, SELU, CELU, Mish, Softsign, HardSigmoid, HardSwish, HardTanh, ThresholdedReLU, Cube, PReLU (shared or per-channel slope), RReLU | `ElementwiseKernels` codes (expm1 by Kahan's trick: TornadoMath has none); RReLU's slopes from Philox | fused gradient codes; PReLU's slope gradient by reduction |
+| Math and logic | sin, cos, tan, asin, acos, atan, sinh, cosh, asinh, acosh, atanh, erf, erfc, round (half to even), trunc, floor, ceil, sign, log1p, expm1, atan2; ne, le, logical and/or/xor/not; where; one-hot | element-wise codes; `where` and one-hot kernels | composed from the element-wise ops; comparisons and logic have none |
+| Losses | L1, Huber, smooth L1, NLL, hinge, squared hinge, cosine similarity and cosine proximity, Poisson NLL, MSLE, MAPE | composed | autograd |
+| Optimisers | AdaGrad, RMSProp (momentum, centred), AdaDelta, AdaMax, NAdam, AMSGrad; Nesterov already in SGD | `MultiTensorKernels` (generated, 3 or 4 tensors per launch) | |
+| Norms | GroupNorm, InstanceNorm, local response normalisation, weight normalisation | the row-norm kernel; `NormKernels.lrnForward` | `lrnBackward` (gathering); composed |
+| Spatial | Conv1D and Conv3D (groups 1), 1-D and 3-D max/avg pooling, adaptive avg/max pooling (1 to 3 axes), constant/reflect/replicate padding | `SpatialKernels`: N-D unfold (im2col) + the batched GEMM, adaptive pooling, padding | `fold`, adaptive and padding gradients, all gathering per input (deterministic) |
+| Scans and sorting | cumsum, cumprod, sort, argsort (stable) | `ScanKernels`: a scan per line; sort by rank | reverse cumsum; cumprod's exact with zeros; through the ranks |
+| Indexing | index_select, gather, scatter, scatter_add, segment sum/mean/max, EmbeddingBag | `IndexKernels` | gathering (no atomics); scatter (replace) has none |
+| INT8 | Q8_0 tensors (GGUF's 32-value blocks), quantise, dequantise, Q8_0 linear | jitllm's: `Q8Kernels` (adapted), `NativeProjectionKernels.dequantizeQ8_0ToFP32`; warp product on CUDA and Metal, shared-memory tree elsewhere | to the input, through the dequantised weight |
+| Sequences | masked (lengths) and bidirectional LSTM and GRU layers, per-sequence reversal | `RnnKernels` with lengths | masked steps pass none |
+| Images | flip, centre crop, normalisation, RGB to greyscale | composed | autograd |
+| NaN-aware | isNaN, isInf, isFinite, nanToNum, maximum/minimum propagating NaN, fmax/fmin ignoring it | bit-pattern tests (TornadoVM folds `x != x`, J19) | where defined |
+
+Modules: `ELU`, `SELU`, `CELU`, `Mish`, `Softsign`, `Softplus`, `HardSigmoid`, `HardSwish`,
+`HardTanh`, `ThresholdedReLU`, `Cube`, `PReLU`, `RReLU`, `GroupNorm`, `InstanceNorm`,
+`LocalResponseNorm`, `Conv1d`, `Conv3d`, `MaxPool1d`, `AvgPool1d`, `MaxPool3d`, `AvgPool3d`,
+`AdaptiveAvgPool`, `AdaptiveMaxPool`, `Pad`, `EmbeddingBag`; `LSTM` and `GRU` gain
+`bidirectional` and sequence lengths. Optimisers in `nn.optim`: `AdaGrad`, `RMSProp`, `AdaDelta`,
+`AdaMax`, `NAdam`, and `Adam` with `amsgrad`. Not done: Conv1D/3D with groups, NaN-propagating
+reductions.
+
 ## Next waves
 
 | Wave | Contents | Gate |
 |---|---|---|
 | 2 (rest) | convolution and GEMM speed, dispatch overhead | ResNet-18 and MobileNetV2 steps against MPS and cuDNN |
 | 4 (rest) | Metal runs; recurrent step speed (one kernel per timestep) | the wave 4 gates on Metal; LSTM and GRU steps against cuDNN |
-| 5 | the rest of the DL4J/DJL activations, losses, optimisers and norms, Conv1D/3D, sort, scatter | the DL4J and DJL example suites |
+| 5 (rest) | Metal runs; the DL4J and DJL example suites as the gate | DL4J and DJL examples |
 | 6 | decompositions, sparse and graph ops, FFT, Word2Vec, classical ML | 1.0 |
 | 7 | operators blocked on TornadoVM features (data-dependent shapes, FP8 off CUDA, multi-GPU) | as each feature lands |

@@ -77,3 +77,4 @@ Kernels tagged `WORKAROUND(...)` avoid these:
 | Metal's `tanh` returns NaN for large arguments | `ElementwiseKernels.tanh` goes through exp(-2abs(x)) |
 | TornadoMath has no erf, erfc, rsqrt, log1p, expm1 | `ElementwiseKernels.erfc`, a Chebyshev fit good to 1.2e-7, for exact GELU; `ElementwiseKernels.log1p` (Goldberg's trick) for softplus and BCE with logits |
 | Short-circuit operators inside loops can drop a branch | non-short-circuit AND and OR operators in every kernel |
+| A method over 600 IR nodes (after its own callees are inlined) cannot be inlined into a kernel | the element-wise kernels branch to four op groups (base, activations, math, NaN-aware), each under the limit; a big helper calling smaller ones does not help |

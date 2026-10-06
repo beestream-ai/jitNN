@@ -9,7 +9,7 @@ Four layers of checks run on the host and on every device.
    broadcasting binaries, every unary, reductions, all four GEMM transposes, permute, reshape,
    softmax, log-softmax, cross-entropy, fused linear and an MLP chain. This currently runs in FP32
    with a loose tolerance, until jitNN has an FP64 type.
-3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 225 operator cases (waves 1 to 4:
+3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 356 operator cases (waves 1 to 5:
    element-wise, reductions, GEMM, convolution, BatchNorm, pooling, the transformer activations,
    slicing and joining, embedding, LayerNorm and RMSNorm, batched matmul, attention with causal and
    padding masks, multi-head attention against `nn.MultiheadAttention`, RoPE, top-k, FP16/BF16 casts and half-precision GEMMs,

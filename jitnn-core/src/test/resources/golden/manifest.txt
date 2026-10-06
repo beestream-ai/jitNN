@@ -219,6 +219,135 @@ case resize_bilinear interpolate 1 0 7 9
 case resize_bilinear_down interpolate 1 0 3 2
 case resize_nearest interpolate 0 0 3 7
 case resize_align_1 interpolate 1 1 1 6
+case elu elu 1.0
+case elu_0.5 elu 0.5
+case selu selu 
+case celu celu 1.3
+case mish mish 
+case softsign softsign 
+case hardsigmoid hardsigmoid 
+case hardswish hardswish 
+case hardtanh hardtanh -0.7 1.2
+case thresholded_relu thresholded_relu 0.4
+case cube cube 
+case elu_small elu 1.0
+case prelu_shared prelu 
+case prelu_channels prelu 
+case rrelu_eval rrelu_eval 0.125 0.3333333333333333
+case math_sin sin 
+case math_cos cos 
+case math_tan tan 
+case math_asin asin 
+case math_acos acos 
+case math_atan atan 
+case math_sinh sinh 
+case math_cosh cosh 
+case math_asinh asinh 
+case math_acosh acosh 
+case math_atanh atanh 
+case math_erf erf 
+case math_erfc erfc 
+case math_log1p log1p 
+case math_expm1 expm1 
+case math_sinh_small sinh 
+case math_erf_small erf 
+case math_expm1_small expm1 
+case math_round round 
+case math_trunc trunc 
+case math_floor floor 
+case math_ceil ceil 
+case math_sign sign 
+case atan2 atan2 
+case atan2_broadcast atan2 
+case ne ne 
+case le le 
+case logical_and logical_and 
+case logical_or logical_or 
+case logical_xor logical_xor 
+case logical_not logical_not 
+case where where 
+case one_hot one_hot 5
+case l1_mean l1 1
+case l1_none l1 0
+case huber huber 1 1.0
+case huber_0.3_sum huber 2 0.3
+case smooth_l1 smooth_l1 1 0.5
+case nll_mean nll_mean 
+case hinge hinge 1
+case squared_hinge squared_hinge 1
+case cosine_similarity cosine_similarity 1
+case cosine_proximity cosine_proximity 1
+case poisson_log poisson_log 1
+case poisson poisson 1
+case msle msle 1
+case mape mape 1
+case group_norm group_norm 3 1e-05
+case group_norm_1 group_norm 1 1e-05
+case instance_norm instance_norm 1e-05
+case lrn lrn 3 0.01 0.75 1.0
+case lrn_even lrn 4 0.5 0.6 2.0
+case weight_norm weight_norm 
+case conv1d conv1d 2 1 1
+case conv1d_dil conv1d 1 2 2
+case conv3d conv3d 1 1 1
+case conv3d_s2 conv3d 2 0 1
+case max_pool1d max_pool1d 3 2 1
+case avg_pool1d avg_pool1d 3 2 1
+case max_pool3d max_pool3d 3 2 1
+case avg_pool3d avg_pool3d 3 2 1
+case max_pool1d_k2 max_pool1d 2 2 0
+case adaptive_avg_1d_4 adaptive_avg 4
+case adaptive_avg_2d_3x4 adaptive_avg 3 4
+case adaptive_avg_3d_2x3x3 adaptive_avg 2 3 3
+case adaptive_max_1d_4 adaptive_max 4
+case adaptive_max_2d_3x4 adaptive_max 3 4
+case adaptive_avg_2d_1x1 adaptive_avg 1 1
+case pad1d_m0 pad 0 2 3
+case pad2d_m0 pad 0 1 2 2 1
+case pad1d_m1 pad 1 2 3
+case pad2d_m1 pad 1 1 2 2 1
+case pad1d_m2 pad 2 2 3
+case pad2d_m2 pad 2 1 2 2 1
+case pad3d_reflect pad 1 1 1 2 0 1 1
+case cumsum_0 cumsum 0
+case cumsum_last cumsum -1
+case cumprod_1 cumprod 1
+case cumprod_zeros cumprod 1
+case sort_asc sort 1 0
+case sort_desc_axis0 sort 0 1
+case sort_ties sort 1 0
+case argsort_ties argsort 1 0
+case argsort_desc argsort -1 1
+case index_select_0 index_select 0
+case index_select_1 index_select 1
+case gather_1 gather 1
+case gather_0 gather 0
+case scatter_add scatter_add 1
+case scatter_unique scatter 1
+case embedding_bag_m0 embedding_bag 0 0 3 3 7
+case embedding_bag_m1 embedding_bag 1 0 3 3 7
+case embedding_bag_m2 embedding_bag 2 0 3 3 7
+case lstm_masked rnn_lstm 0 5 3 1
+case lstm_bidirectional rnn_lstm 1 4 4
+case gru_bidirectional_masked rnn_gru 1 6 2 4
+case flip_hw flip 2 3
+case flip_c flip 1
+case center_crop center_crop 3 4
+case normalize_image normalize_image 
+case rgb_to_grayscale rgb_to_grayscale 
+case isnan isnan 
+case isinf isinf 
+case isfinite isfinite 
+case nan_to_num nan_to_num 0.5 7.0
+case nan_to_num_grad nan_to_num 0.5 7.0
+case maximum_nan maximum_nan 
+case maximum_nan_plain maximum_nan 
+case minimum_nan minimum_nan 
+case minimum_nan_plain minimum_nan 
+case fmax fmax 
+case fmax_plain fmax 
+case fmin fmin 
+case fmin_plain fmin 
 case lstm lstm 
 case lstm_t1 lstm 
 case lstm_big lstm 
@@ -230,6 +359,13 @@ case opt_sgd_momentum optim sgd_momentum
 case opt_sgd_nesterov optim sgd_nesterov
 case opt_adam optim adam
 case opt_adamw optim adamw
+case opt_amsgrad optim amsgrad
+case opt_adagrad optim adagrad
+case opt_rmsprop optim rmsprop
+case opt_rmsprop_centered_momentum optim rmsprop_centered_momentum
+case opt_adadelta optim adadelta
+case opt_adamax optim adamax
+case opt_nadam optim nadam
 case init_uniform uniform 42 -1.0 3.0
 add_same in0 f32 0 37 5
 add_same in1 f32 740 37 5
@@ -1475,119 +1611,782 @@ resize_align_1 in0 f32 18214376 1 2 3 4
 resize_align_1 w f32 18214472 1 2 1 6
 resize_align_1 out f32 18214520 1 2 1 6
 resize_align_1 grad0 f32 18214568 1 2 3 4
-lstm in0 f32 18214664 5 3 4
-lstm in1 f32 18214904 24 4
-lstm in2 f32 18215288 24 6
-lstm in3 f32 18215864 24
-lstm in4 f32 18215960 24
-lstm in5 f32 18216056 3 6
-lstm in6 f32 18216128 3 6
-lstm w f32 18216200 5 3 6
-lstm out f32 18216560 5 3 6
-lstm grad0 f32 18216920 5 3 4
-lstm grad1 f32 18217160 24 4
-lstm grad2 f32 18217544 24 6
-lstm grad3 f32 18218120 24
-lstm grad4 f32 18218216 24
-lstm grad5 f32 18218312 3 6
-lstm grad6 f32 18218384 3 6
-lstm_t1 in0 f32 18218456 1 2 3
-lstm_t1 in1 f32 18218480 20 3
-lstm_t1 in2 f32 18218720 20 5
-lstm_t1 in3 f32 18219120 20
-lstm_t1 in4 f32 18219200 20
-lstm_t1 in5 f32 18219280 2 5
-lstm_t1 in6 f32 18219320 2 5
-lstm_t1 w f32 18219360 1 2 5
-lstm_t1 out f32 18219400 1 2 5
-lstm_t1 grad0 f32 18219440 1 2 3
-lstm_t1 grad1 f32 18219464 20 3
-lstm_t1 grad2 f32 18219704 20 5
-lstm_t1 grad3 f32 18220104 20
-lstm_t1 grad4 f32 18220184 20
-lstm_t1 grad5 f32 18220264 2 5
-lstm_t1 grad6 f32 18220304 2 5
-lstm_big in0 f32 18220344 9 4 16
-lstm_big in1 f32 18222648 132 16
-lstm_big in2 f32 18231096 132 33
-lstm_big in3 f32 18248520 132
-lstm_big in4 f32 18249048 132
-lstm_big in5 f32 18249576 4 33
-lstm_big in6 f32 18250104 4 33
-lstm_big w f32 18250632 9 4 33
-lstm_big out f32 18255384 9 4 33
-lstm_big grad0 f32 18260136 9 4 16
-lstm_big grad1 f32 18262440 132 16
-lstm_big grad2 f32 18270888 132 33
-lstm_big grad3 f32 18288312 132
-lstm_big grad4 f32 18288840 132
-lstm_big grad5 f32 18289368 4 33
-lstm_big grad6 f32 18289896 4 33
-gru in0 f32 18290424 5 3 4
-gru in1 f32 18290664 18 4
-gru in2 f32 18290952 18 6
-gru in3 f32 18291384 18
-gru in4 f32 18291456 18
-gru in5 f32 18291528 3 6
-gru w f32 18291600 5 3 6
-gru out f32 18291960 5 3 6
-gru grad0 f32 18292320 5 3 4
-gru grad1 f32 18292560 18 4
-gru grad2 f32 18292848 18 6
-gru grad3 f32 18293280 18
-gru grad4 f32 18293352 18
-gru grad5 f32 18293424 3 6
-gru_t1 in0 f32 18293496 1 2 3
-gru_t1 in1 f32 18293520 15 3
-gru_t1 in2 f32 18293700 15 5
-gru_t1 in3 f32 18294000 15
-gru_t1 in4 f32 18294060 15
-gru_t1 in5 f32 18294120 2 5
-gru_t1 w f32 18294160 1 2 5
-gru_t1 out f32 18294200 1 2 5
-gru_t1 grad0 f32 18294240 1 2 3
-gru_t1 grad1 f32 18294264 15 3
-gru_t1 grad2 f32 18294444 15 5
-gru_t1 grad3 f32 18294744 15
-gru_t1 grad4 f32 18294804 15
-gru_t1 grad5 f32 18294864 2 5
-gru_big in0 f32 18294904 9 4 16
-gru_big in1 f32 18297208 99 16
-gru_big in2 f32 18303544 99 33
-gru_big in3 f32 18316612 99
-gru_big in4 f32 18317008 99
-gru_big in5 f32 18317404 4 33
-gru_big w f32 18317932 9 4 33
-gru_big out f32 18322684 9 4 33
-gru_big grad0 f32 18327436 9 4 16
-gru_big grad1 f32 18329740 99 16
-gru_big grad2 f32 18336076 99 33
-gru_big grad3 f32 18349144 99
-gru_big grad4 f32 18349540 99
-gru_big grad5 f32 18349936 4 33
-opt_sgd p0 f32 18350464 37
-opt_sgd g0 f32 18350612 37
-opt_sgd g1 f32 18350760 37
-opt_sgd g2 f32 18350908 37
-opt_sgd out f32 18351056 37
-opt_sgd_momentum p0 f32 18351204 37
-opt_sgd_momentum g0 f32 18351352 37
-opt_sgd_momentum g1 f32 18351500 37
-opt_sgd_momentum g2 f32 18351648 37
-opt_sgd_momentum out f32 18351796 37
-opt_sgd_nesterov p0 f32 18351944 37
-opt_sgd_nesterov g0 f32 18352092 37
-opt_sgd_nesterov g1 f32 18352240 37
-opt_sgd_nesterov g2 f32 18352388 37
-opt_sgd_nesterov out f32 18352536 37
-opt_adam p0 f32 18352684 37
-opt_adam g0 f32 18352832 37
-opt_adam g1 f32 18352980 37
-opt_adam g2 f32 18353128 37
-opt_adam out f32 18353276 37
-opt_adamw p0 f32 18353424 37
-opt_adamw g0 f32 18353572 37
-opt_adamw g1 f32 18353720 37
-opt_adamw g2 f32 18353868 37
-opt_adamw out f32 18354016 37
-init_uniform out f32 18354164 4099
+elu in0 f32 18214664 13 11
+elu w f32 18215236 13 11
+elu out f32 18215808 13 11
+elu grad0 f32 18216380 13 11
+elu_0.5 in0 f32 18216952 13 11
+elu_0.5 w f32 18217524 13 11
+elu_0.5 out f32 18218096 13 11
+elu_0.5 grad0 f32 18218668 13 11
+selu in0 f32 18219240 13 11
+selu w f32 18219812 13 11
+selu out f32 18220384 13 11
+selu grad0 f32 18220956 13 11
+celu in0 f32 18221528 13 11
+celu w f32 18222100 13 11
+celu out f32 18222672 13 11
+celu grad0 f32 18223244 13 11
+mish in0 f32 18223816 13 11
+mish w f32 18224388 13 11
+mish out f32 18224960 13 11
+mish grad0 f32 18225532 13 11
+softsign in0 f32 18226104 13 11
+softsign w f32 18226676 13 11
+softsign out f32 18227248 13 11
+softsign grad0 f32 18227820 13 11
+hardsigmoid in0 f32 18228392 13 11
+hardsigmoid w f32 18228964 13 11
+hardsigmoid out f32 18229536 13 11
+hardsigmoid grad0 f32 18230108 13 11
+hardswish in0 f32 18230680 13 11
+hardswish w f32 18231252 13 11
+hardswish out f32 18231824 13 11
+hardswish grad0 f32 18232396 13 11
+hardtanh in0 f32 18232968 13 11
+hardtanh w f32 18233540 13 11
+hardtanh out f32 18234112 13 11
+hardtanh grad0 f32 18234684 13 11
+thresholded_relu in0 f32 18235256 13 11
+thresholded_relu w f32 18235828 13 11
+thresholded_relu out f32 18236400 13 11
+thresholded_relu grad0 f32 18236972 13 11
+cube in0 f32 18237544 13 11
+cube w f32 18238116 13 11
+cube out f32 18238688 13 11
+cube grad0 f32 18239260 13 11
+elu_small in0 f32 18239832 9 7
+elu_small w f32 18240084 9 7
+elu_small out f32 18240336 9 7
+elu_small grad0 f32 18240588 9 7
+prelu_shared in0 f32 18240840 4 3 5
+prelu_shared in1 f32 18241080 1
+prelu_shared w f32 18241084 4 3 5
+prelu_shared out f32 18241324 4 3 5
+prelu_shared grad0 f32 18241564 4 3 5
+prelu_shared grad1 f32 18241804 1
+prelu_channels in0 f32 18241808 2 6 4 3
+prelu_channels in1 f32 18242384 6
+prelu_channels w f32 18242408 2 6 4 3
+prelu_channels out f32 18242984 2 6 4 3
+prelu_channels grad0 f32 18243560 2 6 4 3
+prelu_channels grad1 f32 18244136 6
+rrelu_eval in0 f32 18244160 9 8
+rrelu_eval w f32 18244448 9 8
+rrelu_eval out f32 18244736 9 8
+rrelu_eval grad0 f32 18245024 9 8
+math_sin in0 f32 18245312 9 7
+math_sin w f32 18245564 9 7
+math_sin out f32 18245816 9 7
+math_sin grad0 f32 18246068 9 7
+math_cos in0 f32 18246320 9 7
+math_cos w f32 18246572 9 7
+math_cos out f32 18246824 9 7
+math_cos grad0 f32 18247076 9 7
+math_tan in0 f32 18247328 9 7
+math_tan w f32 18247580 9 7
+math_tan out f32 18247832 9 7
+math_tan grad0 f32 18248084 9 7
+math_asin in0 f32 18248336 9 7
+math_asin w f32 18248588 9 7
+math_asin out f32 18248840 9 7
+math_asin grad0 f32 18249092 9 7
+math_acos in0 f32 18249344 9 7
+math_acos w f32 18249596 9 7
+math_acos out f32 18249848 9 7
+math_acos grad0 f32 18250100 9 7
+math_atan in0 f32 18250352 9 7
+math_atan w f32 18250604 9 7
+math_atan out f32 18250856 9 7
+math_atan grad0 f32 18251108 9 7
+math_sinh in0 f32 18251360 9 7
+math_sinh w f32 18251612 9 7
+math_sinh out f32 18251864 9 7
+math_sinh grad0 f32 18252116 9 7
+math_cosh in0 f32 18252368 9 7
+math_cosh w f32 18252620 9 7
+math_cosh out f32 18252872 9 7
+math_cosh grad0 f32 18253124 9 7
+math_asinh in0 f32 18253376 9 7
+math_asinh w f32 18253628 9 7
+math_asinh out f32 18253880 9 7
+math_asinh grad0 f32 18254132 9 7
+math_acosh in0 f32 18254384 9 7
+math_acosh w f32 18254636 9 7
+math_acosh out f32 18254888 9 7
+math_acosh grad0 f32 18255140 9 7
+math_atanh in0 f32 18255392 9 7
+math_atanh w f32 18255644 9 7
+math_atanh out f32 18255896 9 7
+math_atanh grad0 f32 18256148 9 7
+math_erf in0 f32 18256400 9 7
+math_erf w f32 18256652 9 7
+math_erf out f32 18256904 9 7
+math_erf grad0 f32 18257156 9 7
+math_erfc in0 f32 18257408 9 7
+math_erfc w f32 18257660 9 7
+math_erfc out f32 18257912 9 7
+math_erfc grad0 f32 18258164 9 7
+math_log1p in0 f32 18258416 9 7
+math_log1p w f32 18258668 9 7
+math_log1p out f32 18258920 9 7
+math_log1p grad0 f32 18259172 9 7
+math_expm1 in0 f32 18259424 9 7
+math_expm1 w f32 18259676 9 7
+math_expm1 out f32 18259928 9 7
+math_expm1 grad0 f32 18260180 9 7
+math_sinh_small in0 f32 18260432 5 4
+math_sinh_small w f32 18260512 5 4
+math_sinh_small out f32 18260592 5 4
+math_sinh_small grad0 f32 18260672 5 4
+math_erf_small in0 f32 18260752 5 4
+math_erf_small w f32 18260832 5 4
+math_erf_small out f32 18260912 5 4
+math_erf_small grad0 f32 18260992 5 4
+math_expm1_small in0 f32 18261072 5 4
+math_expm1_small w f32 18261152 5 4
+math_expm1_small out f32 18261232 5 4
+math_expm1_small grad0 f32 18261312 5 4
+math_round in0 f32 18261392 40
+math_round w f32 18261552 40
+math_round out f32 18261712 40
+math_trunc in0 f32 18261872 40
+math_trunc w f32 18262032 40
+math_trunc out f32 18262192 40
+math_floor in0 f32 18262352 40
+math_floor w f32 18262512 40
+math_floor out f32 18262672 40
+math_ceil in0 f32 18262832 40
+math_ceil w f32 18262992 40
+math_ceil out f32 18263152 40
+math_sign in0 f32 18263312 40
+math_sign w f32 18263472 40
+math_sign out f32 18263632 40
+atan2 in0 f32 18263792 7 6
+atan2 in1 f32 18263960 7 6
+atan2 w f32 18264128 7 6
+atan2 out f32 18264296 7 6
+atan2 grad0 f32 18264464 7 6
+atan2 grad1 f32 18264632 7 6
+atan2_broadcast in0 f32 18264800 4 5
+atan2_broadcast in1 f32 18264880 5
+atan2_broadcast w f32 18264900 4 5
+atan2_broadcast out f32 18264980 4 5
+atan2_broadcast grad0 f32 18265060 4 5
+atan2_broadcast grad1 f32 18265140 5
+ne in0 f32 18265160 6 7
+ne in1 f32 18265328 7
+ne w f32 18265356 6 7
+ne out f32 18265524 6 7
+le in0 f32 18265692 6 7
+le in1 f32 18265860 7
+le w f32 18265888 6 7
+le out f32 18266056 6 7
+logical_and in0 f32 18266224 6 7
+logical_and in1 f32 18266392 7
+logical_and w f32 18266420 6 7
+logical_and out f32 18266588 6 7
+logical_or in0 f32 18266756 6 7
+logical_or in1 f32 18266924 7
+logical_or w f32 18266952 6 7
+logical_or out f32 18267120 6 7
+logical_xor in0 f32 18267288 6 7
+logical_xor in1 f32 18267456 7
+logical_xor w f32 18267484 6 7
+logical_xor out f32 18267652 6 7
+logical_not in0 f32 18267820 6 7
+logical_not w f32 18267988 6 7
+logical_not out f32 18268156 6 7
+where in0 f32 18268324 6 7
+where in1 f32 18268492 6 7
+where in2 f32 18268660 7
+where w f32 18268688 6 7
+where out f32 18268856 6 7
+where grad1 f32 18269024 6 7
+where grad2 f32 18269192 7
+one_hot in0 i32 18269220 7
+one_hot w f32 18269248 7 5
+one_hot out f32 18269388 7 5
+l1_mean in0 f32 18269528 6 7
+l1_mean in1 f32 18269696 6 7
+l1_mean w f32 18269864
+l1_mean out f32 18269868
+l1_mean grad0 f32 18269872 6 7
+l1_mean grad1 f32 18270040 6 7
+l1_none in0 f32 18270208 5 3
+l1_none in1 f32 18270268 5 3
+l1_none w f32 18270328 5 3
+l1_none out f32 18270388 5 3
+l1_none grad0 f32 18270448 5 3
+l1_none grad1 f32 18270508 5 3
+huber in0 f32 18270568 8 9
+huber in1 f32 18270856 8 9
+huber w f32 18271144
+huber out f32 18271148
+huber grad0 f32 18271152 8 9
+huber grad1 f32 18271440 8 9
+huber_0.3_sum in0 f32 18271728 6 5
+huber_0.3_sum in1 f32 18271848 6 5
+huber_0.3_sum w f32 18271968
+huber_0.3_sum out f32 18271972
+huber_0.3_sum grad0 f32 18271976 6 5
+huber_0.3_sum grad1 f32 18272096 6 5
+smooth_l1 in0 f32 18272216 8 9
+smooth_l1 in1 f32 18272504 8 9
+smooth_l1 w f32 18272792
+smooth_l1 out f32 18272796
+smooth_l1 grad0 f32 18272800 8 9
+smooth_l1 grad1 f32 18273088 8 9
+nll_mean in0 f32 18273376 9 6
+nll_mean in1 i32 18273592 9
+nll_mean w f32 18273628
+nll_mean out f32 18273632
+nll_mean grad0 f32 18273636 9 6
+hinge in0 f32 18273852 7 5
+hinge in1 f32 18273992 7 5
+hinge w f32 18274132
+hinge out f32 18274136
+hinge grad0 f32 18274140 7 5
+hinge grad1 f32 18274280 7 5
+squared_hinge in0 f32 18274420 7 5
+squared_hinge in1 f32 18274560 7 5
+squared_hinge w f32 18274700
+squared_hinge out f32 18274704
+squared_hinge grad0 f32 18274708 7 5
+squared_hinge grad1 f32 18274848 7 5
+cosine_similarity in0 f32 18274988 6 9
+cosine_similarity in1 f32 18275204 6 9
+cosine_similarity w f32 18275420 6
+cosine_similarity out f32 18275444 6
+cosine_similarity grad0 f32 18275468 6 9
+cosine_similarity grad1 f32 18275684 6 9
+cosine_proximity in0 f32 18275900 6 9
+cosine_proximity in1 f32 18276116 6 9
+cosine_proximity w f32 18276332
+cosine_proximity out f32 18276336
+cosine_proximity grad0 f32 18276340 6 9
+cosine_proximity grad1 f32 18276556 6 9
+poisson_log in0 f32 18276772 6 5
+poisson_log in1 f32 18276892 6 5
+poisson_log w f32 18277012
+poisson_log out f32 18277016
+poisson_log grad0 f32 18277020 6 5
+poisson_log grad1 f32 18277140 6 5
+poisson in0 f32 18277260 6 5
+poisson in1 f32 18277380 6 5
+poisson w f32 18277500
+poisson out f32 18277504
+poisson grad0 f32 18277508 6 5
+poisson grad1 f32 18277628 6 5
+msle in0 f32 18277748 6 5
+msle in1 f32 18277868 6 5
+msle w f32 18277988
+msle out f32 18277992
+msle grad0 f32 18277996 6 5
+msle grad1 f32 18278116 6 5
+mape in0 f32 18278236 6 5
+mape in1 f32 18278356 6 5
+mape w f32 18278476
+mape out f32 18278480
+mape grad0 f32 18278484 6 5
+mape grad1 f32 18278604 6 5
+group_norm in0 f32 18278724 2 6 4 5
+group_norm in1 f32 18279684 6
+group_norm in2 f32 18279708 6
+group_norm w f32 18279732 2 6 4 5
+group_norm out f32 18280692 2 6 4 5
+group_norm grad0 f32 18281652 2 6 4 5
+group_norm grad1 f32 18282612 6
+group_norm grad2 f32 18282636 6
+group_norm_1 in0 f32 18282660 3 4 7
+group_norm_1 in1 f32 18282996 4
+group_norm_1 in2 f32 18283012 4
+group_norm_1 w f32 18283028 3 4 7
+group_norm_1 out f32 18283364 3 4 7
+group_norm_1 grad0 f32 18283700 3 4 7
+group_norm_1 grad1 f32 18284036 4
+group_norm_1 grad2 f32 18284052 4
+instance_norm in0 f32 18284068 2 3 6 5
+instance_norm w f32 18284788 2 3 6 5
+instance_norm out f32 18285508 2 3 6 5
+instance_norm grad0 f32 18286228 2 3 6 5
+lrn in0 f32 18286948 2 7 4 3
+lrn w f32 18287620 2 7 4 3
+lrn out f32 18288292 2 7 4 3
+lrn grad0 f32 18288964 2 7 4 3
+lrn_even in0 f32 18289636 1 9 5
+lrn_even w f32 18289816 1 9 5
+lrn_even out f32 18289996 1 9 5
+lrn_even grad0 f32 18290176 1 9 5
+weight_norm in0 f32 18290356 5 3 2 2
+weight_norm in1 f32 18290596 5
+weight_norm w f32 18290616 5 3 2 2
+weight_norm out f32 18290856 5 3 2 2
+weight_norm grad0 f32 18291096 5 3 2 2
+weight_norm grad1 f32 18291336 5
+conv1d in0 f32 18291356 2 3 11
+conv1d in1 f32 18291620 5 3 3
+conv1d in2 f32 18291800 5
+conv1d w f32 18291820 2 5 6
+conv1d out f32 18292060 2 5 6
+conv1d grad0 f32 18292300 2 3 11
+conv1d grad1 f32 18292564 5 3 3
+conv1d grad2 f32 18292744 5
+conv1d_dil in0 f32 18292764 1 4 9
+conv1d_dil in1 f32 18292908 3 4 3
+conv1d_dil in2 f32 18293052 3
+conv1d_dil w f32 18293064 1 3 9
+conv1d_dil out f32 18293172 1 3 9
+conv1d_dil grad0 f32 18293280 1 4 9
+conv1d_dil grad1 f32 18293424 3 4 3
+conv1d_dil grad2 f32 18293568 3
+conv3d in0 f32 18293580 1 2 4 5 3
+conv3d in1 f32 18294060 3 2 3 3 3
+conv3d in2 f32 18294708 3
+conv3d w f32 18294720 1 3 4 5 3
+conv3d out f32 18295440 1 3 4 5 3
+conv3d grad0 f32 18296160 1 2 4 5 3
+conv3d grad1 f32 18296640 3 2 3 3 3
+conv3d grad2 f32 18297288 3
+conv3d_s2 in0 f32 18297300 2 2 5 4 6
+conv3d_s2 in1 f32 18299220 4 2 2 2 2
+conv3d_s2 in2 f32 18299476 4
+conv3d_s2 w f32 18299492 2 4 2 2 3
+conv3d_s2 out f32 18299876 2 4 2 2 3
+conv3d_s2 grad0 f32 18300260 2 2 5 4 6
+conv3d_s2 grad1 f32 18302180 4 2 2 2 2
+conv3d_s2 grad2 f32 18302436 4
+max_pool1d in0 f32 18302452 2 3 11
+max_pool1d w f32 18302716 2 3 6
+max_pool1d out f32 18302860 2 3 6
+max_pool1d grad0 f32 18303004 2 3 11
+avg_pool1d in0 f32 18303268 2 3 11
+avg_pool1d w f32 18303532 2 3 6
+avg_pool1d out f32 18303676 2 3 6
+avg_pool1d grad0 f32 18303820 2 3 11
+max_pool3d in0 f32 18304084 1 2 5 4 6
+max_pool3d w f32 18305044 1 2 3 2 3
+max_pool3d out f32 18305188 1 2 3 2 3
+max_pool3d grad0 f32 18305332 1 2 5 4 6
+avg_pool3d in0 f32 18306292 1 2 5 4 6
+avg_pool3d w f32 18307252 1 2 3 2 3
+avg_pool3d out f32 18307396 1 2 3 2 3
+avg_pool3d grad0 f32 18307540 1 2 5 4 6
+max_pool1d_k2 in0 f32 18308500 2 2 8
+max_pool1d_k2 w f32 18308628 2 2 4
+max_pool1d_k2 out f32 18308692 2 2 4
+max_pool1d_k2 grad0 f32 18308756 2 2 8
+adaptive_avg_1d_4 in0 f32 18308884 2 3 10
+adaptive_avg_1d_4 w f32 18309124 2 3 4
+adaptive_avg_1d_4 out f32 18309220 2 3 4
+adaptive_avg_1d_4 grad0 f32 18309316 2 3 10
+adaptive_avg_2d_3x4 in0 f32 18309556 1 2 7 9
+adaptive_avg_2d_3x4 w f32 18310060 1 2 3 4
+adaptive_avg_2d_3x4 out f32 18310156 1 2 3 4
+adaptive_avg_2d_3x4 grad0 f32 18310252 1 2 7 9
+adaptive_avg_3d_2x3x3 in0 f32 18310756 1 2 5 6 7
+adaptive_avg_3d_2x3x3 w f32 18312436 1 2 2 3 3
+adaptive_avg_3d_2x3x3 out f32 18312580 1 2 2 3 3
+adaptive_avg_3d_2x3x3 grad0 f32 18312724 1 2 5 6 7
+adaptive_max_1d_4 in0 f32 18314404 2 3 10
+adaptive_max_1d_4 w f32 18314644 2 3 4
+adaptive_max_1d_4 out f32 18314740 2 3 4
+adaptive_max_1d_4 grad0 f32 18314836 2 3 10
+adaptive_max_2d_3x4 in0 f32 18315076 1 2 7 9
+adaptive_max_2d_3x4 w f32 18315580 1 2 3 4
+adaptive_max_2d_3x4 out f32 18315676 1 2 3 4
+adaptive_max_2d_3x4 grad0 f32 18315772 1 2 7 9
+adaptive_avg_2d_1x1 in0 f32 18316276 1 3 6 6
+adaptive_avg_2d_1x1 w f32 18316708 1 3 1 1
+adaptive_avg_2d_1x1 out f32 18316720 1 3 1 1
+adaptive_avg_2d_1x1 grad0 f32 18316732 1 3 6 6
+pad1d_m0 in0 f32 18317164 2 3 6
+pad1d_m0 w f32 18317308 2 3 11
+pad1d_m0 out f32 18317572 2 3 11
+pad1d_m0 grad0 f32 18317836 2 3 6
+pad2d_m0 in0 f32 18317980 1 2 4 5
+pad2d_m0 w f32 18318140 1 2 7 8
+pad2d_m0 out f32 18318588 1 2 7 8
+pad2d_m0 grad0 f32 18319036 1 2 4 5
+pad1d_m1 in0 f32 18319196 2 3 6
+pad1d_m1 w f32 18319340 2 3 11
+pad1d_m1 out f32 18319604 2 3 11
+pad1d_m1 grad0 f32 18319868 2 3 6
+pad2d_m1 in0 f32 18320012 1 2 4 5
+pad2d_m1 w f32 18320172 1 2 7 8
+pad2d_m1 out f32 18320620 1 2 7 8
+pad2d_m1 grad0 f32 18321068 1 2 4 5
+pad1d_m2 in0 f32 18321228 2 3 6
+pad1d_m2 w f32 18321372 2 3 11
+pad1d_m2 out f32 18321636 2 3 11
+pad1d_m2 grad0 f32 18321900 2 3 6
+pad2d_m2 in0 f32 18322044 1 2 4 5
+pad2d_m2 w f32 18322204 1 2 7 8
+pad2d_m2 out f32 18322652 1 2 7 8
+pad2d_m2 grad0 f32 18323100 1 2 4 5
+pad3d_reflect in0 f32 18323260 1 1 3 4 3
+pad3d_reflect w f32 18323404 1 1 5 6 5
+pad3d_reflect out f32 18324004 1 1 5 6 5
+pad3d_reflect grad0 f32 18324604 1 1 3 4 3
+cumsum_0 in0 f32 18324748 7 5
+cumsum_0 w f32 18324888 7 5
+cumsum_0 out f32 18325028 7 5
+cumsum_0 grad0 f32 18325168 7 5
+cumsum_last in0 f32 18325308 3 4 9
+cumsum_last w f32 18325740 3 4 9
+cumsum_last out f32 18326172 3 4 9
+cumsum_last grad0 f32 18326604 3 4 9
+cumprod_1 in0 f32 18327036 4 6 3
+cumprod_1 w f32 18327324 4 6 3
+cumprod_1 out f32 18327612 4 6 3
+cumprod_1 grad0 f32 18327900 4 6 3
+cumprod_zeros in0 f32 18328188 3 7
+cumprod_zeros w f32 18328272 3 7
+cumprod_zeros out f32 18328356 3 7
+cumprod_zeros grad0 f32 18328440 3 7
+sort_asc in0 f32 18328524 5 13
+sort_asc w f32 18328784 5 13
+sort_asc out f32 18329044 5 13
+sort_asc grad0 f32 18329304 5 13
+sort_desc_axis0 in0 f32 18329564 9 4
+sort_desc_axis0 w f32 18329708 9 4
+sort_desc_axis0 out f32 18329852 9 4
+sort_desc_axis0 grad0 f32 18329996 9 4
+sort_ties in0 f32 18330140 4 11
+sort_ties w f32 18330316 4 11
+sort_ties out f32 18330492 4 11
+sort_ties grad0 f32 18330668 4 11
+argsort_ties in0 f32 18330844 4 11
+argsort_ties out i32 18331020 4 11
+argsort_desc in0 f32 18331196 4 11
+argsort_desc out i32 18331372 4 11
+index_select_0 in0 f32 18331548 6 5
+index_select_0 in1 i32 18331668 4
+index_select_0 w f32 18331684 4 5
+index_select_0 out f32 18331764 4 5
+index_select_0 grad0 f32 18331844 6 5
+index_select_1 in0 f32 18331964 3 7 2
+index_select_1 in1 i32 18332132 5
+index_select_1 w f32 18332152 3 5 2
+index_select_1 out f32 18332272 3 5 2
+index_select_1 grad0 f32 18332392 3 7 2
+gather_1 in0 f32 18332560 4 6
+gather_1 in1 i32 18332656 4 3
+gather_1 w f32 18332704 4 3
+gather_1 out f32 18332752 4 3
+gather_1 grad0 f32 18332800 4 6
+gather_0 in0 f32 18332896 5 3 2
+gather_0 in1 i32 18333016 7 3 2
+gather_0 w f32 18333184 7 3 2
+gather_0 out f32 18333352 7 3 2
+gather_0 grad0 f32 18333520 5 3 2
+scatter_add in0 f32 18333640 4 6
+scatter_add in1 i32 18333736 4 9
+scatter_add in2 f32 18333880 4 9
+scatter_add w f32 18334024 4 6
+scatter_add out f32 18334120 4 6
+scatter_add grad0 f32 18334216 4 6
+scatter_add grad2 f32 18334312 4 9
+scatter_unique in0 f32 18334456 3 6
+scatter_unique in1 i32 18334528 3 4
+scatter_unique in2 f32 18334576 3 4
+scatter_unique w f32 18334624 3 6
+scatter_unique out f32 18334696 3 6
+embedding_bag_m0 in0 i32 18334768 10
+embedding_bag_m0 in1 f32 18334808 10 5
+embedding_bag_m0 w f32 18335008 4 5
+embedding_bag_m0 out f32 18335088 4 5
+embedding_bag_m0 grad1 f32 18335168 10 5
+embedding_bag_m1 in0 i32 18335368 10
+embedding_bag_m1 in1 f32 18335408 10 5
+embedding_bag_m1 w f32 18335608 4 5
+embedding_bag_m1 out f32 18335688 4 5
+embedding_bag_m1 grad1 f32 18335768 10 5
+embedding_bag_m2 in0 i32 18335968 10
+embedding_bag_m2 in1 f32 18336008 10 5
+embedding_bag_m2 w f32 18336208 4 5
+embedding_bag_m2 out f32 18336288 4 5
+embedding_bag_m2 grad1 f32 18336368 10 5
+lstm_masked in0 f32 18336568 5 3 4
+lstm_masked in1 f32 18336808 24 4
+lstm_masked in2 f32 18337192 24 6
+lstm_masked in3 f32 18337768 24
+lstm_masked in4 f32 18337864 24
+lstm_masked in5 f32 18337960 1 3 6
+lstm_masked in6 f32 18338032 1 3 6
+lstm_masked w f32 18338104 5 3 6
+lstm_masked out f32 18338464 5 3 6
+lstm_masked grad0 f32 18338824 5 3 4
+lstm_masked grad1 f32 18339064 24 4
+lstm_masked grad2 f32 18339448 24 6
+lstm_masked grad3 f32 18340024 24
+lstm_masked grad4 f32 18340120 24
+lstm_masked grad5 f32 18340216 1 3 6
+lstm_masked grad6 f32 18340288 1 3 6
+lstm_bidirectional in0 f32 18340360 4 2 3
+lstm_bidirectional in1 f32 18340456 20 3
+lstm_bidirectional in2 f32 18340696 20 5
+lstm_bidirectional in3 f32 18341096 20
+lstm_bidirectional in4 f32 18341176 20
+lstm_bidirectional in5 f32 18341256 20 3
+lstm_bidirectional in6 f32 18341496 20 5
+lstm_bidirectional in7 f32 18341896 20
+lstm_bidirectional in8 f32 18341976 20
+lstm_bidirectional w f32 18342056 4 2 10
+lstm_bidirectional out f32 18342376 4 2 10
+lstm_bidirectional grad0 f32 18342696 4 2 3
+lstm_bidirectional grad1 f32 18342792 20 3
+lstm_bidirectional grad2 f32 18343032 20 5
+lstm_bidirectional grad3 f32 18343432 20
+lstm_bidirectional grad4 f32 18343512 20
+lstm_bidirectional grad5 f32 18343592 20 3
+lstm_bidirectional grad6 f32 18343832 20 5
+lstm_bidirectional grad7 f32 18344232 20
+lstm_bidirectional grad8 f32 18344312 20
+gru_bidirectional_masked in0 f32 18344392 6 3 4
+gru_bidirectional_masked in1 f32 18344680 15 4
+gru_bidirectional_masked in2 f32 18344920 15 5
+gru_bidirectional_masked in3 f32 18345220 15
+gru_bidirectional_masked in4 f32 18345280 15
+gru_bidirectional_masked in5 f32 18345340 15 4
+gru_bidirectional_masked in6 f32 18345580 15 5
+gru_bidirectional_masked in7 f32 18345880 15
+gru_bidirectional_masked in8 f32 18345940 15
+gru_bidirectional_masked w f32 18346000 6 3 10
+gru_bidirectional_masked out f32 18346720 6 3 10
+gru_bidirectional_masked grad0 f32 18347440 6 3 4
+gru_bidirectional_masked grad1 f32 18347728 15 4
+gru_bidirectional_masked grad2 f32 18347968 15 5
+gru_bidirectional_masked grad3 f32 18348268 15
+gru_bidirectional_masked grad4 f32 18348328 15
+gru_bidirectional_masked grad5 f32 18348388 15 4
+gru_bidirectional_masked grad6 f32 18348628 15 5
+gru_bidirectional_masked grad7 f32 18348928 15
+gru_bidirectional_masked grad8 f32 18348988 15
+flip_hw in0 f32 18349048 2 3 4 5
+flip_hw w f32 18349528 2 3 4 5
+flip_hw out f32 18350008 2 3 4 5
+flip_hw grad0 f32 18350488 2 3 4 5
+flip_c in0 f32 18350968 2 3 4 5
+flip_c w f32 18351448 2 3 4 5
+flip_c out f32 18351928 2 3 4 5
+flip_c grad0 f32 18352408 2 3 4 5
+center_crop in0 f32 18352888 2 3 6 7
+center_crop w f32 18353896 2 3 3 4
+center_crop out f32 18354184 2 3 3 4
+center_crop grad0 f32 18354472 2 3 6 7
+normalize_image in0 f32 18355480 2 3 4 5
+normalize_image w f32 18355960 2 3 4 5
+normalize_image out f32 18356440 2 3 4 5
+normalize_image grad0 f32 18356920 2 3 4 5
+rgb_to_grayscale in0 f32 18357400 2 3 4 5
+rgb_to_grayscale w f32 18357880 2 1 4 5
+rgb_to_grayscale out f32 18358040 2 1 4 5
+rgb_to_grayscale grad0 f32 18358200 2 3 4 5
+isnan in0 f32 18358680 6 7
+isnan w f32 18358848 6 7
+isnan out f32 18359016 6 7
+isinf in0 f32 18359184 6 7
+isinf w f32 18359352 6 7
+isinf out f32 18359520 6 7
+isfinite in0 f32 18359688 6 7
+isfinite w f32 18359856 6 7
+isfinite out f32 18360024 6 7
+nan_to_num in0 f32 18360192 6 7
+nan_to_num w f32 18360360 6 7
+nan_to_num out f32 18360528 6 7
+nan_to_num_grad in0 f32 18360696 4 5
+nan_to_num_grad w f32 18360776 4 5
+nan_to_num_grad out f32 18360856 4 5
+nan_to_num_grad grad0 f32 18360936 4 5
+maximum_nan in0 f32 18361016 6 7
+maximum_nan in1 f32 18361184 6 7
+maximum_nan w f32 18361352 6 7
+maximum_nan out f32 18361520 6 7
+maximum_nan_plain in0 f32 18361688 5 6
+maximum_nan_plain in1 f32 18361808 6
+maximum_nan_plain w f32 18361832 5 6
+maximum_nan_plain out f32 18361952 5 6
+maximum_nan_plain grad0 f32 18362072 5 6
+maximum_nan_plain grad1 f32 18362192 6
+minimum_nan in0 f32 18362216 6 7
+minimum_nan in1 f32 18362384 6 7
+minimum_nan w f32 18362552 6 7
+minimum_nan out f32 18362720 6 7
+minimum_nan_plain in0 f32 18362888 5 6
+minimum_nan_plain in1 f32 18363008 6
+minimum_nan_plain w f32 18363032 5 6
+minimum_nan_plain out f32 18363152 5 6
+minimum_nan_plain grad0 f32 18363272 5 6
+minimum_nan_plain grad1 f32 18363392 6
+fmax in0 f32 18363416 6 7
+fmax in1 f32 18363584 6 7
+fmax w f32 18363752 6 7
+fmax out f32 18363920 6 7
+fmax_plain in0 f32 18364088 5 6
+fmax_plain in1 f32 18364208 6
+fmax_plain w f32 18364232 5 6
+fmax_plain out f32 18364352 5 6
+fmax_plain grad0 f32 18364472 5 6
+fmax_plain grad1 f32 18364592 6
+fmin in0 f32 18364616 6 7
+fmin in1 f32 18364784 6 7
+fmin w f32 18364952 6 7
+fmin out f32 18365120 6 7
+fmin_plain in0 f32 18365288 5 6
+fmin_plain in1 f32 18365408 6
+fmin_plain w f32 18365432 5 6
+fmin_plain out f32 18365552 5 6
+fmin_plain grad0 f32 18365672 5 6
+fmin_plain grad1 f32 18365792 6
+lstm in0 f32 18365816 5 3 4
+lstm in1 f32 18366056 24 4
+lstm in2 f32 18366440 24 6
+lstm in3 f32 18367016 24
+lstm in4 f32 18367112 24
+lstm in5 f32 18367208 3 6
+lstm in6 f32 18367280 3 6
+lstm w f32 18367352 5 3 6
+lstm out f32 18367712 5 3 6
+lstm grad0 f32 18368072 5 3 4
+lstm grad1 f32 18368312 24 4
+lstm grad2 f32 18368696 24 6
+lstm grad3 f32 18369272 24
+lstm grad4 f32 18369368 24
+lstm grad5 f32 18369464 3 6
+lstm grad6 f32 18369536 3 6
+lstm_t1 in0 f32 18369608 1 2 3
+lstm_t1 in1 f32 18369632 20 3
+lstm_t1 in2 f32 18369872 20 5
+lstm_t1 in3 f32 18370272 20
+lstm_t1 in4 f32 18370352 20
+lstm_t1 in5 f32 18370432 2 5
+lstm_t1 in6 f32 18370472 2 5
+lstm_t1 w f32 18370512 1 2 5
+lstm_t1 out f32 18370552 1 2 5
+lstm_t1 grad0 f32 18370592 1 2 3
+lstm_t1 grad1 f32 18370616 20 3
+lstm_t1 grad2 f32 18370856 20 5
+lstm_t1 grad3 f32 18371256 20
+lstm_t1 grad4 f32 18371336 20
+lstm_t1 grad5 f32 18371416 2 5
+lstm_t1 grad6 f32 18371456 2 5
+lstm_big in0 f32 18371496 9 4 16
+lstm_big in1 f32 18373800 132 16
+lstm_big in2 f32 18382248 132 33
+lstm_big in3 f32 18399672 132
+lstm_big in4 f32 18400200 132
+lstm_big in5 f32 18400728 4 33
+lstm_big in6 f32 18401256 4 33
+lstm_big w f32 18401784 9 4 33
+lstm_big out f32 18406536 9 4 33
+lstm_big grad0 f32 18411288 9 4 16
+lstm_big grad1 f32 18413592 132 16
+lstm_big grad2 f32 18422040 132 33
+lstm_big grad3 f32 18439464 132
+lstm_big grad4 f32 18439992 132
+lstm_big grad5 f32 18440520 4 33
+lstm_big grad6 f32 18441048 4 33
+gru in0 f32 18441576 5 3 4
+gru in1 f32 18441816 18 4
+gru in2 f32 18442104 18 6
+gru in3 f32 18442536 18
+gru in4 f32 18442608 18
+gru in5 f32 18442680 3 6
+gru w f32 18442752 5 3 6
+gru out f32 18443112 5 3 6
+gru grad0 f32 18443472 5 3 4
+gru grad1 f32 18443712 18 4
+gru grad2 f32 18444000 18 6
+gru grad3 f32 18444432 18
+gru grad4 f32 18444504 18
+gru grad5 f32 18444576 3 6
+gru_t1 in0 f32 18444648 1 2 3
+gru_t1 in1 f32 18444672 15 3
+gru_t1 in2 f32 18444852 15 5
+gru_t1 in3 f32 18445152 15
+gru_t1 in4 f32 18445212 15
+gru_t1 in5 f32 18445272 2 5
+gru_t1 w f32 18445312 1 2 5
+gru_t1 out f32 18445352 1 2 5
+gru_t1 grad0 f32 18445392 1 2 3
+gru_t1 grad1 f32 18445416 15 3
+gru_t1 grad2 f32 18445596 15 5
+gru_t1 grad3 f32 18445896 15
+gru_t1 grad4 f32 18445956 15
+gru_t1 grad5 f32 18446016 2 5
+gru_big in0 f32 18446056 9 4 16
+gru_big in1 f32 18448360 99 16
+gru_big in2 f32 18454696 99 33
+gru_big in3 f32 18467764 99
+gru_big in4 f32 18468160 99
+gru_big in5 f32 18468556 4 33
+gru_big w f32 18469084 9 4 33
+gru_big out f32 18473836 9 4 33
+gru_big grad0 f32 18478588 9 4 16
+gru_big grad1 f32 18480892 99 16
+gru_big grad2 f32 18487228 99 33
+gru_big grad3 f32 18500296 99
+gru_big grad4 f32 18500692 99
+gru_big grad5 f32 18501088 4 33
+opt_sgd p0 f32 18501616 37
+opt_sgd g0 f32 18501764 37
+opt_sgd g1 f32 18501912 37
+opt_sgd g2 f32 18502060 37
+opt_sgd out f32 18502208 37
+opt_sgd_momentum p0 f32 18502356 37
+opt_sgd_momentum g0 f32 18502504 37
+opt_sgd_momentum g1 f32 18502652 37
+opt_sgd_momentum g2 f32 18502800 37
+opt_sgd_momentum out f32 18502948 37
+opt_sgd_nesterov p0 f32 18503096 37
+opt_sgd_nesterov g0 f32 18503244 37
+opt_sgd_nesterov g1 f32 18503392 37
+opt_sgd_nesterov g2 f32 18503540 37
+opt_sgd_nesterov out f32 18503688 37
+opt_adam p0 f32 18503836 37
+opt_adam g0 f32 18503984 37
+opt_adam g1 f32 18504132 37
+opt_adam g2 f32 18504280 37
+opt_adam out f32 18504428 37
+opt_adamw p0 f32 18504576 37
+opt_adamw g0 f32 18504724 37
+opt_adamw g1 f32 18504872 37
+opt_adamw g2 f32 18505020 37
+opt_adamw out f32 18505168 37
+opt_amsgrad p0 f32 18505316 37
+opt_amsgrad g0 f32 18505464 37
+opt_amsgrad g1 f32 18505612 37
+opt_amsgrad g2 f32 18505760 37
+opt_amsgrad out f32 18505908 37
+opt_adagrad p0 f32 18506056 37
+opt_adagrad g0 f32 18506204 37
+opt_adagrad g1 f32 18506352 37
+opt_adagrad g2 f32 18506500 37
+opt_adagrad out f32 18506648 37
+opt_rmsprop p0 f32 18506796 37
+opt_rmsprop g0 f32 18506944 37
+opt_rmsprop g1 f32 18507092 37
+opt_rmsprop g2 f32 18507240 37
+opt_rmsprop out f32 18507388 37
+opt_rmsprop_centered_momentum p0 f32 18507536 37
+opt_rmsprop_centered_momentum g0 f32 18507684 37
+opt_rmsprop_centered_momentum g1 f32 18507832 37
+opt_rmsprop_centered_momentum g2 f32 18507980 37
+opt_rmsprop_centered_momentum out f32 18508128 37
+opt_adadelta p0 f32 18508276 37
+opt_adadelta g0 f32 18508424 37
+opt_adadelta g1 f32 18508572 37
+opt_adadelta g2 f32 18508720 37
+opt_adadelta out f32 18508868 37
+opt_adamax p0 f32 18509016 37
+opt_adamax g0 f32 18509164 37
+opt_adamax g1 f32 18509312 37
+opt_adamax g2 f32 18509460 37
+opt_adamax out f32 18509608 37
+opt_nadam p0 f32 18509756 37
+opt_nadam g0 f32 18509904 37
+opt_nadam g1 f32 18510052 37
+opt_nadam g2 f32 18510200 37
+opt_nadam out f32 18510348 37
+init_uniform out f32 18510496 4099
