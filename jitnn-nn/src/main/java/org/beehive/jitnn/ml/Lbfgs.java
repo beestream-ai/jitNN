@@ -7,8 +7,9 @@ import java.util.function.Function;
 import org.beehive.jitnn.Tensor;
 
 /**
- * Limited-memory BFGS (Nocedal and Wright, algorithm 7.4) with a backtracking Armijo line search,
- * for the smooth convex objectives of the linear models. The parameters are a small host vector;
+ * Limited-memory BFGS (Nocedal and Wright, algorithm 7.4) for the smooth convex objectives of the
+ * linear models, with a line search on the directional derivative (FP32 objective values are too
+ * coarse to compare near the optimum). Stops when the largest gradient entry is at most tol. The parameters are a small host vector;
  * each evaluation runs the objective and its gradient on the device through autograd.
  */
 final class Lbfgs {
@@ -60,17 +61,28 @@ final class Lbfgs {
                 slope = -dot(g, g);
                 pairs.clear();
             }
-            double step = pairs.isEmpty() && it == 0 ? Math.min(1.0, 1.0 / Math.max(maxAbs(g), 1e-12)) : 1.0;
+            // line search on the directional derivative phi'(a) = g(x + a d) . d, which FP32 resolves
+            // long after differences of the objective stop resolving: strong Wolfe curvature
+            double lo = 0;
+            double hi = Double.POSITIVE_INFINITY;
+            double step = pairs.isEmpty() ? Math.min(1.0, 1.0 / Math.max(maxAbs(g), 1e-12)) : 1.0;
             double[] xn = null;
             double[][] fgn = null;
             for (int ls = 0; ls < 40; ls++) {
                 xn = x.clone();
                 axpy(step, d, xn);
                 fgn = evaluate(objective, xn, shape);
-                if (fgn[0][0] <= fg[0][0] + 1e-4 * step * slope) {
+                double deriv = dot(fgn[1], d);
+                boolean worse = fgn[0][0] > fg[0][0] + 1e-5 * Math.abs(fg[0][0]);
+                if (!worse && Math.abs(deriv) <= 0.9 * Math.abs(slope)) {
                     break;
                 }
-                step *= 0.5;
+                if (worse || deriv > 0) {
+                    hi = step;
+                } else {
+                    lo = step;
+                }
+                step = Double.isInfinite(hi) ? 2 * step : 0.5 * (lo + hi);
             }
             double[] s = new double[n];
             double[] y = new double[n];
@@ -78,16 +90,15 @@ final class Lbfgs {
                 s[k] = xn[k] - x[k];
                 y[k] = fgn[1][k] - g[k];
             }
-            boolean stalled = Math.abs(fg[0][0] - fgn[0][0]) <= 1e-12 * Math.max(1, Math.abs(fg[0][0]));
             x = xn;
             fg = fgn;
-            if (dot(s, y) > 1e-12) {
+            if (dot(s, y) > 1e-20) {
                 pairs.addLast(new double[][] { s, y });
                 if (pairs.size() > memory) {
                     pairs.removeFirst();
                 }
             }
-            if (stalled) {
+            if (Math.sqrt(dot(s, s)) <= 1e-12 * Math.max(1.0, Math.sqrt(dot(x, x)))) {
                 break;
             }
         }
