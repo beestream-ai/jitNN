@@ -6,34 +6,45 @@ import uk.ac.manchester.tornado.api.enums.TornadoVMBackendType;
 
 /**
  * The device compiled plans run on: {@code -Djitnn.device=<driver>:<device>} (the numbering of
- * {@code tornado --devices}), else TornadoVM's default device.
+ * {@code tornado --devices}), else TornadoVM's default device; a thread may run on another device
+ * with {@link Engine#onDevice} (one thread per rank in data-parallel training).
  */
 final class Devices {
 
     private static final String SPEC = System.getProperty("jitnn.device", "").trim();
+    private static final ThreadLocal<String> CURRENT = ThreadLocal.withInitial(() -> SPEC);
+    private static final java.util.Map<String, TornadoVMBackendType> BACKENDS = new java.util.concurrent.ConcurrentHashMap<>();
 
     private Devices() {
     }
 
     static String key() {
-        return SPEC.isEmpty() ? "default" : SPEC;
+        String spec = CURRENT.get();
+        return spec.isEmpty() ? "default" : spec;
     }
 
-    private static volatile TornadoVMBackendType backend;
+    /** The device spec of this thread ("" for TornadoVM's default device). */
+    static String current() {
+        return CURRENT.get();
+    }
+
+    static void set(String spec) {
+        CURRENT.set(spec == null ? SPEC : spec.trim());
+    }
 
     /** The backend type of the device plans run on. */
     static TornadoVMBackendType backend() {
-        if (backend == null) {
+        return BACKENDS.computeIfAbsent(key(), k -> {
+            String spec = CURRENT.get();
             TornadoDevice d;
-            if (SPEC.isEmpty()) {
+            if (spec.isEmpty()) {
                 d = TornadoExecutionPlan.DEFAULT_DEVICE;
             } else {
-                String[] parts = SPEC.split(":");
+                String[] parts = spec.split(":");
                 d = TornadoExecutionPlan.getDevice(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
             }
-            backend = d.getTornadoVMBackend();
-        }
-        return backend;
+            return d.getTornadoVMBackend();
+        });
     }
 
     /**
@@ -45,16 +56,18 @@ final class Devices {
      * Metal simdgroup matrix calls, which fail to sketch on OpenCL.
      */
     static void pin(String graphName) {
-        if (!SPEC.isEmpty()) {
-            System.setProperty(graphName + ".device", SPEC);
+        String spec = CURRENT.get();
+        if (!spec.isEmpty()) {
+            System.setProperty(graphName + ".device", spec);
         }
     }
 
     static void apply(TornadoExecutionPlan plan) {
-        if (SPEC.isEmpty()) {
+        String spec = CURRENT.get();
+        if (spec.isEmpty()) {
             return;
         }
-        String[] parts = SPEC.split(":");
+        String[] parts = spec.split(":");
         TornadoDevice device = TornadoExecutionPlan.getDevice(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
         plan.withDevice(device);
     }

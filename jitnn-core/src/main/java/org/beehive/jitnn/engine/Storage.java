@@ -131,6 +131,7 @@ public final class Storage {
             case F16 -> new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(n);
             case BF16 -> new uk.ac.manchester.tornado.api.types.arrays.ShortArray(n);
             case Q8_0 -> new uk.ac.manchester.tornado.api.types.arrays.ByteArray(Math.max(n / 32 * 34, 1));
+            case FP8_E4M3, FP8_E5M2 -> new uk.ac.manchester.tornado.api.types.arrays.ByteArray(n);
         };
     }
 
@@ -141,7 +142,7 @@ public final class Storage {
             case I32 -> a instanceof IntArray;
             case F16 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
             case BF16 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.ShortArray;
-            case Q8_0 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.ByteArray;
+            case Q8_0, FP8_E4M3, FP8_E5M2 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.ByteArray;
         };
     }
 

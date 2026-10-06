@@ -67,6 +67,24 @@ public final class Engine {
         }
     }
 
+    /**
+     * Runs {@code body} with this thread's plans on device {@code spec} ("driver:device", as
+     * {@code -Djitnn.device}), then restores the previous device. Tensors belong to the device
+     * they were computed on: do not share them between threads on different devices (move data
+     * through the host, as {@link org.beehive.jitnn.dist.HostCollective} does).
+     */
+    public static <T> T onDevice(String spec, Supplier<T> body) {
+        String previous = Devices.current();
+        Devices.set(spec);
+        try {
+            T result = body.get();
+            sync();
+            return result;
+        } finally {
+            Devices.set(previous);
+        }
+    }
+
     /** Records a node: executes it now on REFERENCE, defers it on TORNADO. */
     public static void record(Node node) {
         if (backend() == Backend.REFERENCE) {

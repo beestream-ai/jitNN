@@ -48,6 +48,17 @@ public final class Ordered {
         return y;
     }
 
+    /** Sorted values, original INT32 indices and each element's sorted position (rank), along {@code axis}. */
+    static Tensor[] sortWithRanks(Tensor x, int axis, boolean descending) {
+        Checks.f32(x);
+        int[] l = lines(x, axis);
+        Tensor values = Tensor.result(x.shape(), DType.F32);
+        Tensor indices = Tensor.result(x.shape(), DType.I32);
+        Tensor ranks = Tensor.result(x.shape(), DType.I32);
+        Tensor.record(SORT, new Tensor[] { x }, new Tensor[] { values, indices, ranks }, new int[] { l[0], l[1], l[2], descending ? 1 : 0 }, null, true);
+        return new Tensor[] { values, indices.detach(), ranks.detach() };
+    }
+
     /** Sorted values and their original INT32 indices along {@code axis}, stable. */
     public static Tensor[] sort(Tensor x, int axis, boolean descending) {
         Checks.f32(x);

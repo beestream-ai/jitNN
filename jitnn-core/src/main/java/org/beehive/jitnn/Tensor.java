@@ -260,6 +260,15 @@ public final class Tensor {
             }
             return f;
         }
+        if (storage.dtype() == DType.FP8_E4M3 || storage.dtype() == DType.FP8_E5M2) {
+            uk.ac.manchester.tornado.api.types.arrays.ByteArray q = (uk.ac.manchester.tornado.api.types.arrays.ByteArray) storage.host();
+            float[] out = new float[numel()];
+            boolean e4m3 = storage.dtype() == DType.FP8_E4M3;
+            for (int i = 0; i < out.length; i++) {
+                out[i] = org.beehive.jitnn.kernels.Fp8Kernels.decode(q.get(i), e4m3 ? 0 : 1, Float.NaN, Float.POSITIVE_INFINITY);
+            }
+            return out;
+        }
         if (storage.dtype() == DType.Q8_0) {
             uk.ac.manchester.tornado.api.types.arrays.ByteArray q = (uk.ac.manchester.tornado.api.types.arrays.ByteArray) storage.host();
             float[] out = new float[numel()];
@@ -608,6 +617,16 @@ public final class Tensor {
     }
 
     /** Stable sort along {@code axis}: {values, INT32 original indices}; values carry the gradient. */
+    /** INT32 coordinates [count, rank] of the non-zero elements (torch.nonzero); reads the count back to the host. */
+    public Tensor nonzero() {
+        return org.beehive.jitnn.ops.Compact.nonzero(this);
+    }
+
+    /** The elements where {@code mask} (broadcast) is not zero, as a vector (torch.masked_select); reads the count back to the host. */
+    public Tensor maskedSelect(Tensor mask) {
+        return org.beehive.jitnn.ops.Compact.maskedSelect(this, mask);
+    }
+
     public Tensor[] sort(int axis, boolean descending) {
         return org.beehive.jitnn.ops.Ordered.sort(this, axis, descending);
     }
