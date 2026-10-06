@@ -1,0 +1,171 @@
+add in:a f32 0 60 3 4 5
+add in:b f32 240 5 1 5
+add out:y f32 260 60 3 4 5
+sub in:a f32 500 60 3 4 5
+sub in:b f32 740 5 1 5
+sub out:y f32 760 60 3 4 5
+mul in:a f32 1000 60 3 4 5
+mul in:b f32 1240 5 1 5
+mul out:y f32 1260 60 3 4 5
+div in:a f32 1500 60 3 4 5
+div in:b f32 1740 5 1 5
+div out:y f32 1760 60 3 4 5
+max in:a f32 2000 60 3 4 5
+max in:b f32 2240 5 1 5
+max out:y f32 2260 60 3 4 5
+min in:a f32 2500 60 3 4 5
+min in:b f32 2740 5 1 5
+min out:y f32 2760 60 3 4 5
+pow_scalar in:a f32 3000 24 4 6
+pow_scalar out:y f32 3096 24 4 6
+pow_square in:a f32 3192 24 4 6
+pow_square out:y f32 3288 24 4 6
+relu in:x f32 3384 35 5 7
+relu out:y f32 3524 35 5 7
+sigmoid in:x f32 3664 35 5 7
+sigmoid out:y f32 3804 35 5 7
+tanh in:x f32 3944 35 5 7
+tanh out:y f32 4084 35 5 7
+erf in:x f32 4224 35 5 7
+erf out:y f32 4364 35 5 7
+exp in:x f32 4504 35 5 7
+exp out:y f32 4644 35 5 7
+log in:x f32 4784 35 5 7
+log out:y f32 4924 35 5 7
+sqrt in:x f32 5064 35 5 7
+sqrt out:y f32 5204 35 5 7
+abs in:x f32 5344 35 5 7
+abs out:y f32 5484 35 5 7
+neg in:x f32 5624 35 5 7
+neg out:y f32 5764 35 5 7
+softplus in:x f32 5904 35 5 7
+softplus out:y f32 6044 35 5 7
+reciprocal in:x f32 6184 35 5 7
+reciprocal out:y f32 6324 35 5 7
+floor in:x f32 6464 35 5 7
+floor out:y f32 6604 35 5 7
+ceil in:x f32 6744 35 5 7
+ceil out:y f32 6884 35 5 7
+sin in:x f32 7024 35 5 7
+sin out:y f32 7164 35 5 7
+cos in:x f32 7304 35 5 7
+cos out:y f32 7444 35 5 7
+leaky_relu in:x f32 7584 35 5 7
+leaky_relu out:y f32 7724 35 5 7
+elu in:x f32 7864 35 5 7
+elu out:y f32 8004 35 5 7
+hard_sigmoid in:x f32 8144 35 5 7
+hard_sigmoid out:y f32 8284 35 5 7
+gelu in:x f32 8424 35 5 7
+gelu out:y f32 8564 35 5 7
+gelu_tanh in:x f32 8704 35 5 7
+gelu_tanh out:y f32 8844 35 5 7
+clip in:x f32 8984 35 5 7
+clip out:y f32 9124 35 5 7
+prelu in:x f32 9264 96 2 3 4 4
+prelu out:y f32 9648 96 2 3 4 4
+where_less in:a f32 10032 20 4 5
+where_less in:b f32 10112 20 4 5
+where_less out:y f32 10192 20 4 5
+equal_cast in:a f32 10272 20 4 5
+equal_cast in:b f32 10352 20 4 5
+equal_cast out:y f32 10432 20 4 5
+matmul_3d_2d in:a f32 10512 126 2 7 9
+matmul_3d_2d out:y f32 11016 70 2 7 5
+matmul_4d in:a f32 11296 288 2 3 6 8
+matmul_4d in:b f32 12448 192 2 3 8 4
+matmul_4d out:y f32 13216 144 2 3 6 4
+matmul_bcast in:a f32 13792 48 1 6 8
+matmul_bcast in:b f32 13984 96 3 8 4
+matmul_bcast out:y f32 14368 72 3 6 4
+gemm_transb in:a f32 14656 60 6 10
+gemm_transb out:y f32 14896 24 6 4
+gemm_alpha_beta in:a f32 14992 60 10 6
+gemm_alpha_beta out:y f32 15232 24 6 4
+conv in:x f32 15328 486 2 3 9 9
+conv out:y f32 17272 648 2 4 9 9
+conv_stride_groups in:x f32 19864 400 1 4 10 10
+conv_stride_groups out:y f32 21464 150 1 6 5 5
+conv_asym_pads in:x f32 22064 98 1 2 7 7
+conv_asym_pads out:y f32 22456 108 1 3 6 6
+conv_same in:x f32 22888 128 1 2 8 8
+conv_same out:y f32 23400 192 1 3 8 8
+conv1d in:x f32 24168 120 2 3 20
+conv1d out:y f32 24648 160 2 5 16
+conv_transpose in:x f32 25288 100 1 4 5 5
+conv_transpose out:y f32 25688 300 1 3 10 10
+max_pool in:x f32 26888 726 2 3 11 11
+max_pool out:y f32 29792 216 2 3 6 6
+avg_pool_exclude_pad in:x f32 30656 72 1 2 6 6
+avg_pool_exclude_pad out:y f32 30944 72 1 2 6 6
+avg_pool_include_pad in:x f32 31232 72 1 2 6 6
+avg_pool_include_pad out:y f32 31520 32 1 2 4 4
+global_avg_pool in:x f32 31648 490 2 5 7 7
+global_avg_pool out:y f32 33608 10 2 5 1 1
+batch_norm in:x f32 33648 150 2 3 5 5
+batch_norm out:y f32 34248 150 2 3 5 5
+layer_norm in:x f32 34848 224 2 7 16
+layer_norm out:y f32 35744 224 2 7 16
+layer_norm_axis in:x f32 36640 60 3 4 5
+layer_norm_axis out:y f32 36880 60 3 4 5
+instance_norm in:x f32 37120 216 2 3 6 6
+instance_norm out:y f32 37984 216 2 3 6 6
+softmax_axis1 in:x f32 38848 72 3 6 4
+softmax_axis1 out:y f32 39136 72 3 6 4
+log_softmax in:x f32 39424 27 3 9
+log_softmax out:y f32 39532 27 3 9
+reduce_mean in:x f32 39640 60 3 4 5
+reduce_mean out:y f32 39880 15 3 5
+reduce_sum_keep in:x f32 39940 60 3 4 5
+reduce_sum_keep out:y f32 40180 4 1 4 1
+reduce_max_all in:x f32 40196 60 3 4 5
+reduce_max_all out:y f32 40436 1 
+cumsum in:x f32 40440 24 4 6
+cumsum out:y f32 40536 24 4 6
+reshape_zero_minus1 in:x f32 40632 24 2 3 4
+reshape_zero_minus1 out:y f32 40728 24 2 12
+transpose in:x f32 40824 24 2 3 4
+transpose out:y f32 40920 24 4 2 3
+squeeze_unsqueeze in:x f32 41016 12 3 4
+squeeze_unsqueeze out:y0 f32 41064 12 3 4
+squeeze_unsqueeze out:y1 f32 41112 12 1 3 4 1
+flatten in:x f32 41160 120 2 3 4 5
+flatten out:y f32 41640 120 6 20
+concat in:a f32 42120 24 2 3 4
+concat in:b f32 42216 16 2 2 4
+concat out:y f32 42280 40 2 5 4
+split in:x f32 42440 18 2 9
+split out:y0 f32 42512 4 2 2
+split out:y1 f32 42528 6 2 3
+split out:y2 f32 42552 8 2 4
+slice_neg in:x f32 42584 40 5 8
+slice_neg out:y f32 42744 12 3 4
+gather_indices in:x f32 42792 36 3 6 2
+gather_indices out:y f32 42936 24 3 2 2 2
+gather_scalar in:x f32 43032 20 4 5
+gather_scalar out:y f32 43112 5 5
+embedding_gather in:ids i32 43132 10 2 5
+embedding_gather out:y f32 43172 60 2 5 6
+expand in:x f32 43412 3 3 1
+expand out:y f32 43424 24 2 3 4
+tile in:x f32 43520 6 2 3
+tile out:y f32 43544 36 4 9
+pad_reflect in:x f32 43688 50 1 2 5 5
+pad_reflect out:y f32 43888 128 1 2 8 8
+resize_nearest in:x f32 44400 40 1 2 4 5
+resize_nearest out:y f32 44560 160 1 2 8 10
+resize_linear in:x f32 45200 40 1 2 4 5
+resize_linear out:y f32 45360 160 1 2 8 10
+argmax in:x f32 46000 28 4 7
+argmax out:y i32 46112 4 4
+topk in:x f32 46128 30 3 10
+topk out:v f32 46248 9 3 3
+topk out:i i32 46284 9 3 3
+shape_chain in:x f32 46320 60 3 4 5
+shape_chain out:y f32 46560 60 3 20
+constant_of_shape_range in:x f32 46800 6 2 3
+constant_of_shape_range out:y f32 46824 6 2 3
+torch_cnn in:x f32 46848 1536 2 3 16 16
+torch_cnn out:y f32 52992 10 2 5
+torch_transformer_block in:x f32 53032 640 2 10 32
+torch_transformer_block out:y f32 55592 640 2 10 32

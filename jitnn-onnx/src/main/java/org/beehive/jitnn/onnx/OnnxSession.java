@@ -116,7 +116,10 @@ public final class OnnxSession {
                 env.put(vi.name(), Value.of(t.dtype() == DType.F32 ? t : t.to(DType.F32), OnnxModel.FLOAT));
             }
         }
-        try (Grad.Scope ignored = Grad.disabled(); Grad.Scope cast = half ? Autocast.enable(DType.F16) : null) {
+        Map<String, Tensor> result = new LinkedHashMap<>();
+        // intermediates are internal (their buffers are reused, and jitNN's inference fusions apply), as in Grad.inference
+        try (Grad.Scope ignored = Grad.disabled(); AutoCloseable internal = org.beehive.jitnn.engine.Storage.internalScope();
+                Grad.Scope cast = half ? Autocast.enable(DType.F16) : null) {
             for (Node n : model.graph().nodes()) {
                 List<Value> in = new ArrayList<>();
                 for (String name : n.inputs()) {
@@ -146,11 +149,17 @@ public final class OnnxSession {
                     }
                 }
             }
+            for (OnnxModel.ValueInfo vi : model.graph().outputs()) {
+                Value v = env.get(vi.name());
+                result.put(vi.name(), v.tensor(v.type != OnnxModel.INT64 && v.type != OnnxModel.INT32));
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
         }
-        Map<String, Tensor> result = new LinkedHashMap<>();
-        for (OnnxModel.ValueInfo vi : model.graph().outputs()) {
-            Value v = env.get(vi.name());
-            result.put(vi.name(), v.tensor(v.type != OnnxModel.INT64 && v.type != OnnxModel.INT32));
+        for (Tensor t : result.values()) {
+            t.storage().markVisible();
         }
         return result;
     }

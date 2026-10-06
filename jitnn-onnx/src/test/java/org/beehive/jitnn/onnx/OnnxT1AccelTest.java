@@ -1,0 +1,123 @@
+package org.beehive.jitnn.onnx;
+
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.engine.Engine;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+
+/**
+ * The T1 models from their ONNX files: ResNet-50 and BERT-base exported by PyTorch
+ * (scripts/bench/t1.py), run by jitNN through the importer and compared with ONNX Runtime on the
+ * same files and inputs (scripts/onnx/t1_onnx.py writes its outputs next to the models). Runs only
+ * with {@code -Djitnn.onnx.t1=<work dir>}; {@code -Djitnn.onnx.t1.match=<substring>} picks files.
+ */
+class OnnxT1AccelTest {
+
+    static final int WARMUP = 10;
+    static final int RUNS = 50;
+    static final int VOCAB = 30522;
+
+    @AfterAll
+    static void release() {
+        Engine.reset();
+    }
+
+    static float[] images(int n) {
+        float[] x = new float[n];
+        for (int i = 0; i < n; i++) {
+            x[i] = (float) ((i * 2654435761L) % 1000) / 500.0f - 1.0f;
+        }
+        return x;
+    }
+
+    static int[] tokens(int n) {
+        int[] t = new int[n];
+        for (int i = 0; i < n; i++) {
+            t[i] = (int) ((i * 7919L + 13) % VOCAB);
+        }
+        return t;
+    }
+
+    static float[] read(Path f) throws Exception {
+        ByteBuffer b = ByteBuffer.wrap(Files.readAllBytes(f)).order(ByteOrder.LITTLE_ENDIAN);
+        float[] out = new float[b.remaining() / 4];
+        b.asFloatBuffer().get(out);
+        return out;
+    }
+
+    @Test
+    void t1Models() throws Exception {
+        String dir = System.getProperty("jitnn.onnx.t1", "");
+        assumeTrue(!dir.isEmpty(), "set -Djitnn.onnx.t1=<dir with the T1 .onnx files>");
+        String match = System.getProperty("jitnn.onnx.t1.match", "");
+        Path work = Path.of(dir);
+        String[] files;
+        try (Stream<Path> s = Files.list(work)) {
+            files = s.map(p -> p.getFileName().toString()).filter(f -> f.endsWith(".onnx") && f.contains(match)).sorted().toArray(String[]::new);
+        }
+        for (String f : files) {
+            String name = f.substring(0, f.length() - 5);
+            String[] parts = name.split("_");
+            boolean fp16 = name.endsWith("fp16");
+            long t0 = System.nanoTime();
+            OnnxSession s = OnnxSession.load(work.resolve(f)).halfPrecision(fp16);
+            double loadMs = (System.nanoTime() - t0) / 1e6;
+            String input = s.inputNames().get(0);
+            String output = s.outputNames().get(0);
+            Tensor x;
+            if (name.startsWith("resnet50")) {
+                int b = Integer.parseInt(parts[1].substring(1));
+                x = Tensor.of(images(b * 3 * 224 * 224), b, 3, 224, 224);
+            } else {
+                int b = Integer.parseInt(parts[1].substring(1));
+                int t = Integer.parseInt(parts[2].substring(1));
+                x = Tensor.of(tokens(b * t), b, t);
+            }
+            long c0 = System.nanoTime();
+            float[] first = s.run(Map.of(input, x)).get(output).toFloatArray();
+            double compile = (System.nanoTime() - c0) / 1e6;
+            for (int i = 1; i < WARMUP; i++) {
+                s.run(Map.of(input, x)).get(output).toFloatArray();
+            }
+            double[] ms = new double[RUNS];
+            for (int i = 0; i < RUNS; i++) {
+                long r0 = System.nanoTime();
+                s.run(Map.of(input, x)).get(output).toFloatArray();
+                ms[i] = (System.nanoTime() - r0) / 1e6;
+            }
+            Arrays.sort(ms);
+            String err = "no ONNX Runtime output";
+            Path ref = work.resolve(name + ".ort.f32");
+            double rel = -1;
+            if (Files.exists(ref)) {
+                float[] want = read(ref);
+                assertTrue(want.length == first.length, name + ": " + first.length + " outputs, ONNX Runtime has " + want.length);
+                double scale = 0;
+                double worst = 0;
+                for (int i = 0; i < want.length; i++) {
+                    scale = Math.max(scale, Math.abs(want[i]));
+                    worst = Math.max(worst, Math.abs(want[i] - first[i]));
+                }
+                rel = worst / Math.max(scale, 1e-30);
+                err = String.format("max err vs ONNX Runtime %.1e", rel);
+            }
+            System.out.printf("[t1-onnx] jitnn %-24s median %8.3f ms  p10 %8.3f  p90 %8.3f  (load %.0f ms, first call %.0f ms)  %s%n", name, ms[RUNS / 2], ms[RUNS / 10],
+                    ms[RUNS * 9 / 10], loadMs, compile, err);
+            if (rel >= 0) {
+                assertTrue(rel <= (fp16 ? 3e-2 : 1e-3), name + ": " + err);
+            }
+            Engine.reset();
+        }
+    }
+}
