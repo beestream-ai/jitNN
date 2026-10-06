@@ -524,6 +524,31 @@ public final class F {
         return reduce(l, reduction);
     }
 
+    /** log sigmoid(x) = -softplus(-x), without overflow. */
+    public static Tensor logSigmoid(Tensor x) {
+        return x.neg().softplus().neg();
+    }
+
+    /**
+     * Negative-sampling loss of word2vec (Mikolov et al., 2013): hidden [B, D] (the centre word, or
+     * the averaged context), target [B, D] (the output vector of the true word) and negatives [B, K, D]
+     * (output vectors of sampled words); mean over B of -log sigmoid(h . t) - sum_k log sigmoid(-h . n_k).
+     */
+    public static Tensor negativeSamplingLoss(Tensor hidden, Tensor target, Tensor negatives) {
+        Tensor pos = logSigmoid(hidden.mul(target).sum(-1, false));
+        Tensor neg = logSigmoid(negatives.mul(hidden.unsqueeze(1)).sum(-1, false).neg()).sum(-1, false);
+        return pos.add(neg).neg().mean();
+    }
+
+    /**
+     * GloVe's weighted least squares (Pennington et al., 2014) over a batch of co-occurrences: mean
+     * of weight (wi . wj + bi + bj - logX)^2, with wi, wj [B, D] and the rest [B].
+     */
+    public static Tensor gloveLoss(Tensor wi, Tensor wj, Tensor bi, Tensor bj, Tensor logX, Tensor weight) {
+        Tensor diff = wi.mul(wj).sum(-1, false).add(bi).add(bj).sub(logX);
+        return weight.mul(diff.square()).mean();
+    }
+
     /** Euclidean distance of each row pair (last axis), PyTorch's pairwise_distance with eps 1e-6. */
     public static Tensor pairwiseDistance(Tensor a, Tensor b) {
         return a.sub(b).add(1e-6f).square().sum(-1, false).sqrt();

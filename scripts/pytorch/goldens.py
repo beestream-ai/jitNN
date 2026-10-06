@@ -345,6 +345,9 @@ add("spmm", "spmm", [5, 6, len(sp_r)] + sp_r + sp_c, [rnd(len(sp_r)), rnd(6, 7)]
 g_src = [0, 1, 1, 2, 3, 4, 5, 5, 0]
 g_dst = [1, 0, 2, 3, 2, 5, 4, 0, 5]
 add("gcn", "gcn", [6, len(g_src)] + g_src + g_dst, [rnd(6, 4), rnd(3, 4)])
+# ---- wave 6: embedding-model losses
+add("negative_sampling", "negative_sampling", [], [rnd(6, 5, lo=-1, hi=1), rnd(6, 5, lo=-1, hi=1), rnd(6, 4, 5, lo=-1, hi=1)])
+add("glove_loss", "glove_loss", [], [rnd(7, 5, lo=-1, hi=1), rnd(7, 5, lo=-1, hi=1), rnd(7), rnd(7), pos(7), pos(7)], [True, True, True, True, False, False])
 add("msle", "msle", [1], [pos(6, 5), pos(6, 5)])
 add("mape", "mape", [1], [rnd(6, 5), rnd(6, 5, lo=0.5, hi=3) * signs(6, 5)])
 # ---- wave 5: norms (attrs: groups eps / eps / size alpha beta k)
@@ -769,6 +772,13 @@ def forward(op, attrs, t):
         deg = a.sum(1)
         norm = a / torch.sqrt(deg[:, None] * deg[None, :])
         return norm @ (t[0] @ t[1].T)
+    if op == "negative_sampling":
+        ls = torch.nn.functional.logsigmoid
+        h, tg, ng = t
+        return -(ls((h * tg).sum(-1)) + ls(-(ng * h[:, None, :]).sum(-1)).sum(-1)).mean()
+    if op == "glove_loss":
+        wi, wj, bi, bj, lx, w = t
+        return (w * ((wi * wj).sum(-1) + bi + bj - lx) ** 2).mean()
     if op == "nll_mean":
         return torch.nn.functional.nll_loss(t[0], t[1].long())
     if op == "cosine_similarity":
