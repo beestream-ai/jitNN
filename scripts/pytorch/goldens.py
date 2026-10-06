@@ -289,6 +289,21 @@ add("instance_norm", "instance_norm", [1e-5], [rnd(2, 3, 6, 5)])
 add("lrn", "lrn", [3, 1e-2, 0.75, 1.0], [rnd(2, 7, 4, 3)])
 add("lrn_even", "lrn", [4, 0.5, 0.6, 2.0], [rnd(1, 9, 5)])
 add("weight_norm", "weight_norm", [], [rnd(5, 3, 2, 2), rnd(5, lo=0.5, hi=2)])
+# ---- wave 5: 1-D and 3-D convolution and pooling, adaptive pooling, padding
+add("conv1d", "conv1d", [2, 1, 1], [rnd(2, 3, 11), rnd(5, 3, 3), rnd(5)])
+add("conv1d_dil", "conv1d", [1, 2, 2], [rnd(1, 4, 9), rnd(3, 4, 3), rnd(3)])
+add("conv3d", "conv3d", [1, 1, 1], [rnd(1, 2, 4, 5, 3), rnd(3, 2, 3, 3, 3), rnd(3)])
+add("conv3d_s2", "conv3d", [2, 0, 1], [rnd(2, 2, 5, 4, 6), rnd(4, 2, 2, 2, 2), rnd(4)])
+for op, dims in [("max_pool1d", (2, 3, 11)), ("avg_pool1d", (2, 3, 11)), ("max_pool3d", (1, 2, 5, 4, 6)), ("avg_pool3d", (1, 2, 5, 4, 6))]:
+    add(op, op, [3, 2, 1], [rnd(*dims)])
+add("max_pool1d_k2", "max_pool1d", [2, 2, 0], [rnd(2, 2, 8)])
+for op, dims, out in [("adaptive_avg", (2, 3, 10), [4]), ("adaptive_avg", (1, 2, 7, 9), [3, 4]), ("adaptive_avg", (1, 2, 5, 6, 7), [2, 3, 3]),
+                      ("adaptive_max", (2, 3, 10), [4]), ("adaptive_max", (1, 2, 7, 9), [3, 4]), ("adaptive_avg", (1, 3, 6, 6), [1, 1])]:
+    add(f"{op}_{len(out)}d_{'x'.join(map(str, out))}", op, out, [rnd(*dims)])
+for mode in (0, 1, 2):
+    add(f"pad1d_m{mode}", "pad", [mode, 2, 3], [rnd(2, 3, 6)])
+    add(f"pad2d_m{mode}", "pad", [mode, 1, 2, 2, 1], [rnd(1, 2, 4, 5)])
+add("pad3d_reflect", "pad", [1, 1, 1, 2, 0, 1, 1], [rnd(1, 1, 3, 4, 3)])
 # ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
 def rnn_case(name, op, t, b, i, h, gates):
     w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
@@ -564,6 +579,24 @@ def forward(op, attrs, t):
         return torch.nn.functional.local_response_norm(t[0], attrs[0], alpha=attrs[1], beta=attrs[2], k=attrs[3])
     if op == "weight_norm":
         return torch._weight_norm(t[0], t[1].reshape(-1, 1, 1, 1), 0)
+    if op == "conv1d":
+        return torch.nn.functional.conv1d(t[0], t[1], t[2], stride=attrs[0], padding=attrs[1], dilation=attrs[2])
+    if op == "conv3d":
+        return torch.nn.functional.conv3d(t[0], t[1], t[2], stride=attrs[0], padding=attrs[1], dilation=attrs[2])
+    if op in ("max_pool1d", "avg_pool1d", "max_pool3d", "avg_pool3d"):
+        return getattr(torch.nn.functional, op)(t[0], attrs[0], attrs[1], attrs[2])
+    if op == "adaptive_avg":
+        return getattr(torch.nn.functional, f"adaptive_avg_pool{len(attrs)}d")(t[0], attrs)
+    if op == "adaptive_max":
+        return getattr(torch.nn.functional, f"adaptive_max_pool{len(attrs)}d")(t[0], attrs)
+    if op == "pad":
+        mode = ["constant", "reflect", "replicate"][attrs[0]]
+        sides = attrs[1:]
+        r = len(sides) // 2
+        torch_pad = []
+        for k in reversed(range(r)):
+            torch_pad += [sides[2 * k], sides[2 * k + 1]]
+        return torch.nn.functional.pad(t[0], torch_pad, mode=mode, value=0.5 if mode == "constant" else None) if mode == "constant" else torch.nn.functional.pad(t[0], torch_pad, mode=mode)
     raise ValueError(op)
 
 

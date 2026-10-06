@@ -109,6 +109,130 @@ public final class F {
         return Upsample2d.size(x, height, width, bilinear ? ResizeKernels.BILINEAR : ResizeKernels.NEAREST, alignCorners);
     }
 
+    /**
+     * N-dimensional convolution of x [N, C, ...] (1 or 3 spatial axes; 2-D has {@link #conv2d}) with
+     * weight [Cout, C, ...kernel], groups 1: the windows are unfolded into columns and multiplied by
+     * the weight in one batched GEMM. Bias may be null.
+     */
+    private static Tensor convNd(Tensor x, Tensor weight, Tensor bias, int[] stride, int[] pad, int[] dil) {
+        int r = x.rank() - 2;
+        int[] kernel = java.util.Arrays.copyOfRange(weight.shape().dims(), 2, 2 + r);
+        if (weight.rank() != r + 2 || weight.dim(1) != x.dim(1)) {
+            throw new IllegalArgumentException("convolution: input " + x.shape() + " and weight " + weight.shape() + " do not match (groups 1)");
+        }
+        Tensor cols = org.beehive.jitnn.ops.Spatial.unfold(x, kernel, stride, pad, dil);
+        int cout = weight.dim(0);
+        Tensor y = weight.reshape(cout, -1).matmul(cols);
+        if (bias != null) {
+            y = y.add(bias.reshape(1, cout, 1));
+        }
+        int[] dims = new int[r + 2];
+        dims[0] = x.dim(0);
+        dims[1] = cout;
+        for (int k = 0; k < r; k++) {
+            dims[2 + k] = (x.dim(2 + k) + 2 * pad[k] - dil[k] * (kernel[k] - 1) - 1) / stride[k] + 1;
+        }
+        return y.reshape(dims);
+    }
+
+    /** 1-D convolution of x [N, C, L] with weight [Cout, C, K] (groups 1); bias may be null. */
+    public static Tensor conv1d(Tensor x, Tensor weight, Tensor bias, int stride, int padding, int dilation) {
+        return convNd(x, weight, bias, new int[] { stride }, new int[] { padding }, new int[] { dilation });
+    }
+
+    /** 3-D convolution of x [N, C, D, H, W] with weight [Cout, C, KD, KH, KW] (groups 1); bias may be null. */
+    public static Tensor conv3d(Tensor x, Tensor weight, Tensor bias, int stride, int padding, int dilation) {
+        return convNd(x, weight, bias, new int[] { stride, stride, stride }, new int[] { padding, padding, padding }, new int[] { dilation, dilation, dilation });
+    }
+
+    /** Max or average pooling over 1 or 3 spatial axes (2-D has {@link #maxPool2d}); average counts padding. */
+    private static Tensor poolNd(Tensor x, int kernel, int stride, int padding, boolean max) {
+        int r = x.rank() - 2;
+        int[] k = new int[r];
+        int[] s = new int[r];
+        int[] p = new int[r];
+        int[] d = new int[r];
+        java.util.Arrays.fill(k, kernel);
+        java.util.Arrays.fill(s, stride);
+        java.util.Arrays.fill(p, padding);
+        java.util.Arrays.fill(d, 1);
+        int n = x.dim(0);
+        int c = x.dim(1);
+        Tensor cols = org.beehive.jitnn.ops.Spatial.unfold(x.reshape(spatialOf(x, n * c)), k, s, p, d);
+        int windows = cols.dim(1);
+        Tensor pooled = max ? padLarge(cols, x, k, s, p).max(1, false) : cols.sum(1, false).mul(1.0f / windows);
+        int[] dims = x.shape().dims();
+        for (int a = 0; a < r; a++) {
+            dims[2 + a] = (x.dim(2 + a) + 2 * padding - kernel) / stride + 1;
+        }
+        return pooled.reshape(dims);
+    }
+
+    /** x [N, C, ...spatial] viewed as [N C, 1, ...spatial]. */
+    private static int[] spatialOf(Tensor x, int planes) {
+        int[] dims = x.shape().dims();
+        dims[0] = planes;
+        dims[1] = 1;
+        return dims;
+    }
+
+    /** Max pooling pads with -inf (PyTorch), not 0: the padded positions are lowered before the max. */
+    private static Tensor padLarge(Tensor cols, Tensor x, int[] k, int[] s, int[] p) {
+        boolean padded = false;
+        for (int v : p) {
+            padded |= v > 0;
+        }
+        if (!padded) {
+            return cols;
+        }
+        int[] dims = x.shape().dims();
+        dims[0] = 1;
+        dims[1] = 1;
+        int[] ones = new int[k.length];
+        java.util.Arrays.fill(ones, 1);
+        Tensor inside = org.beehive.jitnn.ops.Spatial.unfold(Tensor.ones(dims), k, s, p, ones).reshape(cols.dim(1), cols.dim(2));
+        return where(inside, cols, Tensor.scalar(-3.4028235e38f));
+    }
+
+    public static Tensor maxPool1d(Tensor x, int kernel, int stride, int padding) {
+        return poolNd(x, kernel, stride, padding, true);
+    }
+
+    public static Tensor avgPool1d(Tensor x, int kernel, int stride, int padding) {
+        return poolNd(x, kernel, stride, padding, false);
+    }
+
+    public static Tensor maxPool3d(Tensor x, int kernel, int stride, int padding) {
+        return poolNd(x, kernel, stride, padding, true);
+    }
+
+    public static Tensor avgPool3d(Tensor x, int kernel, int stride, int padding) {
+        return poolNd(x, kernel, stride, padding, false);
+    }
+
+    /** Adaptive average pooling of x [N, C, ...] (1 to 3 spatial axes) to the given output sizes (PyTorch's bins). */
+    public static Tensor adaptiveAvgPool(Tensor x, int... out) {
+        return org.beehive.jitnn.ops.Spatial.adaptivePool(x, out, false);
+    }
+
+    /** Adaptive max pooling of x [N, C, ...] (1 to 3 spatial axes) to the given output sizes. */
+    public static Tensor adaptiveMaxPool(Tensor x, int... out) {
+        return org.beehive.jitnn.ops.Spatial.adaptivePool(x, out, true);
+    }
+
+    /** How {@link #pad} fills: a constant, the reflection without the edge, or the edge replicated. */
+    public enum PadMode {
+        CONSTANT, REFLECT, REPLICATE
+    }
+
+    /**
+     * Pads the spatial axes of x [N, C, ...]: {@code before[k]} and {@code after[k]} elements on
+     * spatial axis k, PyTorch's F.pad for constant, reflect and replicate modes.
+     */
+    public static Tensor pad(Tensor x, int[] before, int[] after, PadMode mode, float value) {
+        return org.beehive.jitnn.ops.Spatial.pad(x, before, after, mode.ordinal(), value);
+    }
+
     public static Tensor maxPool2d(Tensor x, int kernel, int stride, int padding) {
         return Pool2d.max(x, kernel, stride, padding);
     }

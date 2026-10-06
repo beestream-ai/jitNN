@@ -266,8 +266,36 @@ public final class Golden {
             case "instance_norm" -> F.instanceNorm(in[0], null, null, c.fattr(0));
             case "lrn" -> F.localResponseNorm(in[0], c.iattr(0), c.fattr(1), c.fattr(2), c.fattr(3));
             case "weight_norm" -> F.weightNorm(in[0], in[1]);
+            case "conv1d" -> F.conv1d(in[0], in[1], in[2], c.iattr(0), c.iattr(1), c.iattr(2));
+            case "conv3d" -> F.conv3d(in[0], in[1], in[2], c.iattr(0), c.iattr(1), c.iattr(2));
+            case "max_pool1d" -> F.maxPool1d(in[0], c.iattr(0), c.iattr(1), c.iattr(2));
+            case "avg_pool1d" -> F.avgPool1d(in[0], c.iattr(0), c.iattr(1), c.iattr(2));
+            case "max_pool3d" -> F.maxPool3d(in[0], c.iattr(0), c.iattr(1), c.iattr(2));
+            case "avg_pool3d" -> F.avgPool3d(in[0], c.iattr(0), c.iattr(1), c.iattr(2));
+            case "adaptive_avg" -> F.adaptiveAvgPool(in[0], ints(c, 0));
+            case "adaptive_max" -> F.adaptiveMaxPool(in[0], ints(c, 0));
+            case "pad" -> {
+                int[] sides = ints(c, 1);
+                int r = sides.length / 2;
+                int[] before = new int[r];
+                int[] after = new int[r];
+                for (int k = 0; k < r; k++) {
+                    before[k] = sides[2 * k];
+                    after[k] = sides[2 * k + 1];
+                }
+                yield F.pad(in[0], before, after, F.PadMode.values()[c.iattr(0)], 0.5f);
+            }
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
+    }
+
+    /** The integer attributes from index {@code from} on. */
+    private static int[] ints(Case c, int from) {
+        int[] v = new int[c.attrs().length - from];
+        for (int i = 0; i < v.length; i++) {
+            v[i] = c.iattr(from + i);
+        }
+        return v;
     }
 
     private static F.Reduction red(Case c) {
@@ -277,7 +305,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;
