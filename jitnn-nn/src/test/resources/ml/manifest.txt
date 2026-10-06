@@ -1,0 +1,66 @@
+kmeans x f32 0 600 300 2
+kmeans init f32 2400 6 3 2
+kmeans centres f32 2424 6 3 2
+kmeans labels i32 2448 300 300
+kmeans inertia f32 3648 1 1
+kmeans_pp x f32 3652 2000 500 4
+kmeans_pp inertia f32 11652 1 1
+knn x f32 11656 1000 200 5
+knn y i32 15656 200 200
+knn q f32 16456 300 60 5
+knn pred i32 17656 60 60
+knn proba f32 17896 180 60 3
+knn reg f32 18616 60 60
+knn target f32 18856 200 200
+pca x f32 19656 720 120 6
+pca components f32 22536 18 3 6
+pca variance f32 22608 3 3
+pca ratio f32 22620 3 3
+pca transformed f32 22632 360 120 3
+linear x f32 24072 400 80 5
+linear y f32 25672 80 80
+linear coef f32 25992 5 5
+linear intercept f32 26012 1 1
+linear ridge_coef f32 26016 5 5
+linear ridge_intercept f32 26036 1 1
+logreg_binary x f32 26040 1200 300 4
+logreg_binary y i32 30840 300 300
+logreg_binary coef f32 32040 4 1 4
+logreg_binary intercept f32 32056 1 1
+logreg_binary proba f32 32060 600 300 2
+logreg_multi x f32 34460 1200 300 4
+logreg_multi y i32 39260 300 300
+logreg_multi coef f32 40460 12 3 4
+logreg_multi intercept f32 40508 3 3
+logreg_multi proba f32 40520 900 300 3
+svc x f32 44120 1200 300 4
+svc y i32 48920 300 300
+svc coef f32 50120 12 3 4
+svc intercept f32 50168 3 3
+svc pred i32 50180 300 300
+gaussian_nb x f32 51380 600 150 4
+gaussian_nb y i32 53780 150 150
+gaussian_nb theta f32 54380 12 3 4
+gaussian_nb var f32 54428 12 3 4
+gaussian_nb proba f32 54476 450 150 3
+multinomial_nb x f32 56276 1000 100 10
+multinomial_nb y i32 60276 100 100
+multinomial_nb log_prob f32 60676 30 3 10
+multinomial_nb proba f32 60796 300 100 3
+trees_classification x f32 61996 6400 800 8
+trees_classification y i32 87596 800 800
+trees_classification xt f32 90796 1600 200 8
+trees_classification yt i32 97196 200 200
+trees_classification tree f32 97996 1 1
+trees_classification forest f32 98000 1 1
+trees_classification boost f32 98004 1 1
+trees_regression x f32 98008 6400 800 8
+trees_regression y f32 123608 800 800
+trees_regression xt f32 126808 1600 200 8
+trees_regression yt f32 133208 200 200
+trees_regression tree f32 134008 1 1
+trees_regression forest f32 134012 1 1
+trees_regression boost f32 134016 1 1
+tsne x f32 134020 1500 150 10
+tsne y i32 140020 150 150
+tsne trust f32 140620 1 1

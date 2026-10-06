@@ -506,6 +506,99 @@ public final class F {
         return reduce(l, reduction);
     }
 
+    /**
+     * CTC loss, PyTorch's ctc_loss: log-probabilities [T, B, C] (log_softmax over C), INT32 targets
+     * [B, L] padded, input and target lengths; blank index {@code blank}. MEAN divides each sample's
+     * loss by its target length, then averages (PyTorch's default).
+     */
+    public static Tensor ctcLoss(Tensor logProbs, Tensor targets, int[] inputLengths, int[] targetLengths, int blank, Reduction reduction) {
+        int b = logProbs.dim(1);
+        Tensor l = org.beehive.jitnn.ops.Ctc.apply(logProbs, targets, Tensor.of(inputLengths, b), Tensor.of(targetLengths, b), blank);
+        if (reduction == Reduction.MEAN) {
+            float[] inv = new float[b];
+            for (int i = 0; i < b; i++) {
+                inv[i] = 1.0f / Math.max(targetLengths[i], 1);
+            }
+            return l.mul(Tensor.of(inv, b)).mean();
+        }
+        return reduce(l, reduction);
+    }
+
+    /** log sigmoid(x) = -softplus(-x), without overflow. */
+    public static Tensor logSigmoid(Tensor x) {
+        return x.neg().softplus().neg();
+    }
+
+    /**
+     * Negative-sampling loss of word2vec (Mikolov et al., 2013): hidden [B, D] (the centre word, or
+     * the averaged context), target [B, D] (the output vector of the true word) and negatives [B, K, D]
+     * (output vectors of sampled words); mean over B of -log sigmoid(h . t) - sum_k log sigmoid(-h . n_k).
+     */
+    public static Tensor negativeSamplingLoss(Tensor hidden, Tensor target, Tensor negatives) {
+        Tensor pos = logSigmoid(hidden.mul(target).sum(-1, false));
+        Tensor neg = logSigmoid(negatives.mul(hidden.unsqueeze(1)).sum(-1, false).neg()).sum(-1, false);
+        return pos.add(neg).neg().mean();
+    }
+
+    /**
+     * GloVe's weighted least squares (Pennington et al., 2014) over a batch of co-occurrences: mean
+     * of weight (wi . wj + bi + bj - logX)^2, with wi, wj [B, D] and the rest [B].
+     */
+    public static Tensor gloveLoss(Tensor wi, Tensor wj, Tensor bi, Tensor bj, Tensor logX, Tensor weight) {
+        Tensor diff = wi.mul(wj).sum(-1, false).add(bi).add(bj).sub(logX);
+        return weight.mul(diff.square()).mean();
+    }
+
+    /** Euclidean distance of each row pair (last axis), PyTorch's pairwise_distance with eps 1e-6. */
+    public static Tensor pairwiseDistance(Tensor a, Tensor b) {
+        return a.sub(b).add(1e-6f).square().sum(-1, false).sqrt();
+    }
+
+    /** Triplet margin loss: max(d(anchor, positive) - d(anchor, negative) + margin, 0). */
+    public static Tensor tripletMarginLoss(Tensor anchor, Tensor positive, Tensor negative, float margin, Reduction reduction) {
+        return reduce(pairwiseDistance(anchor, positive).sub(pairwiseDistance(anchor, negative)).add(margin).relu(), reduction);
+    }
+
+    /**
+     * Contrastive loss (Hadsell et al., 2006) with {@code similar} 1 for similar pairs and 0 for
+     * dissimilar ones: similar d^2 + (1 - similar) max(margin - d, 0)^2.
+     */
+    public static Tensor contrastiveLoss(Tensor a, Tensor b, Tensor similar, float margin, Reduction reduction) {
+        Tensor d = pairwiseDistance(a, b);
+        Tensor apart = d.neg().add(margin).relu().square();
+        return reduce(similar.mul(d.square()).add(similar.neg().add(1.0f).mul(apart)), reduction);
+    }
+
+    /** Cosine embedding loss: 1 - cos(a, b) for target 1, max(0, cos(a, b) - margin) for -1. */
+    public static Tensor cosineEmbeddingLoss(Tensor a, Tensor b, Tensor target, float margin, Reduction reduction) {
+        Tensor cos = cosineSimilarity(a, b, -1, 1e-8f);
+        return reduce(where(target.gt(Tensor.scalar(0.0f)), cos.neg().add(1.0f), cos.add(-margin).relu()), reduction);
+    }
+
+    /** Margin ranking loss: max(0, -target (x1 - x2) + margin), target 1 or -1. */
+    public static Tensor marginRankingLoss(Tensor x1, Tensor x2, Tensor target, float margin, Reduction reduction) {
+        return reduce(target.neg().mul(x1.sub(x2)).add(margin).relu(), reduction);
+    }
+
+    /**
+     * Sparsemax (Martins and Astudillo, 2016) along the last axis: the Euclidean projection onto the
+     * probability simplex, max(x - tau, 0) with tau set by the sorted support.
+     */
+    public static Tensor sparsemax(Tensor x) {
+        int n = x.dim(-1);
+        Tensor z = x.sort(-1, true)[0];
+        Tensor cum = z.cumsum(-1);
+        float[] k = new float[n];
+        for (int i = 0; i < n; i++) {
+            k[i] = i + 1;
+        }
+        Tensor ks = Tensor.of(k, n);
+        Tensor support = z.mul(ks).add(1.0f).gt(cum);
+        Tensor size = support.sum(-1, true);
+        Tensor tau = support.mul(z).sum(-1, true).add(-1.0f).div(size);
+        return x.sub(tau).relu();
+    }
+
     /** Mean squared logarithmic error: (log1p(input) - log1p(target))^2 (Keras's MSLE). */
     public static Tensor msleLoss(Tensor input, Tensor target, Reduction reduction) {
         return reduce(input.log1p().sub(target.log1p()).square(), reduction);

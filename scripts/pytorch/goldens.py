@@ -280,6 +280,74 @@ add("cosine_similarity", "cosine_similarity", [1], [rnd(6, 9), rnd(6, 9)])
 add("cosine_proximity", "cosine_proximity", [1], [rnd(6, 9), rnd(6, 9)])
 add("poisson_log", "poisson_log", [1], [rnd(6, 5), pos(6, 5)])
 add("poisson", "poisson", [1], [pos(6, 5), pos(6, 5)])
+# ---- wave 6: metric losses (attrs: reduction, then margin), CTC (attrs: reduction, blank, input lengths, target lengths), sparsemax
+add("triplet_margin", "triplet_margin", [1, 1.0], [rnd(7, 6), rnd(7, 6), rnd(7, 6)])
+add("contrastive", "contrastive", [1, 1.5], [rnd(8, 5, lo=-1, hi=1), rnd(8, 5, lo=-1, hi=1), (rng.uniform(size=8) < 0.5).astype(np.float32)], [True, True, False])
+add("cosine_embedding", "cosine_embedding", [1, 0.2], [rnd(8, 6), rnd(8, 6), signs(8)], [True, True, False])
+add("margin_ranking_sum", "margin_ranking", [2, 0.3], [rnd(9), rnd(9), signs(9)], [True, True, False])
+add("ctc_mean", "ctc", [1, 0, 12, 9, 11, 4, 2, 3], [rnd(12, 3, 6, lo=-3, hi=3), np.array([[1, 2, 2, 5], [3, 3, 0, 0], [4, 1, 4, 0]], np.int32)])
+add("ctc_none_blank3", "ctc", [0, 3, 20, 17, 7, 5], [rnd(20, 2, 5, lo=-3, hi=3), np.array([[1, 0, 1, 2, 4, 4, 2], [2, 2, 1, 0, 4, 0, 0]], np.int32)])
+add("sparsemax", "sparsemax", [], [rnd(6, 9, lo=-3, hi=3)])
+# ---- wave 6: linear algebra (multi-part results flattened and concatenated; vectors signed as jitNN signs them)
+def spd(*shape):
+    m = rng.uniform(-1, 1, size=shape)
+    return (m @ np.swapaxes(m, -1, -2) + shape[-1] * np.eye(shape[-1])).astype(np.float32)
+
+
+def sym(*shape):
+    m = rng.uniform(-2, 2, size=shape)
+    return ((m + np.swapaxes(m, -1, -2)) / 2).astype(np.float32)
+
+
+def tri(n):
+    return (rng.uniform(-1, 1, size=(n, n)) + 3 * np.eye(n)).astype(np.float32)
+
+
+add("lu_factor", "lu_factor", [], [rnd(5, 5)])
+add("lu_factor_batch", "lu_factor", [], [rnd(3, 4, 4)])
+add("solve_triangular_lower", "solve_triangular", [0, 0], [tri(5), rnd(5, 3)])
+add("solve_triangular_upper", "solve_triangular", [1, 0], [tri(5), rnd(5, 3)])
+add("solve_triangular_upper_unit", "solve_triangular", [1, 1], [tri(4), rnd(4, 2)])
+add("solve", "solve", [], [rnd(6, 6), rnd(6, 2)])
+add("solve_batch", "solve", [], [rnd(2, 4, 4), rnd(2, 4, 3)])
+add("inv", "inv", [], [rnd(5, 5)])
+add("det", "det", [], [rnd(5, 5)])
+add("det_batch", "det", [], [rnd(3, 4, 4)])
+add("slogdet", "slogdet", [], [rnd(3, 4, 4)])
+add("cholesky", "cholesky", [], [spd(5, 5)])
+add("cholesky_batch", "cholesky", [], [spd(2, 4, 4)])
+add("qr_tall", "qr", [], [rnd(6, 4)])
+add("qr_batch", "qr", [], [rnd(2, 5, 5)])
+add("qr_wide", "qr", [], [rnd(3, 5)])
+add("eigh", "eigh", [], [sym(5, 5)])
+add("eigh_batch", "eigh", [], [sym(2, 6, 6)])
+add("svd_tall", "svd", [], [rnd(6, 4)])
+add("svd_wide", "svd", [], [rnd(4, 6)])
+add("svd_batch", "svd", [], [rnd(2, 5, 5)])
+# ---- wave 6: Fourier transforms on (re, im) pairs (attrs: n, dim, norm 0 backward / 1 ortho / 2 forward); stft/istft (attrs: n_fft, hop, center, normalized, window 0 none / 1 hann)
+add("fft", "fft", [-1, -1, 0], [rnd(3, 12, 2)])
+add("fft_pad_ortho", "fft", [16, -1, 1], [rnd(2, 10, 2)])
+add("fft_crop_dim0", "fft", [5, 0, 2], [rnd(6, 4, 2)])
+add("ifft", "ifft", [-1, -1, 0], [rnd(2, 9, 2)])
+add("rfft", "rfft", [-1, -1, 0], [rnd(3, 10)])
+add("rfft_odd_ortho", "rfft", [-1, -1, 1], [rnd(2, 9)])
+add("irfft", "irfft", [-1, -1, 0], [rnd(2, 6, 2)])
+add("irfft_n9", "irfft", [9, -1, 0], [rnd(2, 5, 2)])
+add("fft2", "fft2", [], [rnd(3, 4, 5, 2)])
+add("rfft2", "rfft2", [], [rnd(2, 4, 6)])
+add("stft_hann", "stft", [16, 4, 1, 0, 1], [rnd(2, 64)])
+add("stft_rect_nocenter", "stft", [8, 3, 0, 1, 0], [rnd(30)])
+add("istft_hann", "istft", [16, 4, 1, 0, 1], [rnd(2, 9, 17, 2)])
+# ---- wave 6: sparse times dense (attrs: rows, cols, nnz, row indices, column indices; duplicates add up) and GCN (attrs: nodes, edges, sources, destinations)
+sp_r = [0, 2, 2, 4, 1, 0, 3, 4, 2, 1, 4]
+sp_c = [1, 0, 5, 3, 3, 1, 2, 0, 4, 0, 5]
+add("spmm", "spmm", [5, 6, len(sp_r)] + sp_r + sp_c, [rnd(len(sp_r)), rnd(6, 7)])
+g_src = [0, 1, 1, 2, 3, 4, 5, 5, 0]
+g_dst = [1, 0, 2, 3, 2, 5, 4, 0, 5]
+add("gcn", "gcn", [6, len(g_src)] + g_src + g_dst, [rnd(6, 4), rnd(3, 4)])
+# ---- wave 6: embedding-model losses
+add("negative_sampling", "negative_sampling", [], [rnd(6, 5, lo=-1, hi=1), rnd(6, 5, lo=-1, hi=1), rnd(6, 4, 5, lo=-1, hi=1)])
+add("glove_loss", "glove_loss", [], [rnd(7, 5, lo=-1, hi=1), rnd(7, 5, lo=-1, hi=1), rnd(7), rnd(7), pos(7), pos(7)], [True, True, True, True, False, False])
 add("msle", "msle", [1], [pos(6, 5), pos(6, 5)])
 add("mape", "mape", [1], [rnd(6, 5), rnd(6, 5, lo=0.5, hi=3) * signs(6, 5)])
 # ---- wave 5: norms (attrs: groups eps / eps / size alpha beta k)
@@ -622,6 +690,95 @@ def forward(op, attrs, t):
              "mape": lambda: 100 * (y - x).abs() / y.abs().clamp_min(1e-7),
              "cosine_proximity": lambda: -torch.nn.functional.cosine_similarity(x, y, dim=-1, eps=1e-8)}[op]()
         return l.mean() if red == "mean" else (l.sum() if red == "sum" else l)
+    if op in ("triplet_margin", "contrastive", "cosine_embedding", "margin_ranking"):
+        red = ["none", "mean", "sum"][attrs[0]]
+        F = torch.nn.functional
+        if op == "triplet_margin":
+            return F.triplet_margin_loss(t[0], t[1], t[2], margin=attrs[1], reduction=red)
+        if op == "cosine_embedding":
+            return F.cosine_embedding_loss(t[0], t[1], t[2], margin=attrs[1], reduction=red)
+        if op == "margin_ranking":
+            return F.margin_ranking_loss(t[0], t[1], t[2], margin=attrs[1], reduction=red)
+        d = F.pairwise_distance(t[0], t[1])
+        l = t[2] * d ** 2 + (1 - t[2]) * torch.relu(attrs[1] - d) ** 2
+        return l.mean() if red == "mean" else (l.sum() if red == "sum" else l)
+    if op == "ctc":
+        b = t[0].shape[1]
+        lens = attrs[2:]
+        return torch.nn.functional.ctc_loss(torch.log_softmax(t[0], -1), t[1].long(), torch.tensor(lens[:b]), torch.tensor(lens[b:]), blank=attrs[1],
+                                            reduction=["none", "mean", "sum"][attrs[0]])
+    if op == "sparsemax":
+        z = torch.sort(t[0], -1, descending=True)[0]
+        k = torch.arange(1, z.shape[-1] + 1, dtype=z.dtype)
+        support = (1 + k * z > z.cumsum(-1)).to(z.dtype)
+        tau = ((support * z).sum(-1, keepdim=True) - 1) / support.sum(-1, keepdim=True)
+        return torch.relu(t[0] - tau)
+    if op in ("lu_factor", "solve_triangular", "solve", "inv", "det", "slogdet", "cholesky", "qr", "eigh", "svd"):
+        L = torch.linalg
+        flat = lambda *xs: torch.cat([x.reshape(-1) for x in xs])
+        signs_of = lambda x: torch.sign(torch.gather(x, -2, x.abs().argmax(-2, keepdim=True))).detach()
+        if op == "lu_factor":
+            return L.lu_factor(t[0])[0]
+        if op == "solve_triangular":
+            return L.solve_triangular(t[0], t[1], upper=bool(attrs[0]), unitriangular=bool(attrs[1]))
+        if op == "solve":
+            return L.solve(t[0], t[1])
+        if op == "inv":
+            return L.inv(t[0])
+        if op == "det":
+            return L.det(t[0])
+        if op == "slogdet":
+            return L.slogdet(t[0]).logabsdet
+        if op == "cholesky":
+            return L.cholesky(t[0])
+        if op == "qr":
+            return flat(*L.qr(t[0]))
+        if op == "eigh":
+            w, v = L.eigh(t[0])
+            return flat(w, v * signs_of(v))
+        u, sv, vh = L.svd(t[0], full_matrices=False)
+        sg = signs_of(u)
+        return flat(u * sg, sv, vh.mT * sg)
+    if op in ("fft", "ifft", "rfft", "irfft", "fft2", "rfft2", "stft", "istft"):
+        fft = torch.fft
+        cx = lambda x: torch.view_as_complex(x.contiguous())
+        rx = torch.view_as_real
+        if op in ("fft", "ifft", "rfft", "irfft"):
+            norm = ["backward", "ortho", "forward"][attrs[2]]
+            n = None if attrs[0] < 0 else attrs[0]
+            x = t[0] if op == "rfft" else cx(t[0])
+            y = getattr(fft, op)(x, n=n, dim=attrs[1], norm=norm)
+            return y if op == "irfft" else rx(y)
+        if op == "fft2":
+            return rx(fft.fft2(cx(t[0])))
+        if op == "rfft2":
+            return rx(fft.rfft2(t[0]))
+        n_fft, hop, center, normalized, win = attrs
+        window = torch.hann_window(n_fft, dtype=torch.float64) if win else None
+        if op == "stft":
+            return rx(torch.stft(t[0], n_fft, hop, window=window, center=bool(center), normalized=bool(normalized), onesided=True, return_complex=True))
+        return torch.istft(cx(t[0]), n_fft, hop, window=window, center=bool(center), normalized=bool(normalized), onesided=True)
+    if op == "spmm":
+        rows, cols, nnz = attrs[:3]
+        a = torch.zeros(rows, cols).index_put((torch.tensor(attrs[3:3 + nnz]), torch.tensor(attrs[3 + nnz:])), t[0], accumulate=True)
+        return a @ t[1]
+    if op == "gcn":
+        n, e = attrs[:2]
+        src, dst = attrs[2:2 + e], attrs[2 + e:]
+        a = torch.zeros(n, n)
+        for s_, d_ in zip(src, dst):
+            a[d_, s_] += 1
+        a = a + torch.eye(n)
+        deg = a.sum(1)
+        norm = a / torch.sqrt(deg[:, None] * deg[None, :])
+        return norm @ (t[0] @ t[1].T)
+    if op == "negative_sampling":
+        ls = torch.nn.functional.logsigmoid
+        h, tg, ng = t
+        return -(ls((h * tg).sum(-1)) + ls(-(ng * h[:, None, :]).sum(-1)).sum(-1)).mean()
+    if op == "glove_loss":
+        wi, wj, bi, bj, lx, w = t
+        return (w * ((wi * wj).sum(-1) + bi + bj - lx) ** 2).mean()
     if op == "nll_mean":
         return torch.nn.functional.nll_loss(t[0], t[1].long())
     if op == "cosine_similarity":
@@ -747,6 +904,51 @@ for name, make in [
     ("adamax", lambda p: torch.optim.Adamax([p], lr=0.02, weight_decay=0.01)),
     ("nadam", lambda p: torch.optim.NAdam([p], lr=0.01, weight_decay=0.01)),
 ]:
+    p0 = rnd(37)
+    p = torch.tensor(p0.astype(np.float64), requires_grad=True)
+    opt = make(p)
+    lines.append(f"case opt_{name} optim {name}")
+    arrays.append((f"opt_{name}", "p0", p0))
+    for k in range(3):
+        g = rnd(37)
+        arrays.append((f"opt_{name}", f"g{k}", g))
+        p.grad = torch.tensor(g.astype(np.float64))
+        opt.step()
+    arrays.append((f"opt_{name}", "out", p.detach().numpy().astype(np.float32)))
+
+# ---- layer-wise optimisers, not in torch.optim: their update rules in FP64
+class Lamb:
+    def __init__(self, p, lr, b1, b2, eps, wd):
+        self.p, self.lr, self.b1, self.b2, self.eps, self.wd, self.t = p, lr, b1, b2, eps, wd, 0
+        self.m, self.v = torch.zeros_like(p), torch.zeros_like(p)
+
+    def step(self):
+        with torch.no_grad():
+            self.t += 1
+            g = self.p.grad
+            self.m = self.b1 * self.m + (1 - self.b1) * g
+            self.v = self.b2 * self.v + (1 - self.b2) * g * g
+            u = (self.m / (1 - self.b1 ** self.t)) / ((self.v / (1 - self.b2 ** self.t)).sqrt() + self.eps) + self.wd * self.p
+            wn, un = self.p.norm(), u.norm()
+            r = wn / un if wn > 0 and un > 0 else 1.0
+            self.p -= self.lr * r * u
+
+
+class Lars:
+    def __init__(self, p, lr, momentum, wd, eta, eps):
+        self.p, self.lr, self.mu, self.wd, self.eta, self.eps = p, lr, momentum, wd, eta, eps
+        self.buf = torch.zeros_like(p)
+
+    def step(self):
+        with torch.no_grad():
+            g = self.p.grad
+            wn, gn = self.p.norm(), g.norm()
+            local = self.eta * wn / (gn + self.wd * wn + self.eps) if wn > 0 and gn > 0 else 1.0
+            self.buf = self.mu * self.buf + self.lr * local * (g + self.wd * self.p)
+            self.p -= self.buf
+
+
+for name, make in [("lamb", lambda p: Lamb(p, 0.01, 0.9, 0.999, 1e-6, 0.01)), ("lars", lambda p: Lars(p, 0.1, 0.9, 1e-4, 0.001, 1e-9))]:
     p0 = rnd(37)
     p = torch.tensor(p0.astype(np.float64), requires_grad=True)
     opt = make(p)
