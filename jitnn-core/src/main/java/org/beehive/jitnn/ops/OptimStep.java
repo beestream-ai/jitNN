@@ -22,15 +22,24 @@ import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 public final class OptimStep implements Op {
 
     public enum Kind {
-        SGD(0),
-        SGD_MOMENTUM(1),
-        ADAM(2);
+        SGD(0, 4),
+        SGD_MOMENTUM(1, 4),
+        ADAM(2, 4),
+        AMSGRAD(3, 3),
+        ADAGRAD(1, 4),
+        RMSPROP(3, 3),
+        ADADELTA(2, 4),
+        ADAMAX(2, 4),
+        NADAM(2, 4);
 
         /** Optimiser state tensors per parameter. */
         final int states;
+        /** Parameters per launch (TornadoVM tasks take at most 20 arguments). */
+        final int slots;
 
-        Kind(int states) {
+        Kind(int states, int slots) {
             this.states = states;
+            this.slots = slots;
         }
     }
 
@@ -47,7 +56,7 @@ public final class OptimStep implements Op {
      * 1 - beta2^t, weightDecay, decoupled].
      */
     public static void apply(Kind kind, List<Tensor> params, List<Tensor> grads, List<List<Tensor>> states, Tensor hyper, Tensor stats) {
-        int per = MultiTensorKernels.OPT_SLOTS;
+        int per = kind.slots;
         for (int start = 0; start < params.size(); start += per) {
             int count = Math.min(per, params.size() - start);
             List<Tensor> in = new java.util.ArrayList<>();
@@ -92,7 +101,7 @@ public final class OptimStep implements Op {
         Kind kind = Kind.values()[n.iattr[0]];
         int count = n.iattr[2];
         int width = 2 + kind.states;
-        int slots = MultiTensorKernels.OPT_SLOTS;
+        int slots = kind.slots;
         // [slot][p, g, state...]; unused slots get their own one-element arrays and size 0
         FloatArray[][] a = new FloatArray[slots][width];
         int[] sizes = new int[slots];
@@ -114,6 +123,94 @@ public final class OptimStep implements Op {
                     a[1][2], a[2][0], a[2][1], a[2][2], a[3][0], a[3][1], a[3][2], h, stats, sz));
             case ADAM -> e.task(Emitter.grid1D(total), (tg, id) -> tg.task(id, MultiTensorKernels::adam, e.context(), a[0][0], a[0][1], a[0][2], a[0][3], a[1][0], a[1][1],
                     a[1][2], a[1][3], a[2][0], a[2][1], a[2][2], a[2][3], a[3][0], a[3][1], a[3][2], a[3][3], h, stats, sz));
+            case AMSGRAD -> e.task(Emitter.grid1D(total), (tg, id) -> tg.task(id, MultiTensorKernels::amsgrad, e.context(), a[0][0], a[0][1], a[0][2], a[0][3], a[0][4],
+                    a[1][0], a[1][1], a[1][2], a[1][3], a[1][4], a[2][0], a[2][1], a[2][2], a[2][3], a[2][4], h, stats, sz));
+            case ADAGRAD -> e.task(Emitter.grid1D(total), (tg, id) -> tg.task(id, MultiTensorKernels::adagrad, e.context(), a[0][0], a[0][1], a[0][2], a[1][0], a[1][1],
+                    a[1][2], a[2][0], a[2][1], a[2][2], a[3][0], a[3][1], a[3][2], h, stats, sz));
+            case RMSPROP -> e.task(Emitter.grid1D(total), (tg, id) -> tg.task(id, MultiTensorKernels::rmsprop, e.context(), a[0][0], a[0][1], a[0][2], a[0][3], a[0][4],
+                    a[1][0], a[1][1], a[1][2], a[1][3], a[1][4], a[2][0], a[2][1], a[2][2], a[2][3], a[2][4], h, stats, sz));
+            case ADADELTA -> e.task(Emitter.grid1D(total), (tg, id) -> tg.task(id, MultiTensorKernels::adadelta, e.context(), a[0][0], a[0][1], a[0][2], a[0][3], a[1][0],
+                    a[1][1], a[1][2], a[1][3], a[2][0], a[2][1], a[2][2], a[2][3], a[3][0], a[3][1], a[3][2], a[3][3], h, stats, sz));
+            case ADAMAX -> e.task(Emitter.grid1D(total), (tg, id) -> tg.task(id, MultiTensorKernels::adamax, e.context(), a[0][0], a[0][1], a[0][2], a[0][3], a[1][0], a[1][1],
+                    a[1][2], a[1][3], a[2][0], a[2][1], a[2][2], a[2][3], a[3][0], a[3][1], a[3][2], a[3][3], h, stats, sz));
+            case NADAM -> e.task(Emitter.grid1D(total), (tg, id) -> tg.task(id, MultiTensorKernels::nadam, e.context(), a[0][0], a[0][1], a[0][2], a[0][3], a[1][0], a[1][1],
+                    a[1][2], a[1][3], a[2][0], a[2][1], a[2][2], a[2][3], a[3][0], a[3][1], a[3][2], a[3][3], h, stats, sz));
+        }
+    }
+
+    /** One element of the newer optimisers in double precision (states updated in place); returns the new parameter. */
+    private static double referenceStep(Kind kind, FloatArray h, double w, double grad, FloatArray[] st, int i) {
+        switch (kind) {
+            case AMSGRAD -> {
+                double lr = h.get(0), b1 = h.get(1), b2 = h.get(2), wd = h.get(6);
+                if (h.get(7) != 0) {
+                    w -= lr * wd * w;
+                } else {
+                    grad += wd * w;
+                }
+                double m = b1 * st[0].get(i) + (1 - b1) * grad;
+                double v = b2 * st[1].get(i) + (1 - b2) * grad * grad;
+                double vm = Math.max(st[2].get(i), v);
+                st[0].set(i, (float) m);
+                st[1].set(i, (float) v);
+                st[2].set(i, (float) vm);
+                return w - lr * (m / h.get(4)) / (Math.sqrt(vm) / Math.sqrt(h.get(5)) + h.get(3));
+            }
+            case ADAGRAD -> {
+                grad += h.get(2) * w;
+                double sum = st[0].get(i) + grad * grad;
+                st[0].set(i, (float) sum);
+                return w - h.get(0) * grad / (Math.sqrt(sum) + h.get(1));
+            }
+            case RMSPROP -> {
+                double alpha = h.get(1);
+                grad += h.get(3) * w;
+                double sq = alpha * st[0].get(i) + (1 - alpha) * grad * grad;
+                st[0].set(i, (float) sq);
+                double avg;
+                if (h.get(5) != 0) {
+                    double ga = alpha * st[2].get(i) + (1 - alpha) * grad;
+                    st[2].set(i, (float) ga);
+                    avg = Math.sqrt(sq - ga * ga) + h.get(2);
+                } else {
+                    avg = Math.sqrt(sq) + h.get(2);
+                }
+                if (h.get(4) != 0) {
+                    double b = h.get(4) * st[1].get(i) + grad / avg;
+                    st[1].set(i, (float) b);
+                    return w - h.get(0) * b;
+                }
+                return w - h.get(0) * grad / avg;
+            }
+            case ADADELTA -> {
+                double rho = h.get(1), eps = h.get(2);
+                grad += h.get(3) * w;
+                double sq = rho * st[0].get(i) + (1 - rho) * grad * grad;
+                double delta = Math.sqrt(st[1].get(i) + eps) / Math.sqrt(sq + eps) * grad;
+                st[0].set(i, (float) sq);
+                st[1].set(i, (float) (rho * st[1].get(i) + (1 - rho) * delta * delta));
+                return w - h.get(0) * delta;
+            }
+            case ADAMAX -> {
+                double b1 = h.get(1);
+                grad += h.get(5) * w;
+                double m = b1 * st[0].get(i) + (1 - b1) * grad;
+                double u = Math.max(h.get(2) * st[1].get(i), Math.abs(grad) + h.get(3));
+                st[0].set(i, (float) m);
+                st[1].set(i, (float) u);
+                return w - h.get(0) / h.get(4) * m / u;
+            }
+            case NADAM -> {
+                double b1 = h.get(1), b2 = h.get(2);
+                grad += h.get(4) * w;
+                double m = b1 * st[0].get(i) + (1 - b1) * grad;
+                double v = b2 * st[1].get(i) + (1 - b2) * grad * grad;
+                st[0].set(i, (float) m);
+                st[1].set(i, (float) v);
+                double denom = Math.sqrt(v / h.get(8)) + h.get(3);
+                return w - h.get(9) * grad / denom - h.get(10) * m / denom;
+            }
+            default -> throw new IllegalStateException(kind.toString());
         }
     }
 
@@ -151,6 +248,15 @@ public final class OptimStep implements Op {
                         buf.set(i, (float) v);
                         double step = h.get(3) != 0 ? grad + h.get(1) * v : v;
                         p.set(i, (float) (w - h.get(0) * step));
+                    }
+                }
+                case AMSGRAD, ADAGRAD, RMSPROP, ADADELTA, ADAMAX, NADAM -> {
+                    FloatArray[] st = new FloatArray[kind.states];
+                    for (int j = 0; j < st.length; j++) {
+                        st[j] = (FloatArray) n.in(k * width + 2 + j).storage().host();
+                    }
+                    for (int i = 0; i < size; i++) {
+                        p.set(i, (float) referenceStep(kind, h, p.get(i), g.get(i) * factor, st, i));
                     }
                 }
                 case ADAM -> {

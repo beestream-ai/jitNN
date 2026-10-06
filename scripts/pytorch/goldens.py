@@ -266,6 +266,22 @@ for op in ("ne", "le", "logical_and", "logical_or", "logical_xor"):
 add("logical_not", "logical_not", [], [ints(6, 7)], grads=[False])
 add("where", "where", [], [(rnd(6, 7) > 0).astype(np.float32), rnd(6, 7), rnd(7)], grads=[False, True, True])
 add("one_hot", "one_hot", [5], [np.array([0, 4, 2, 2, 1, 3, 0], np.int32)])
+# ---- wave 5: losses (attrs: reduction 0 none, 1 mean, 2 sum, then the loss's parameter)
+signs = lambda *d: np.where(rng.uniform(size=d) < 0.5, -1.0, 1.0).astype(np.float32)
+add("l1_mean", "l1", [1], [rnd(6, 7), rnd(6, 7)])
+add("l1_none", "l1", [0], [rnd(5, 3), rnd(5, 3)])
+add("huber", "huber", [1, 1.0], [rnd(8, 9, lo=-3, hi=3), rnd(8, 9, lo=-3, hi=3)])
+add("huber_0.3_sum", "huber", [2, 0.3], [rnd(6, 5), rnd(6, 5)])
+add("smooth_l1", "smooth_l1", [1, 0.5], [rnd(8, 9), rnd(8, 9)])
+add("nll_mean", "nll_mean", [], [rnd(9, 6, lo=-4, hi=-0.1), np.array([0, 5, 2, 3, 1, 4, 0, 2, 5], np.int32)])
+add("hinge", "hinge", [1], [rnd(7, 5), signs(7, 5)])
+add("squared_hinge", "squared_hinge", [1], [rnd(7, 5), signs(7, 5)])
+add("cosine_similarity", "cosine_similarity", [1], [rnd(6, 9), rnd(6, 9)])
+add("cosine_proximity", "cosine_proximity", [1], [rnd(6, 9), rnd(6, 9)])
+add("poisson_log", "poisson_log", [1], [rnd(6, 5), pos(6, 5)])
+add("poisson", "poisson", [1], [pos(6, 5), pos(6, 5)])
+add("msle", "msle", [1], [pos(6, 5), pos(6, 5)])
+add("mape", "mape", [1], [rnd(6, 5), rnd(6, 5, lo=0.5, hi=3) * signs(6, 5)])
 # ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
 def rnn_case(name, op, t, b, i, h, gates):
     w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
@@ -511,6 +527,28 @@ def forward(op, attrs, t):
         return torch.where(t[0] != 0, t[1], t[2])
     if op == "one_hot":
         return torch.nn.functional.one_hot(t[0].long(), attrs[0]).to(torch.float64)
+    if op in ("l1", "huber", "smooth_l1", "hinge", "squared_hinge", "poisson_log", "poisson", "msle", "mape", "cosine_proximity"):
+        red = ["none", "mean", "sum"][attrs[0]]
+        x, y = t[0], t[1]
+        if op == "l1":
+            return torch.nn.functional.l1_loss(x, y, reduction=red)
+        if op == "huber":
+            return torch.nn.functional.huber_loss(x, y, reduction=red, delta=attrs[1])
+        if op == "smooth_l1":
+            return torch.nn.functional.smooth_l1_loss(x, y, reduction=red, beta=attrs[1])
+        if op == "poisson_log":
+            return torch.nn.functional.poisson_nll_loss(x, y, log_input=True, reduction=red)
+        if op == "poisson":
+            return torch.nn.functional.poisson_nll_loss(x, y, log_input=False, eps=1e-8, reduction=red)
+        l = {"hinge": lambda: torch.relu(1 - y * x), "squared_hinge": lambda: torch.relu(1 - y * x) ** 2,
+             "msle": lambda: (torch.log1p(x) - torch.log1p(y)) ** 2,
+             "mape": lambda: 100 * (y - x).abs() / y.abs().clamp_min(1e-7),
+             "cosine_proximity": lambda: -torch.nn.functional.cosine_similarity(x, y, dim=-1, eps=1e-8)}[op]()
+        return l.mean() if red == "mean" else (l.sum() if red == "sum" else l)
+    if op == "nll_mean":
+        return torch.nn.functional.nll_loss(t[0], t[1].long())
+    if op == "cosine_similarity":
+        return torch.nn.functional.cosine_similarity(t[0], t[1], dim=attrs[0], eps=1e-8)
     raise ValueError(op)
 
 
@@ -546,6 +584,13 @@ for name, make in [
     ("sgd_nesterov", lambda p: torch.optim.SGD([p], lr=0.1, momentum=0.9, nesterov=True)),
     ("adam", lambda p: torch.optim.Adam([p], lr=0.01, weight_decay=0.01)),
     ("adamw", lambda p: torch.optim.AdamW([p], lr=0.01, weight_decay=0.05)),
+    ("amsgrad", lambda p: torch.optim.Adam([p], lr=0.01, weight_decay=0.01, amsgrad=True)),
+    ("adagrad", lambda p: torch.optim.Adagrad([p], lr=0.1, lr_decay=0.01, weight_decay=0.01, initial_accumulator_value=0.1)),
+    ("rmsprop", lambda p: torch.optim.RMSprop([p], lr=0.01, alpha=0.9, weight_decay=0.01)),
+    ("rmsprop_centered_momentum", lambda p: torch.optim.RMSprop([p], lr=0.01, alpha=0.9, momentum=0.8, centered=True)),
+    ("adadelta", lambda p: torch.optim.Adadelta([p], lr=1.0, rho=0.9, eps=1e-6, weight_decay=0.01)),
+    ("adamax", lambda p: torch.optim.Adamax([p], lr=0.02, weight_decay=0.01)),
+    ("nadam", lambda p: torch.optim.NAdam([p], lr=0.01, weight_decay=0.01)),
 ]:
     p0 = rnd(37)
     p = torch.tensor(p0.astype(np.float64), requires_grad=True)

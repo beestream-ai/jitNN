@@ -281,7 +281,11 @@ public final class ElementwiseKernels {
 
     public static float binaryOp(int op, float x, float y, float alpha, float beta) {
         float r;
-        if (op == ADD) {
+        if (op >= ATAN2) {
+            r = binaryMath(op, x, y, alpha, beta);
+        } else if (op >= ELU_GRAD) {
+            r = binaryActivationGrad(op, x, y, alpha, beta);
+        } else if (op == ADD) {
             r = x + y;
         } else if (op == SUB) {
             r = x - y;
@@ -339,7 +343,16 @@ public final class ElementwiseKernels {
         } else if (op == ADD_RELU) {
             float s = x + y;
             r = s > 0.0f ? s : 0.0f;
-        } else if (op == ELU_GRAD) {
+        } else {
+            r = x;
+        }
+        return r;
+    }
+
+    /** Wave 5 activation gradients and PReLU (split out to stay under TornadoVM's inlining limit). */
+    private static float binaryActivationGrad(int op, float x, float y, float alpha, float beta) {
+        float r;
+        if (op == ELU_GRAD) {
             r = x > 0.0f ? y : y * alpha * TornadoMath.exp(x);
         } else if (op == SELU_GRAD) {
             r = x > 0.0f ? y * SELU_SCALE : y * SELU_SCALE * SELU_ALPHA * TornadoMath.exp(x);
@@ -361,7 +374,16 @@ public final class ElementwiseKernels {
             r = x > 0.0f ? x : y * x;
         } else if (op == PRELU_SLOPE) {
             r = x > 0.0f ? 1.0f : y;
-        } else if (op == ATAN2) {
+        } else {
+            r = x;
+        }
+        return r;
+    }
+
+    /** atan2, comparisons and logic (split out to stay under TornadoVM's inlining limit). */
+    private static float binaryMath(int op, float x, float y, float alpha, float beta) {
+        float r;
+        if (op == ATAN2) {
             r = TornadoMath.atan2(x, y);
         } else if (op == NE) {
             r = x != y ? 1.0f : 0.0f;
@@ -381,7 +403,11 @@ public final class ElementwiseKernels {
 
     public static float unaryOp(int op, float x, float alpha, float beta) {
         float r;
-        if (op == NEG) {
+        if (op >= SIN) {
+            r = unaryMath(op, x, alpha, beta);
+        } else if (op >= ELU) {
+            r = unaryActivation(op, x, alpha, beta);
+        } else if (op == NEG) {
             r = -x;
         } else if (op == EXP) {
             r = TornadoMath.exp(x);
@@ -417,7 +443,16 @@ public final class ElementwiseKernels {
             r = x > 0.0f ? x : alpha * x;
         } else if (op == SOFTPLUS) {
             r = softplus(x);
-        } else if (op == ELU) {
+        } else {
+            r = alpha;
+        }
+        return r;
+    }
+
+    /** Wave 5 activations (split out to stay under TornadoVM's inlining limit). */
+    private static float unaryActivation(int op, float x, float alpha, float beta) {
+        float r;
+        if (op == ELU) {
             r = x > 0.0f ? x : alpha * expm1(x);
         } else if (op == SELU) {
             r = x > 0.0f ? SELU_SCALE * x : SELU_SCALE * SELU_ALPHA * expm1(x);
@@ -435,7 +470,16 @@ public final class ElementwiseKernels {
             r = x * (h < 0.0f ? 0.0f : (h > 1.0f ? 1.0f : h));
         } else if (op == THRESHOLD) {
             r = x > alpha ? x : 0.0f;
-        } else if (op == SIN) {
+        } else {
+            r = x;
+        }
+        return r;
+    }
+
+    /** Trigonometric, hyperbolic, rounding and logic functions (split out to stay under TornadoVM's inlining limit). */
+    private static float unaryMath(int op, float x, float alpha, float beta) {
+        float r;
+        if (op == SIN) {
             r = TornadoMath.sin(x);
         } else if (op == COS) {
             r = TornadoMath.cos(x);
@@ -478,7 +522,7 @@ public final class ElementwiseKernels {
         } else if (op == LOGICAL_NOT) {
             r = x == 0.0f ? 1.0f : 0.0f;
         } else {
-            r = alpha;
+            r = x;
         }
         return r;
     }

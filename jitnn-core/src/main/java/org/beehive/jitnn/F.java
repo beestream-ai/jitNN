@@ -275,6 +275,78 @@ public final class F {
         return reduce(Binary.apply(Binary.Kind.BCE_LOGITS, logits, target), reduction);
     }
 
+    /** Mean absolute error (L1), PyTorch's l1_loss. */
+    public static Tensor l1Loss(Tensor input, Tensor target, Reduction reduction) {
+        return reduce(input.sub(target).abs(), reduction);
+    }
+
+    /**
+     * Huber loss with threshold {@code delta}: 0.5 d^2 where |d| < delta, else delta (|d| - delta / 2),
+     * d = input - target (PyTorch's huber_loss).
+     */
+    public static Tensor huberLoss(Tensor input, Tensor target, float delta, Reduction reduction) {
+        Tensor d = input.sub(target);
+        Tensor a = d.abs();
+        Tensor quadratic = d.square().mul(0.5f);
+        Tensor linear = a.add(-0.5f * delta).mul(delta);
+        return reduce(where(a.lt(Tensor.scalar(delta)), quadratic, linear), reduction);
+    }
+
+    /** Smooth L1 loss, PyTorch's smooth_l1_loss: Huber with delta = beta, divided by beta. */
+    public static Tensor smoothL1Loss(Tensor input, Tensor target, float beta, Reduction reduction) {
+        return huberLoss(input, target, beta, reduction).mul(1.0f / beta);
+    }
+
+    /** Negative log-likelihood of INT32 labels under log-probabilities [N, C], reduced. */
+    public static Tensor nllLoss(Tensor logp, Tensor labels, Reduction reduction) {
+        return reduce(nll(logp, labels), reduction);
+    }
+
+    /** Hinge loss with targets in {-1, 1}: max(0, 1 - target * input), Keras's hinge (mean). */
+    public static Tensor hingeLoss(Tensor input, Tensor target, Reduction reduction) {
+        return reduce(target.mul(input).neg().add(1.0f).relu(), reduction);
+    }
+
+    /** Squared hinge loss: max(0, 1 - target * input)^2. */
+    public static Tensor squaredHingeLoss(Tensor input, Tensor target, Reduction reduction) {
+        return reduce(target.mul(input).neg().add(1.0f).relu().square(), reduction);
+    }
+
+    /**
+     * Cosine similarity along {@code axis}: a . b / (max(|a|, eps) max(|b|, eps)), PyTorch's
+     * cosine_similarity.
+     */
+    public static Tensor cosineSimilarity(Tensor a, Tensor b, int axis, float eps) {
+        Tensor eps0 = Tensor.scalar(eps);
+        Tensor na = a.square().sum(axis, false).sqrt().maximum(eps0);
+        Tensor nb = b.square().sum(axis, false).sqrt().maximum(eps0);
+        return a.mul(b).sum(axis, false).div(na.mul(nb));
+    }
+
+    /** Cosine proximity loss (DL4J, Keras): minus the cosine similarity along the last axis, reduced. */
+    public static Tensor cosineProximityLoss(Tensor input, Tensor target, Reduction reduction) {
+        return reduce(cosineSimilarity(input, target, -1, 1e-8f).neg(), reduction);
+    }
+
+    /**
+     * Poisson negative log-likelihood, PyTorch's poisson_nll_loss without the Stirling term:
+     * exp(input) - target input with {@code logInput}, else input - target log(input + eps).
+     */
+    public static Tensor poissonNllLoss(Tensor input, Tensor target, boolean logInput, float eps, Reduction reduction) {
+        Tensor l = logInput ? input.exp().sub(target.mul(input)) : input.sub(target.mul(input.add(eps).log()));
+        return reduce(l, reduction);
+    }
+
+    /** Mean squared logarithmic error: (log1p(input) - log1p(target))^2 (Keras's MSLE). */
+    public static Tensor msleLoss(Tensor input, Tensor target, Reduction reduction) {
+        return reduce(input.log1p().sub(target.log1p()).square(), reduction);
+    }
+
+    /** Mean absolute percentage error: 100 |target - input| / max(|target|, eps) (Keras's MAPE, eps 1e-7). */
+    public static Tensor mapeLoss(Tensor input, Tensor target, Reduction reduction) {
+        return reduce(target.sub(input).abs().div(target.abs().maximum(Tensor.scalar(1e-7f))).mul(100.0f), reduction);
+    }
+
     /**
      * KL divergence of N(mu, exp(logvar)) from N(0, 1), summed over every element:
      * -0.5 * sum(1 + logvar - mu^2 - exp(logvar)), the VAE regulariser.

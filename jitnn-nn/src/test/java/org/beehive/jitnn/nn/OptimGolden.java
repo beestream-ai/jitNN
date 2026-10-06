@@ -16,7 +16,12 @@ import java.util.Map;
 
 import org.beehive.jitnn.Tensor;
 import org.beehive.jitnn.engine.Engine;
+import org.beehive.jitnn.nn.optim.AdaDelta;
+import org.beehive.jitnn.nn.optim.AdaGrad;
+import org.beehive.jitnn.nn.optim.AdaMax;
 import org.beehive.jitnn.nn.optim.Adam;
+import org.beehive.jitnn.nn.optim.NAdam;
+import org.beehive.jitnn.nn.optim.RMSProp;
 import org.beehive.jitnn.nn.optim.Optimizer;
 import org.beehive.jitnn.nn.optim.SGD;
 import org.junit.jupiter.api.DynamicTest;
@@ -66,6 +71,13 @@ final class OptimGolden {
             case "sgd_nesterov" -> new SGD(params, 0.1f, 0.9f, 0, true);
             case "adam" -> new Adam(params, 0.01f, 0.9f, 0.999f, 1e-8f, 0.01f, false);
             case "adamw" -> Adam.adamW(params, 0.01f, 0.05f);
+            case "amsgrad" -> new Adam(params, 0.01f, 0.9f, 0.999f, 1e-8f, 0.01f, false, true);
+            case "adagrad" -> new AdaGrad(params, 0.1f, 0.01f, 0.01f, 0.1f, 1e-10f);
+            case "rmsprop" -> new RMSProp(params, 0.01f, 0.9f, 1e-8f, 0.01f, 0, false);
+            case "rmsprop_centered_momentum" -> new RMSProp(params, 0.01f, 0.9f, 1e-8f, 0, 0.8f, true);
+            case "adadelta" -> new AdaDelta(params, 1.0f, 0.9f, 1e-6f, 0.01f);
+            case "adamax" -> new AdaMax(params, 0.02f, 0.9f, 0.999f, 1e-8f, 0.01f);
+            case "nadam" -> new NAdam(params, 0.01f, 0.9f, 0.999f, 1e-8f, 0.01f, 0.004f);
             default -> throw new IllegalArgumentException(name);
         };
         for (int k = 0; k < 3; k++) {

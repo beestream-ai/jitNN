@@ -56,6 +56,97 @@ public final class MultiTensorKernels {
         p.set(i, w - hyper.get(0) * step);
     }
 
+    private static void amsgradAt(FloatArray p, FloatArray g, FloatArray m, FloatArray v, FloatArray vmax, FloatArray hyper, float factor, int i) {
+        float lr = hyper.get(0);
+        float b1 = hyper.get(1);
+        float b2 = hyper.get(2);
+        float wd = hyper.get(6);
+        float w = p.get(i);
+        float grad = g.get(i) * factor;
+        if (hyper.get(7) != 0.0f) {
+            w = w - lr * wd * w;
+        } else {
+            grad = grad + wd * w;
+        }
+        float mi = b1 * m.get(i) + (1.0f - b1) * grad;
+        float vi = b2 * v.get(i) + (1.0f - b2) * grad * grad;
+        float vm = vmax.get(i) > vi ? vmax.get(i) : vi;
+        m.set(i, mi);
+        v.set(i, vi);
+        vmax.set(i, vm);
+        p.set(i, w - lr * (mi / hyper.get(4)) / (TornadoMath.sqrt(vm) / TornadoMath.sqrt(hyper.get(5)) + hyper.get(3)));
+    }
+
+    private static void adagradAt(FloatArray p, FloatArray g, FloatArray sum, FloatArray hyper, float factor, int i) {
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(2) * w;
+        float s = sum.get(i) + grad * grad;
+        sum.set(i, s);
+        p.set(i, w - hyper.get(0) * grad / (TornadoMath.sqrt(s) + hyper.get(1)));
+    }
+
+    private static void rmspropAt(FloatArray p, FloatArray g, FloatArray sq, FloatArray buf, FloatArray ga, FloatArray hyper, float factor, int i) {
+        float lr = hyper.get(0);
+        float alpha = hyper.get(1);
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(3) * w;
+        float s = alpha * sq.get(i) + (1.0f - alpha) * grad * grad;
+        sq.set(i, s);
+        float avg;
+        if (hyper.get(5) != 0.0f) {
+            float a = alpha * ga.get(i) + (1.0f - alpha) * grad;
+            ga.set(i, a);
+            avg = TornadoMath.sqrt(s - a * a) + hyper.get(2);
+        } else {
+            avg = TornadoMath.sqrt(s) + hyper.get(2);
+        }
+        if (hyper.get(4) != 0.0f) {
+            float b = hyper.get(4) * buf.get(i) + grad / avg;
+            buf.set(i, b);
+            p.set(i, w - lr * b);
+        } else {
+            p.set(i, w - lr * grad / avg);
+        }
+    }
+
+    private static void adadeltaAt(FloatArray p, FloatArray g, FloatArray sq, FloatArray acc, FloatArray hyper, float factor, int i) {
+        float rho = hyper.get(1);
+        float eps = hyper.get(2);
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(3) * w;
+        float s = rho * sq.get(i) + (1.0f - rho) * grad * grad;
+        sq.set(i, s);
+        float delta = TornadoMath.sqrt(acc.get(i) + eps) / TornadoMath.sqrt(s + eps) * grad;
+        acc.set(i, rho * acc.get(i) + (1.0f - rho) * delta * delta);
+        p.set(i, w - hyper.get(0) * delta);
+    }
+
+    private static void adamaxAt(FloatArray p, FloatArray g, FloatArray m, FloatArray u, FloatArray hyper, float factor, int i) {
+        float b1 = hyper.get(1);
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(5) * w;
+        float mi = b1 * m.get(i) + (1.0f - b1) * grad;
+        float scaled = hyper.get(2) * u.get(i);
+        float a = TornadoMath.abs(grad) + hyper.get(3);
+        float ui = scaled > a ? scaled : a;
+        m.set(i, mi);
+        u.set(i, ui);
+        p.set(i, w - hyper.get(0) / hyper.get(4) * mi / ui);
+    }
+
+    private static void nadamAt(FloatArray p, FloatArray g, FloatArray m, FloatArray v, FloatArray hyper, float factor, int i) {
+        float b1 = hyper.get(1);
+        float b2 = hyper.get(2);
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(4) * w;
+        float mi = b1 * m.get(i) + (1.0f - b1) * grad;
+        float vi = b2 * v.get(i) + (1.0f - b2) * grad * grad;
+        m.set(i, mi);
+        v.set(i, vi);
+        float denom = TornadoMath.sqrt(vi / hyper.get(8)) + hyper.get(3);
+        p.set(i, w - hyper.get(9) * grad / denom - hyper.get(10) * mi / denom);
+    }
+
     /** Adam, or AdamW when hyper[7] != 0, over 4 parameters; hyper = [lr, beta1, beta2, eps, 1 - beta1^t, 1 - beta2^t, weightDecay, decoupled]. */
     public static void adam(KernelContext kc, FloatArray p0, FloatArray g0, FloatArray m0, FloatArray v0, FloatArray p1, FloatArray g1, FloatArray m1, FloatArray v1, FloatArray p2, FloatArray g2, FloatArray m2, FloatArray v2, FloatArray p3, FloatArray g3, FloatArray m3, FloatArray v3, FloatArray hyper, FloatArray stats, IntArray sizes) {
         int i = kc.globalIdx;
@@ -115,6 +206,126 @@ public final class MultiTensorKernels {
                 momentumAt(p2, g2, b2, hyper, factor, i - s2);
             } else if ((i >= s3) & (i < s3 + sizes.get(3))) {
                 momentumAt(p3, g3, b3, hyper, factor, i - s3);
+            }
+        }
+    }
+
+    /** Adam with AMSGrad's running maximum of v, over 3 parameters; hyper as adam. */
+    public static void amsgrad(KernelContext kc, FloatArray p0, FloatArray g0, FloatArray m0, FloatArray v0, FloatArray x0, FloatArray p1, FloatArray g1, FloatArray m1, FloatArray v1, FloatArray x1, FloatArray p2, FloatArray g2, FloatArray m2, FloatArray v2, FloatArray x2, FloatArray hyper, FloatArray stats, IntArray sizes) {
+        int i = kc.globalIdx;
+        if (stats.get(2) == 0.0f) {
+            float factor = stats.get(1);
+            int s0 = 0;
+            int s1 = s0 + sizes.get(0);
+            int s2 = s1 + sizes.get(1);
+            if ((i >= s0) & (i < s0 + sizes.get(0))) {
+                amsgradAt(p0, g0, m0, v0, x0, hyper, factor, i - s0);
+            } else if ((i >= s1) & (i < s1 + sizes.get(1))) {
+                amsgradAt(p1, g1, m1, v1, x1, hyper, factor, i - s1);
+            } else if ((i >= s2) & (i < s2 + sizes.get(2))) {
+                amsgradAt(p2, g2, m2, v2, x2, hyper, factor, i - s2);
+            }
+        }
+    }
+
+    /** AdaGrad over 4 parameters; hyper = [lr / (1 + (t - 1) lrDecay), eps, weightDecay]. */
+    public static void adagrad(KernelContext kc, FloatArray p0, FloatArray g0, FloatArray c0, FloatArray p1, FloatArray g1, FloatArray c1, FloatArray p2, FloatArray g2, FloatArray c2, FloatArray p3, FloatArray g3, FloatArray c3, FloatArray hyper, FloatArray stats, IntArray sizes) {
+        int i = kc.globalIdx;
+        if (stats.get(2) == 0.0f) {
+            float factor = stats.get(1);
+            int s0 = 0;
+            int s1 = s0 + sizes.get(0);
+            int s2 = s1 + sizes.get(1);
+            int s3 = s2 + sizes.get(2);
+            if ((i >= s0) & (i < s0 + sizes.get(0))) {
+                adagradAt(p0, g0, c0, hyper, factor, i - s0);
+            } else if ((i >= s1) & (i < s1 + sizes.get(1))) {
+                adagradAt(p1, g1, c1, hyper, factor, i - s1);
+            } else if ((i >= s2) & (i < s2 + sizes.get(2))) {
+                adagradAt(p2, g2, c2, hyper, factor, i - s2);
+            } else if ((i >= s3) & (i < s3 + sizes.get(3))) {
+                adagradAt(p3, g3, c3, hyper, factor, i - s3);
+            }
+        }
+    }
+
+    /** RMSProp over 3 parameters; hyper = [lr, alpha, eps, weightDecay, momentum, centered]. */
+    public static void rmsprop(KernelContext kc, FloatArray p0, FloatArray g0, FloatArray q0, FloatArray b0, FloatArray a0, FloatArray p1, FloatArray g1, FloatArray q1, FloatArray b1, FloatArray a1, FloatArray p2, FloatArray g2, FloatArray q2, FloatArray b2, FloatArray a2, FloatArray hyper, FloatArray stats, IntArray sizes) {
+        int i = kc.globalIdx;
+        if (stats.get(2) == 0.0f) {
+            float factor = stats.get(1);
+            int s0 = 0;
+            int s1 = s0 + sizes.get(0);
+            int s2 = s1 + sizes.get(1);
+            if ((i >= s0) & (i < s0 + sizes.get(0))) {
+                rmspropAt(p0, g0, q0, b0, a0, hyper, factor, i - s0);
+            } else if ((i >= s1) & (i < s1 + sizes.get(1))) {
+                rmspropAt(p1, g1, q1, b1, a1, hyper, factor, i - s1);
+            } else if ((i >= s2) & (i < s2 + sizes.get(2))) {
+                rmspropAt(p2, g2, q2, b2, a2, hyper, factor, i - s2);
+            }
+        }
+    }
+
+    /** AdaDelta over 4 parameters; hyper = [lr, rho, eps, weightDecay]. */
+    public static void adadelta(KernelContext kc, FloatArray p0, FloatArray g0, FloatArray q0, FloatArray a0, FloatArray p1, FloatArray g1, FloatArray q1, FloatArray a1, FloatArray p2, FloatArray g2, FloatArray q2, FloatArray a2, FloatArray p3, FloatArray g3, FloatArray q3, FloatArray a3, FloatArray hyper, FloatArray stats, IntArray sizes) {
+        int i = kc.globalIdx;
+        if (stats.get(2) == 0.0f) {
+            float factor = stats.get(1);
+            int s0 = 0;
+            int s1 = s0 + sizes.get(0);
+            int s2 = s1 + sizes.get(1);
+            int s3 = s2 + sizes.get(2);
+            if ((i >= s0) & (i < s0 + sizes.get(0))) {
+                adadeltaAt(p0, g0, q0, a0, hyper, factor, i - s0);
+            } else if ((i >= s1) & (i < s1 + sizes.get(1))) {
+                adadeltaAt(p1, g1, q1, a1, hyper, factor, i - s1);
+            } else if ((i >= s2) & (i < s2 + sizes.get(2))) {
+                adadeltaAt(p2, g2, q2, a2, hyper, factor, i - s2);
+            } else if ((i >= s3) & (i < s3 + sizes.get(3))) {
+                adadeltaAt(p3, g3, q3, a3, hyper, factor, i - s3);
+            }
+        }
+    }
+
+    /** AdaMax over 4 parameters; hyper = [lr, beta1, beta2, eps, 1 - beta1^t, weightDecay]. */
+    public static void adamax(KernelContext kc, FloatArray p0, FloatArray g0, FloatArray m0, FloatArray u0, FloatArray p1, FloatArray g1, FloatArray m1, FloatArray u1, FloatArray p2, FloatArray g2, FloatArray m2, FloatArray u2, FloatArray p3, FloatArray g3, FloatArray m3, FloatArray u3, FloatArray hyper, FloatArray stats, IntArray sizes) {
+        int i = kc.globalIdx;
+        if (stats.get(2) == 0.0f) {
+            float factor = stats.get(1);
+            int s0 = 0;
+            int s1 = s0 + sizes.get(0);
+            int s2 = s1 + sizes.get(1);
+            int s3 = s2 + sizes.get(2);
+            if ((i >= s0) & (i < s0 + sizes.get(0))) {
+                adamaxAt(p0, g0, m0, u0, hyper, factor, i - s0);
+            } else if ((i >= s1) & (i < s1 + sizes.get(1))) {
+                adamaxAt(p1, g1, m1, u1, hyper, factor, i - s1);
+            } else if ((i >= s2) & (i < s2 + sizes.get(2))) {
+                adamaxAt(p2, g2, m2, u2, hyper, factor, i - s2);
+            } else if ((i >= s3) & (i < s3 + sizes.get(3))) {
+                adamaxAt(p3, g3, m3, u3, hyper, factor, i - s3);
+            }
+        }
+    }
+
+    /** NAdam over 4 parameters; hyper = [lr, beta1, beta2, eps, weightDecay, -, -, -, 1 - beta2^t, lr (1 - mu_t) / (1 - mu product), lr mu_t+1 / (1 - mu product mu_t+1)]. */
+    public static void nadam(KernelContext kc, FloatArray p0, FloatArray g0, FloatArray m0, FloatArray v0, FloatArray p1, FloatArray g1, FloatArray m1, FloatArray v1, FloatArray p2, FloatArray g2, FloatArray m2, FloatArray v2, FloatArray p3, FloatArray g3, FloatArray m3, FloatArray v3, FloatArray hyper, FloatArray stats, IntArray sizes) {
+        int i = kc.globalIdx;
+        if (stats.get(2) == 0.0f) {
+            float factor = stats.get(1);
+            int s0 = 0;
+            int s1 = s0 + sizes.get(0);
+            int s2 = s1 + sizes.get(1);
+            int s3 = s2 + sizes.get(2);
+            if ((i >= s0) & (i < s0 + sizes.get(0))) {
+                nadamAt(p0, g0, m0, v0, hyper, factor, i - s0);
+            } else if ((i >= s1) & (i < s1 + sizes.get(1))) {
+                nadamAt(p1, g1, m1, v1, hyper, factor, i - s1);
+            } else if ((i >= s2) & (i < s2 + sizes.get(2))) {
+                nadamAt(p2, g2, m2, v2, hyper, factor, i - s2);
+            } else if ((i >= s3) & (i < s3 + sizes.get(3))) {
+                nadamAt(p3, g3, m3, v3, hyper, factor, i - s3);
             }
         }
     }

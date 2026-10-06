@@ -68,19 +68,110 @@ public final class MultiTensorKernels {
         float step = hyper.get(3) != 0.0f ? grad + mu * v : v;
         p.set(i, w - hyper.get(0) * step);
     }
+
+    private static void amsgradAt(FloatArray p, FloatArray g, FloatArray m, FloatArray v, FloatArray vmax, FloatArray hyper, float factor, int i) {
+        float lr = hyper.get(0);
+        float b1 = hyper.get(1);
+        float b2 = hyper.get(2);
+        float wd = hyper.get(6);
+        float w = p.get(i);
+        float grad = g.get(i) * factor;
+        if (hyper.get(7) != 0.0f) {
+            w = w - lr * wd * w;
+        } else {
+            grad = grad + wd * w;
+        }
+        float mi = b1 * m.get(i) + (1.0f - b1) * grad;
+        float vi = b2 * v.get(i) + (1.0f - b2) * grad * grad;
+        float vm = vmax.get(i) > vi ? vmax.get(i) : vi;
+        m.set(i, mi);
+        v.set(i, vi);
+        vmax.set(i, vm);
+        p.set(i, w - lr * (mi / hyper.get(4)) / (TornadoMath.sqrt(vm) / TornadoMath.sqrt(hyper.get(5)) + hyper.get(3)));
+    }
+
+    private static void adagradAt(FloatArray p, FloatArray g, FloatArray sum, FloatArray hyper, float factor, int i) {
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(2) * w;
+        float s = sum.get(i) + grad * grad;
+        sum.set(i, s);
+        p.set(i, w - hyper.get(0) * grad / (TornadoMath.sqrt(s) + hyper.get(1)));
+    }
+
+    private static void rmspropAt(FloatArray p, FloatArray g, FloatArray sq, FloatArray buf, FloatArray ga, FloatArray hyper, float factor, int i) {
+        float lr = hyper.get(0);
+        float alpha = hyper.get(1);
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(3) * w;
+        float s = alpha * sq.get(i) + (1.0f - alpha) * grad * grad;
+        sq.set(i, s);
+        float avg;
+        if (hyper.get(5) != 0.0f) {
+            float a = alpha * ga.get(i) + (1.0f - alpha) * grad;
+            ga.set(i, a);
+            avg = TornadoMath.sqrt(s - a * a) + hyper.get(2);
+        } else {
+            avg = TornadoMath.sqrt(s) + hyper.get(2);
+        }
+        if (hyper.get(4) != 0.0f) {
+            float b = hyper.get(4) * buf.get(i) + grad / avg;
+            buf.set(i, b);
+            p.set(i, w - lr * b);
+        } else {
+            p.set(i, w - lr * grad / avg);
+        }
+    }
+
+    private static void adadeltaAt(FloatArray p, FloatArray g, FloatArray sq, FloatArray acc, FloatArray hyper, float factor, int i) {
+        float rho = hyper.get(1);
+        float eps = hyper.get(2);
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(3) * w;
+        float s = rho * sq.get(i) + (1.0f - rho) * grad * grad;
+        sq.set(i, s);
+        float delta = TornadoMath.sqrt(acc.get(i) + eps) / TornadoMath.sqrt(s + eps) * grad;
+        acc.set(i, rho * acc.get(i) + (1.0f - rho) * delta * delta);
+        p.set(i, w - hyper.get(0) * delta);
+    }
+
+    private static void adamaxAt(FloatArray p, FloatArray g, FloatArray m, FloatArray u, FloatArray hyper, float factor, int i) {
+        float b1 = hyper.get(1);
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(5) * w;
+        float mi = b1 * m.get(i) + (1.0f - b1) * grad;
+        float scaled = hyper.get(2) * u.get(i);
+        float a = TornadoMath.abs(grad) + hyper.get(3);
+        float ui = scaled > a ? scaled : a;
+        m.set(i, mi);
+        u.set(i, ui);
+        p.set(i, w - hyper.get(0) / hyper.get(4) * mi / ui);
+    }
+
+    private static void nadamAt(FloatArray p, FloatArray g, FloatArray m, FloatArray v, FloatArray hyper, float factor, int i) {
+        float b1 = hyper.get(1);
+        float b2 = hyper.get(2);
+        float w = p.get(i);
+        float grad = g.get(i) * factor + hyper.get(4) * w;
+        float mi = b1 * m.get(i) + (1.0f - b1) * grad;
+        float vi = b2 * v.get(i) + (1.0f - b2) * grad * grad;
+        m.set(i, mi);
+        v.set(i, vi);
+        float denom = TornadoMath.sqrt(vi / hyper.get(8)) + hyper.get(3);
+        p.set(i, w - hyper.get(9) * grad / denom - hyper.get(10) * mi / denom);
+    }
 """)
 
 
-def kernel(name, doc, arrays, call):
-    params = ", ".join(f"FloatArray {a}{k}" for k in range(OPT) for a in arrays)
+def kernel(name, doc, arrays, call, slots=OPT):
+    params = ", ".join(f"FloatArray {a}{k}" for k in range(slots) for a in arrays)
     w(f"    /** {doc} */")
     w(f"    public static void {name}(KernelContext kc, {params}, FloatArray hyper, FloatArray stats, IntArray sizes) {{")
     w("        int i = kc.globalIdx;")
     w("        if (stats.get(2) == 0.0f) {")
     w("            float factor = stats.get(1);")
-    for k in range(OPT):
+    for k in range(slots):
         w(f"            int s{k} = {'0' if k == 0 else f's{k - 1} + sizes.get({k - 1})'};")
-    for k in range(OPT):
+    for k in range(slots):
         kw = "if" if k == 0 else "} else if"
         w(f"            {kw} ((i >= s{k}) & (i < s{k} + sizes.get({k}))) {{")
         w(f"                {call(k)};")
@@ -96,6 +187,19 @@ kernel("sgd", "SGD over 4 parameters; hyper = [lr, momentum, weightDecay, nester
        lambda k: f"sgdAt(p{k}, g{k}, hyper, factor, i - s{k})")
 kernel("sgdMomentum", "SGD with (optionally Nesterov) momentum, dampening 0, over 4 parameters; hyper as sgd.", ["p", "g", "b"],
        lambda k: f"momentumAt(p{k}, g{k}, b{k}, hyper, factor, i - s{k})")
+
+kernel("amsgrad", "Adam with AMSGrad's running maximum of v, over 3 parameters; hyper as adam.", ["p", "g", "m", "v", "x"],
+       lambda k: f"amsgradAt(p{k}, g{k}, m{k}, v{k}, x{k}, hyper, factor, i - s{k})", slots=3)
+kernel("adagrad", "AdaGrad over 4 parameters; hyper = [lr / (1 + (t - 1) lrDecay), eps, weightDecay].", ["p", "g", "c"],
+       lambda k: f"adagradAt(p{k}, g{k}, c{k}, hyper, factor, i - s{k})")
+kernel("rmsprop", "RMSProp over 3 parameters; hyper = [lr, alpha, eps, weightDecay, momentum, centered].", ["p", "g", "q", "b", "a"],
+       lambda k: f"rmspropAt(p{k}, g{k}, q{k}, b{k}, a{k}, hyper, factor, i - s{k})", slots=3)
+kernel("adadelta", "AdaDelta over 4 parameters; hyper = [lr, rho, eps, weightDecay].", ["p", "g", "q", "a"],
+       lambda k: f"adadeltaAt(p{k}, g{k}, q{k}, a{k}, hyper, factor, i - s{k})")
+kernel("adamax", "AdaMax over 4 parameters; hyper = [lr, beta1, beta2, eps, 1 - beta1^t, weightDecay].", ["p", "g", "m", "u"],
+       lambda k: f"adamaxAt(p{k}, g{k}, m{k}, u{k}, hyper, factor, i - s{k})")
+kernel("nadam", "NAdam over 4 parameters; hyper = [lr, beta1, beta2, eps, weightDecay, -, -, -, 1 - beta2^t, lr (1 - mu_t) / (1 - mu product), lr mu_t+1 / (1 - mu product mu_t+1)].",
+       ["p", "g", "m", "v"], lambda k: f"nadamAt(p{k}, g{k}, m{k}, v{k}, hyper, factor, i - s{k})")
 
 # gradient statistics: work-group k reduces gradient k (reductions written out: Metal cannot pass a
 # local array to a helper method, J12)
