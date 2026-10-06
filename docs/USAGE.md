@@ -2,7 +2,9 @@
 
 ## Tensors
 
-A `Tensor` is an n-dimensional, contiguous, row-major array of FP32 values or INT32 labels.
+A `Tensor` is an n-dimensional, contiguous, row-major array. Its `DType` is `F32` (the default),
+`I32` (labels and indices), `F16` or `BF16` (mixed precision), `Q8_0`, `Q4_0`, `Q4_1`, `Q4_K`,
+`Q5_K` or `Q6_K` (GGUF's quantised blocks, for weights) or `FP8_E4M3`/`FP8_E5M2` (8-bit floats).
 
 ```java
 Tensor x = Tensor.of(new float[] { 1, 2, 3, 4, 5, 6 }, 2, 3);   // data, then shape
@@ -73,7 +75,7 @@ register their parameters:
 | `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `Flatten` | |
 | `Dropout(p, seed)` | a new mask every step without recompiling |
 | `ReLU6`, `Add(main, shortcut, relu)` | `Add` is a residual connection |
-| `ResNet.resnet18(in, classes, small, seed)`, `MobileNetV2.mobilenetV2(in, classes, small, dropout, seed)` | torchvision layouts; `small` adapts the stem to 28-32 pixel inputs |
+| `ResNet.resnet18(in, classes, small, seed)`, `ResNet.resnet50(...)`, `MobileNetV2.mobilenetV2(in, classes, small, dropout, seed)` | torchvision layouts; `small` adapts the stem to 28-32 pixel inputs |
 
 `Sequential` fuses a ReLU into the Linear, Conv2d or BatchNorm2d before it. Switch modes with
 `model.train(false)` for evaluation.
@@ -118,6 +120,9 @@ Tensor eps = Tensor.uniform(Tensor.seed(step), -1.7320508f, 1.7320508f, batch, l
 | SGD with momentum, Nesterov, weight decay | `new SGD(params, lr, momentum, weightDecay, nesterov)` |
 | Adam | `new Adam(params, lr)` or the full constructor |
 | AdamW | `Adam.adamW(params, lr, weightDecay)` |
+| LAMB | `new Lamb(params, lr, beta1, beta2, eps, weightDecay)` |
+| LARS | `new Lars(params, lr, momentum, weightDecay, eta, eps)` |
+| AdaGrad, RMSProp, AdaDelta, AdaMax, NAdam | `nn.optim`, with PyTorch's arguments |
 
 Updates are in place on the device. The learning rate and Adam's bias corrections are uploaded
 with each step, so schedules work without recompiling (`setLearningRate`).
@@ -182,6 +187,191 @@ tensor gives its buffer back as soon as the computation no longer needs it (an e
 MobileNetV2 needs 89% less device memory). Gradient temporaries inside `backward()` are reused the
 same way. Forward activations of a training step are kept, so they can still be read after the step.
 
+In evaluation mode and inside `Grad.inference`, convolution + BatchNorm (+ ReLU) runs as one
+convolution on folded weights, a GELU after a linear layer runs in the GEMM epilogue, and add +
+ReLU is one kernel (see [OPERATORS.md](OPERATORS.md#inference-fusion)).
+
+## More losses
+
+Besides cross-entropy, NLL and the losses above, `F` has `ctcLoss` (connectionist temporal
+classification), `tripletMarginLoss`, `contrastiveLoss`, `cosineEmbeddingLoss`,
+`marginRankingLoss`, the regression and classification losses of PyTorch (L1, Huber, smooth L1,
+hinge, Poisson NLL, ...), and `sparsemax` and `logSigmoid`:
+
+```java
+// logProbs [T, B, C] after logSoftmax over C; targets [B, maxLabels] INT32, padded
+Tensor loss = F.ctcLoss(logProbs, targets, inputLengths, targetLengths, 0, F.Reduction.MEAN);
+```
+
+## Linear algebra and Fourier transforms
+
+`Linalg` works on a matrix or a batch of matrices [..., rows, cols], and every function has a
+gradient:
+
+```java
+Tensor a = Tensor.uniform(1, -1, 1, 64, 8, 8);               // 64 matrices of 8 x 8
+Tensor b = Tensor.uniform(2, -1, 1, 64, 8, 3);
+Tensor x = Linalg.solve(a, b);                                 // A X = B, [64, 8, 3]
+Tensor logDet = Linalg.slogdet(a)[1];                          // [sign, log|det|]
+Tensor[] qr = Linalg.qr(a);                                    // Q, R
+Tensor s = a.matmul(a.transpose(-2, -1));                      // symmetric
+Tensor[] eig = Linalg.eigh(s);                                 // eigenvalues ascending, eigenvectors
+Tensor[] usv = Linalg.svd(a);                                  // U, S, V
+```
+
+`Fft` takes and returns complex tensors as real tensors with a trailing axis of 2. A spectrogram
+and its inverse:
+
+```java
+Tensor audio = Tensor.of(samples, 4, 16000);                   // [B, L]
+Tensor window = Tensor.of(hann400, 400);                       // or null for a rectangular window
+Tensor spec = Fft.stft(audio, 400, 160, window, true, false);  // [4, 201, frames, 2]
+Tensor power = spec.square().sum(-1, false);                   // |X|^2, [4, 201, frames]
+Tensor back = Fft.istft(spec, 400, 160, window, true, false, 16000);
+```
+
+## Sparse matrices and graph convolution
+
+A `SparseMatrix` holds the structure; its values are a tensor, so they can be fixed or learned.
+For a graph convolutional network, `SparseMatrix.gcn` builds the normalised adjacency from the
+edge list, and `GraphConv` layers take it:
+
+```java
+SparseMatrix.Valued adj = SparseMatrix.gcn(nodes, src, dst);   // edges src[e] -> dst[e]
+Sequential gcn = new Sequential(
+        new GraphConv(features, 16, 1).graph(adj), new ReLU(),
+        new GraphConv(16, classes, 2).graph(adj));
+Adam opt = new Adam(gcn.parameters(), 0.01f);
+Tensor loss = F.crossEntropy(gcn.forward(Tensor.of(x, nodes, features)), Tensor.of(labels, nodes));
+```
+
+With learned values: `SparseMatrix m = SparseMatrix.fromCoo(rows, cols, r, c)` and
+`m.mm(values, dense)`, where `values` is a parameter of `m.nnz()` entries.
+
+## Embedding models
+
+word2vec, paragraph vectors and GloVe train like any other model; `nn.text.Corpus` draws their
+examples on the host:
+
+```java
+Vocabulary vocab = Vocabulary.build(sentences, 5);              // List<String[]>, minimum count
+Corpus corpus = new Corpus(vocab.encode(sentences), vocab.counts(), 11);
+Word2Vec w2v = new Word2Vec(vocab.size(), 100, Word2Vec.Mode.SKIP_GRAM, 3);
+Adam opt = new Adam(w2v.parameters(), 0.02f);
+int k = 5;                                                      // negatives per pair
+for (int epoch = 0; epoch < epochs; epoch++) {
+    int[][] pairs = corpus.skipGramPairs(5, false);             // [centres, contexts]
+    for (int at = 0; at + batch <= pairs[0].length; at += batch) {
+        Tensor loss = w2v.loss(Arrays.copyOfRange(pairs[0], at, at + batch),
+                Arrays.copyOfRange(pairs[1], at, at + batch), corpus.negatives(batch * k), k);
+        loss.backward();
+        opt.step();
+        loss.item();
+        opt.zeroGrad();
+    }
+}
+float[] vectors = w2v.vectors();                                // [vocab, 100]
+int similar = Corpus.nearest(vectors, 100, vocab.id("king"));
+```
+
+CBOW takes `corpus.cbowSamples(window)` (centre words and their flattened contexts), `Doc2Vec`
+takes document ids as well, and `GloVe.loss(rows, cols, counts)` takes batches of
+`corpus.cooccurrence(window)`.
+
+## Classical machine learning
+
+The estimators in `org.beehive.jitnn.ml` follow scikit-learn: construct, `fit`, then `predict`.
+Features are FP32 tensors [samples, features] and class labels `int[]`:
+
+```java
+Tensor x = Tensor.of(features, n, d);
+int[] clusters = new KMeans(8, 42).fit(x).predict(x);
+
+RandomForest forest = new RandomForest(RandomForest.Task.CLASSIFICATION, 100, 12, 7).fit(x, labels);
+int[] predicted = forest.predict(Tensor.of(testFeatures, m, d));
+
+LogisticRegression logit = new LogisticRegression().fit(x, labels);   // C = 1, L-BFGS
+Tensor proba = logit.predictProba(Tensor.of(testFeatures, m, d));      // [m, classes]
+```
+
+The others are `KNeighbors`, `Pca`, `LinearRegression` (least squares and ridge), `LinearSvc`,
+`NaiveBayes`, `GradientBoosting`, `Tsne` and single decision trees (`RandomForest.tree`).
+
+## Quantised weights from GGUF files
+
+Weights in GGUF's block formats are used as they are stored: `Tensor.quantized` wraps the raw
+blocks of a weight [out, in] (the bytes a GGUF file holds for that tensor), and `Gguf.linear`
+multiplies by it without expanding it, with jitllm's kernels for one input row (decoding) or a
+few (up to 32), and through a dequantised copy for larger batches.
+
+```java
+byte[] blocks = ...;                                             // a Q4_K tensor's bytes, 4096 x 4096
+Tensor w = Tensor.quantized(DType.Q4_K, blocks, 4096, 4096);
+Tensor y = Gguf.linear(x, w, null);                              // x [..., 4096] -> [..., 4096]
+Tensor full = Gguf.dequantize(w);                                // FP32 copy, when needed
+```
+
+The gradient reaches `x` (through the dequantised weight), not the quantised weight. Q8_0 weights
+go through the same call.
+
+## FP8
+
+FP8 weights with a per-tensor scale, in a linear layer with an FP32 input:
+
+```java
+Tensor[] w8 = Fp8.quantize(weight, DType.FP8_E4M3);             // [FP8 weight, scale]
+Tensor y = Fp8.linear(x, null, w8[0], w8[1], bias);             // x W^T + bias, FP32 accumulation
+```
+
+An FP8 input goes with its scale (`Fp8.quantize(x, DType.FP8_E4M3)`, then `Fp8.linear(x8[0],
+x8[1], ...)`). `Fp8.fakeQuantize(x, type)` rounds through FP8 with a straight-through gradient, to
+train for FP8.
+
+## Several devices
+
+`ProcessGroup.run` starts one thread per rank, rank r on `devices[r]`, and `DataParallel` keeps the
+replicas in step: each rank trains on its share of the batch, and the gradients are averaged
+before every optimiser step.
+
+```java
+String[] devices = { "0:0", "0:1" };                            // as tornado --devices lists them
+List<Float> last = ProcessGroup.run(devices, (rank, collective) -> {
+    Sequential model = buildModel();                             // built on this rank's device
+    DataParallel dp = new DataParallel(model, rank, collective).broadcastParameters();
+    Adam opt = new Adam(model.parameters(), 1e-3f);
+    float value = 0;
+    for (int step = 0; step < steps; step++) {
+        Tensor loss = F.crossEntropy(model.forward(shardX(rank, step)), shardY(rank, step));
+        loss.backward();
+        dp.averageGradients();
+        opt.step();
+        value = loss.item();
+        opt.zeroGrad();
+    }
+    return value;
+});
+```
+
+The default `HostCollective` moves tensors through host memory, so the ranks can be on any mix of
+devices and backends (two GPUs, or CUDA and OpenCL on the same GPU). Tensors belong to the device
+they were computed on: do not pass them between ranks except through the collective.
+`Engine.onDevice(spec, body)` runs a block on another device from any thread. The ranks run one
+after another inside jitNN, so this gives correct data-parallel training but no speed-up yet.
+
+## ONNX models
+
+`jitnn-onnx` runs ONNX files on jitNN's operators:
+
+```java
+OnnxSession session = OnnxSession.load(Path.of("resnet50.onnx"));      // or load(path, true): FP16 products
+Map<String, Tensor> out = session.run(Map.of("input", Tensor.of(images, 1, 3, 224, 224)));
+float[] logits = out.get("output").toFloatArray();
+```
+
+`session.inputNames()` and `outputNames()` list the graph's names. Integer inputs (token ids) are
+passed as INT32 tensors. The outputs are lazy jitNN tensors: read them, or keep computing with
+them. The first `run` compiles the graph; later runs with the same input shapes replay it.
+
 ## Backends
 
 `Engine.backend()` is `TORNADO` when a TornadoVM runtime is on the class path, else `REFERENCE`:
@@ -192,7 +382,9 @@ runs a block on the reference, which is how the tests compare the two.
 
 | Command | What runs |
 |---|---|
-| `./mvnw test` | reference backend: values, finite differences, PyTorch goldens, MLP convergence |
-| `./mvnw test -Paccel-tests [-Djitnn.test.device=d:i]` | every operator and golden case on a device, the MLP gate, optimiser goldens |
+| `./mvnw test` | reference backend: values, finite differences, PyTorch and ONNX goldens, MLP convergence |
+| `./mvnw test -Paccel-tests [-Djitnn.test.device=d:i]` | every operator, PyTorch golden and ONNX golden case on a device, the scikit-learn comparisons, the embedding and data-parallel gates, the MLP gate, optimiser goldens |
 | `... -Djitnn.mnist=<dir>` | adds the MNIST gate against PyTorch |
+| `... -Djitnn.dist.devices=0:0,1:0` | runs the collective and data-parallel tests on these devices (default: two ranks on the test device) |
 | `... -Dtest=BaselineBenchAccelTest -Djitnn.test.profile=true` | kernel benchmarks |
+| `... -Dtest=InferenceBenchAccelTest -Djitnn.bench.inference=true` | ResNet-50 and BERT-base inference latency |

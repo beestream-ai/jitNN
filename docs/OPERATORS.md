@@ -1,11 +1,15 @@
 # Operators
 
 Every operator has a forward kernel, a gradient (a backward kernel or a composition of operators),
-and a double-precision host reference. The order of implementation follows the operator plan:
-waves ranked by how many of 11 reference models use each operator, with operators that need new
-TornadoVM features last.
+and a double-precision host reference. Kernels live in `jitnn-core/src/main/java/org/beehive/jitnn/kernels`
+and are written with TornadoVM's `KernelContext` API, so every operator runs on CUDA, OpenCL and
+Metal.
 
-## Wave 1 (done)
+The operators of the first three sections are validated on CUDA, OpenCL and Metal. The sections
+from "Generative and recurrent models" on are validated on CUDA and OpenCL (NVIDIA A100);
+they have not been run on Metal yet.
+
+## Core operators
 
 | Operator | Kernels (`jitnn-core/.../kernels`) | Gradient |
 |---|---|---|
@@ -23,7 +27,7 @@ TornadoVM features last.
 | uniform, normal (Philox4x32-10) | `RandomKernels.philox` | none |
 | SGD, SGD momentum and Nesterov, Adam, AdamW | `MultiTensorKernels` (4 parameters per launch, generated) | none |
 
-## Wave 2 (operators and gates done; performance work open)
+## Convolutional networks
 
 | Operator | Kernels | Gradient |
 |---|---|---|
@@ -37,10 +41,10 @@ TornadoVM features last.
 | LR schedules: step, multi-step, cosine | host | |
 
 Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `Flatten`, `Dropout`,
-`ReLU6`, `Add` (residual). Models in `nn.models`: `ResNet.resnet18` and `MobileNetV2.mobilenetV2`
+`ReLU6`, `Add` (residual). Models in `nn.models`: `ResNet.resnet18`, `ResNet.resnet50` and `MobileNetV2.mobilenetV2`
 (torchvision layouts, plus a small-input variant).
 
-## Wave 3 (done)
+## Transformers and mixed precision
 
 | Operator | Kernels | Gradient |
 |---|---|---|
@@ -59,11 +63,11 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 | Autocast | casts at `F.linear`, `matmul` and attention | |
 | Gradient statistics for clipping and loss scaling: global norm, unscale-and-clip factor, overflow flag | `LowPrecision.sumSquaresFinite` (one per gradient, bit-pattern test) and `gradStats`; the optimiser kernels apply the factor and skip on overflow | |
 
-`F.linear` now takes inputs with any leading dimensions. Modules: `Embedding`, `LayerNorm`,
+`F.linear` takes inputs with any leading dimensions. Modules: `Embedding`, `LayerNorm`,
 `RMSNorm`, `MultiheadAttention`. Models in `nn.models`: `GPT2`, `Llama` (Llama-style decoder) and
 `Bert` (masked language modelling).
 
-## Wave 4 (done on CUDA and OpenCL; Metal not run yet)
+## Generative and recurrent models
 
 | Operator | Kernels | Gradient |
 |---|---|---|
@@ -80,7 +84,7 @@ every step (VAE sampling, GAN latents) replays the compiled step instead of reco
 `nn.models`: `Vae`, `Dcgan.Generator`/`Dcgan.Discriminator`, `UNet` and `CharRnn` (an LSTM or GRU
 language model). The final cell state of an LSTM carries no gradient.
 
-## Wave 5 (operators done on CUDA and OpenCL; Metal not run yet)
+## Extended operator set
 
 | Family | Operators | Kernels | Gradient |
 |---|---|---|---|
@@ -93,24 +97,220 @@ language model). The final cell state of an LSTM carries no gradient.
 | Scans and sorting | cumsum, cumprod, sort, argsort (stable) | `ScanKernels`: a scan per line; sort by rank | reverse cumsum; cumprod's exact with zeros; through the ranks |
 | Indexing | index_select, gather, scatter, scatter_add, segment sum/mean/max, EmbeddingBag | `IndexKernels` | gathering (no atomics); scatter (replace) has none |
 | INT8 | Q8_0 tensors (GGUF's 32-value blocks), quantise, dequantise, Q8_0 linear | jitllm's: `Q8Kernels` (adapted), `NativeProjectionKernels.dequantizeQ8_0ToFP32`; warp product on CUDA and Metal, shared-memory tree elsewhere | to the input, through the dequantised weight |
+| GGUF weights | Q4_0, Q4_1, Q4_K, Q5_K and Q6_K weights from their raw blocks (`Tensor.quantized`), dequantise, linear (`Gguf.linear`) | jitllm's matrix-vector kernels on the blocks: one row per work-group (warp-shuffle form on CUDA and Metal); up to 32 input rows, the row-tiled kernel for Q4_0, Q4_1 and Q5_K; more rows, dequantise (`GgufKernels`) and the GEMM | to the input, through the dequantised weight |
 | Sequences | masked (lengths) and bidirectional LSTM and GRU layers, per-sequence reversal | `RnnKernels` with lengths | masked steps pass none |
 | Images | flip, centre crop, normalisation, RGB to greyscale | composed | autograd |
-| NaN-aware | isNaN, isInf, isFinite, nanToNum, maximum/minimum propagating NaN, fmax/fmin ignoring it | bit-pattern tests (TornadoVM folds `x != x`, J19) | where defined |
+| NaN-aware | isNaN, isInf, isFinite, nanToNum, maximum/minimum propagating NaN, fmax/fmin ignoring it | bit-pattern tests (TornadoVM folds the `x != x` test away) | where defined |
 
 Modules: `ELU`, `SELU`, `CELU`, `Mish`, `Softsign`, `Softplus`, `HardSigmoid`, `HardSwish`,
 `HardTanh`, `ThresholdedReLU`, `Cube`, `PReLU`, `RReLU`, `GroupNorm`, `InstanceNorm`,
 `LocalResponseNorm`, `Conv1d`, `Conv3d`, `MaxPool1d`, `AvgPool1d`, `MaxPool3d`, `AvgPool3d`,
-`AdaptiveAvgPool`, `AdaptiveMaxPool`, `Pad`, `EmbeddingBag`; `LSTM` and `GRU` gain
+`AdaptiveAvgPool`, `AdaptiveMaxPool`, `Pad`, `EmbeddingBag`; `LSTM` and `GRU` take
 `bidirectional` and sequence lengths. Optimisers in `nn.optim`: `AdaGrad`, `RMSProp`, `AdaDelta`,
-`AdaMax`, `NAdam`, and `Adam` with `amsgrad`. Not done: Conv1D/3D with groups, NaN-propagating
-reductions.
+`AdaMax`, `NAdam`, and `Adam` with `amsgrad`.
 
-## Next waves
+## Inference fusion
 
-| Wave | Contents | Gate |
-|---|---|---|
-| 2 (rest) | convolution and GEMM speed, dispatch overhead | ResNet-18 and MobileNetV2 steps against MPS and cuDNN |
-| 4 (rest) | Metal runs; recurrent step speed (one kernel per timestep) | the wave 4 gates on Metal; LSTM and GRU steps against cuDNN |
-| 5 (rest) | Metal runs; the DL4J and DJL example suites as the gate | DL4J and DJL examples |
-| 6 | decompositions, sparse and graph ops, FFT, Word2Vec, classical ML | 1.0 |
-| 7 | operators blocked on TornadoVM features (data-dependent shapes, FP8 off CUDA, multi-GPU) | as each feature lands |
+Before a trace is compiled, a producer is fused into its only consumer when nobody else can read
+the intermediate (inside `Grad.inference`, in autograd's temporaries, and in imported ONNX graphs):
+
+| Pattern | Becomes |
+|---|---|
+| convolution, then BatchNorm with running statistics (and ReLU) | one convolution on folded weights, with bias and ReLU in its epilogue; the folded weights are cached and refolded only when a parameter or statistic changes |
+| linear, then exact GELU | GELU in the GEMM epilogue |
+| add, then ReLU | one element-wise kernel |
+
+Forward GEMMs and convolutions whose output tiles cannot fill the GPU split their reduction (K)
+into slices that are summed in order. `-Djitnn.fuse=false` and `-Djitnn.splitK=false` turn these
+off.
+
+## Optimisers and losses
+
+| Family | Operators | Kernels | Gradient |
+|---|---|---|---|
+| Layer-wise optimisers | LAMB: Adam's update with decoupled weight decay, scaled per parameter by the trust ratio norm(p) / norm(update); LARS: momentum with a per-parameter rate eta norm(p) / (norm(g) + weightDecay norm(p)) | `LayerwiseOptimKernels`, the norms by ordinary reductions | |
+| CTC | `F.ctcLoss`, PyTorch's `ctc_loss`: log-probabilities [T, B, C], padded INT32 targets, input and target lengths, a blank index; targets of up to 511 labels | `CtcKernels.forward`: log-space forward-backward, one work-group per sample | `CtcKernels.backward` |
+| Metric losses | triplet margin, contrastive, cosine embedding, margin ranking (each with a `Reduction`) | composed | autograd |
+| Other | `F.sparsemax` (projection onto the probability simplex), `F.logSigmoid` (without overflow), `F.negativeSamplingLoss` (word2vec), `F.gloveLoss` (GloVe's weighted least squares) | composed | autograd |
+
+Optimisers in `nn.optim`: `Lamb` and `Lars`, next to `SGD`, `Adam`/AdamW (with AMSGrad),
+`AdaGrad`, `RMSProp`, `AdaDelta`, `AdaMax` and `NAdam`. Every optimiser applies gradient clipping
+and loss scaling inside its update.
+
+## Linear algebra
+
+`org.beehive.jitnn.Linalg`, after `torch.linalg`, on matrices and batches of matrices
+[..., rows, cols]:
+
+| Function | Result |
+|---|---|
+| `luFactor(a)` | packed LU factors and INT32 pivots (a 0-based row permutation) |
+| `lu(a)` | P, L, U with A = P L U |
+| `solveTriangular(t, b, upper, unitDiagonal)`, `solve(a, b)` | solutions of triangular and general systems |
+| `inv(a)`, `det(a)`, `slogdet(a)` | inverse; determinant; sign and log of the absolute determinant |
+| `cholesky(a)` | lower Cholesky factor |
+| `qr(a)` | reduced QR, of tall and wide matrices |
+| `eigh(a)`, `eigvalsh(a)` | eigenvalues (ascending) and eigenvectors (columns) of symmetric matrices |
+| `svd(a)`, `svdvals(a)` | reduced SVD: U, S (descending) and V (not V^T) |
+
+Every function is differentiable with PyTorch's formulas. The decompositions run one work-group
+per matrix (`LinalgKernels`: LU with partial pivoting, Householder QR, cyclic Jacobi for `eigh`,
+one-sided Jacobi for the SVD), so they suit batches of small and medium matrices (up to a few
+hundred rows) rather than one large matrix. Eigenvectors and singular vectors are only defined up
+to sign: jitNN makes the largest-magnitude component of each eigenvector, and of each left
+singular vector, positive. There is no general (non-symmetric) eigendecomposition, which needs
+complex numbers.
+
+## Fourier transforms
+
+`org.beehive.jitnn.Fft`, after `torch.fft`: `fft`, `ifft`, `rfft`, `irfft`, `fft2`, `ifft2`,
+`rfft2`, and the short-time transforms `stft` and `istft`. A complex tensor is a real tensor with
+a trailing axis of 2 (real, imaginary), as `torch.view_as_real` gives it; `dim` counts the complex
+axes only. `Fft.Norm` is `BACKWARD`, `ORTHO` or `FORWARD`, as torch's `norm`. Every transform is
+differentiable.
+
+The transforms are direct DFTs, O(n^2) per row, reading their phases from a twiddle table computed
+on the host (`FftKernels.dft`): right for the lengths found inside models (window sizes, sequence
+mixing), not for very long signals.
+
+## Sparse matrices and graphs
+
+`SparseMatrix.fromCoo(rows, cols, rowIndex, colIndex)` builds a structure once on the host; it is
+kept on the device in CSR form, and in CSR form of its transpose. The values are a separate FP32
+tensor in coordinate order, so they can be learned. `matrix.mm(values, dense)` multiplies by a
+dense [cols, features] matrix (`SparseKernels.spmm`); the gradient for the values is a sampled
+dense-dense product (`SparseKernels.sddmm`) and the gradient for the dense operand a product with
+the transpose. Duplicated coordinates add up.
+
+`SparseMatrix.gcn(n, src, dst)` gives the normalised adjacency D^-1/2 (A + I) D^-1/2 of a graph
+convolutional network as a `SparseMatrix.Valued` (structure and fixed values), and the module
+`nn.GraphConv(in, out, seed)` computes Â (x W^T) + b, as PyTorch Geometric's `GCNConv`.
+
+## Embedding models
+
+| Model (`nn.models`) | Objective |
+|---|---|
+| `Word2Vec(vocab, dim, mode, seed)`, `Mode.SKIP_GRAM` or `Mode.CBOW` | negative sampling; initialised as the original C code |
+| `Doc2Vec(vocab, documents, dim, mode, seed)`, `Mode.PV_DBOW` or `Mode.PV_DM` | paragraph vectors with negative sampling |
+| `GloVe(vocab, dim, seed)` | weighted least squares on log co-occurrence counts |
+
+Each model has a `loss(...)` method that takes a batch of examples and returns a scalar tensor,
+and `vectors()` (`documentVectors()` for `Doc2Vec`) to read the learned vectors. The examples
+come from `nn.text`: `Vocabulary.build(sentences, minCount)` assigns word ids by frequency, and
+`Corpus` draws skip-gram pairs (word2vec's dynamic window), CBOW windows, negatives from the
+unigram distribution raised to 3/4, and distance-weighted co-occurrence counts, all from a seed.
+
+## Classical machine learning
+
+`org.beehive.jitnn.ml` (in `jitnn-nn`), after scikit-learn. Features are FP32 tensors [samples,
+features]; class labels are `int[]`.
+
+| Estimator | Method |
+|---|---|
+| `KMeans` | Lloyd's algorithm from k-means++ seeds (or given centres), `nInit` restarts keeping the lowest inertia |
+| `KNeighbors` | brute-force k nearest neighbours (Euclidean): classification (votes, probabilities) and regression |
+| `Pca` | principal components from the covariance's eigendecomposition; explained variance, transform, inverse transform |
+| `LinearRegression` | least squares or ridge, closed form, one or several targets |
+| `LogisticRegression` | L2-regularised, L-BFGS; sigmoid for two classes, softmax for more |
+| `LinearSvc` | squared-hinge linear SVM, one-vs-rest, L-BFGS |
+| `NaiveBayes` | `Kind.GAUSSIAN` or `Kind.MULTINOMIAL` |
+| `RandomForest` | forests of classification (Gini) or regression trees on histogram-binned features; `RandomForest.tree(task, maxDepth, minSamplesLeaf)` is a single decision tree |
+| `GradientBoosting` | gradient-boosted trees with Newton leaves on binned features (squared error, logistic, softmax), as `HistGradientBoosting` |
+| `Tsne` | exact t-SNE, O(n^2) per iteration |
+
+L-BFGS uses a line search on the directional derivative. Distances, histograms, gradients and
+predictions run on the device (`TreeKernels` bins features, builds split histograms, routes
+samples and predicts); the small sequential parts (choosing splits, the L-BFGS recursion) run on
+the host.
+
+## Data-dependent sizes
+
+| Operator | Result |
+|---|---|
+| `Tensor.nonzero()` | INT32 coordinates [count, rank] of the non-zero elements |
+| `Tensor.maskedSelect(mask)` | the elements where a broadcast mask is non-zero, as a vector; differentiable |
+| `F.unique(x, returnInverse, returnCounts)` | the sorted distinct values, and optionally each element's index among them and the counts |
+| `F.nonzero(x, size, fill)` | `torch.nonzero_static`: a fixed number of rows, padded with `fill` |
+
+The results whose size depends on the data read one count back to the host, as PyTorch does.
+`F.nonzero(x, size, fill)` has a fixed size and needs no host read, so it stays inside a compiled
+plan. Kernels: `CompactKernels` (block scans and compaction).
+
+## FP8
+
+`DType.FP8_E4M3` and `DType.FP8_E5M2` store OCP 8-bit floats, one byte per value, without their
+scale. `ops.Fp8` uses them as PyTorch uses its float8 types with `torch._scaled_mm`:
+
+| Function | Notes |
+|---|---|
+| `Fp8.quantize(x, type)` | [x / scale rounded to FP8, scale]; per-tensor scale = amax / largest finite FP8 value; round to nearest even, saturating |
+| `Fp8.quantize(x, scale, type)`, `Fp8.dequantize(q, scale)` | with a given scale; back to FP32 |
+| `Fp8.fakeQuantize(x, type)` | quantise and dequantise with a straight-through (identity) gradient, for training that simulates FP8 |
+| `Fp8.linear(a, sa, w, sw, bias)` | a W^T (+ bias) with an FP8 weight and either an FP32 input (`sa` null) or an FP8 input with its scale; FP32 accumulation; the gradient reaches an FP32 input and the bias |
+
+FP8 values are decoded in portable code on every backend (`Fp8Kernels`); FP8 tensor-core
+instructions are not used.
+
+## Collectives and data-parallel training
+
+`org.beehive.jitnn.dist`, after `torch.distributed`:
+
+| Class | Role |
+|---|---|
+| `Collective` | `allReduce` (SUM, AVG, MAX, MIN), `broadcast`, `reduceScatter`, `allGather`, `barrier`; every rank calls them in the same order, and each blocks until all ranks arrive |
+| `HostCollective` | stages tensors through host memory, so it works across any mix of devices and backends; reductions run in rank order, so results are deterministic |
+| `ProcessGroup.run(devices, body)` | one thread per rank, rank r on `devices[r]` (several ranks may share a device); returns the ranks' results in rank order |
+| `Engine.onDevice(spec, body)` | runs a block with this thread's plans on one device |
+| `nn.DataParallel(model, rank, collective)` | `broadcastParameters()` once, then `averageGradients()` after each backward pass, as PyTorch's `DistributedDataParallel` |
+
+Limitations: jitNN's executor runs the ranks one after another, so data-parallel training is
+correct but not yet faster than one device; there is no NCCL path.
+
+## ONNX models (`jitnn-onnx`)
+
+`OnnxSession.load(path)` reads an ONNX model and `run(Map<String, Tensor>)` runs it on jitNN's
+operators: every node becomes jitNN operations, so a call records one trace that is compiled on
+the first run and replayed while the input shapes stay the same. The module has no third-party
+dependencies: it has its own protobuf reader, and external weight data are memory-mapped.
+
+About 110 ONNX operators are supported:
+
+| Family | Operators |
+|---|---|
+| Element-wise and activations | arithmetic, math functions, comparisons, logic, `Where`, `IsNaN`, `IsInf`, the common activations |
+| Products | `MatMul`, `Gemm` |
+| Convolution | `Conv` 1-D, 2-D and 3-D, grouped, `ConvTranspose`; asymmetric and `SAME` padding |
+| Pooling | `MaxPool`, `AveragePool`, `GlobalAveragePool`, `GlobalMaxPool` |
+| Normalisation | `BatchNormalization`, `LayerNormalization`, `InstanceNormalization`, `GroupNormalization`, `LRN` |
+| Softmax and reductions | `Softmax`, `LogSoftmax`, `ReduceSum`/`Mean`/`Max`/`Min`/`SumSquare`, `ArgMax`, `ArgMin`, `CumSum`, `TopK` |
+| Shapes and indexing | `Reshape`, `Transpose`, `Squeeze`, `Unsqueeze`, `Flatten`, `Concat`, `Split`, `Slice`, `Gather`, `GatherND` (first axis), `Expand`, `Tile`, `Cast`, `Range`, `ConstantOfShape`, `Shape`, `Size`, `Pad`, `Resize`, `NonZero` |
+
+Integer shape arithmetic (for example `Shape` -> `Gather` -> `Concat` -> `Reshape`) is folded on
+the host. Unsupported operators are reported by name when the model is loaded. Integer tensors
+become INT32 on the device and booleans FP32 0/1; FP16, BF16 and FP64 weights are held in FP32.
+
+At load, exported patterns are rewritten into jitNN's fused forms:
+
+| Pattern | Becomes |
+|---|---|
+| `MatMul` by a constant matrix (and `Add` of a constant bias) | one linear layer, the weight stored transposed |
+| the erf form of GELU | one GELU, which the inference fusion moves into the GEMM epilogue |
+| `MatMul(q, k^T)` [-> `Add` mask] -> `Softmax` -> `MatMul(., v)`, with constant scalings and the exporter's reshapes of k | one attention operator |
+
+The attention operator uses the fused attention kernel when batch x heads is at most 32
+(`-Djitnn.onnx.fusedAttentionRows`), and batched GEMMs with a fused scale-softmax above that.
+`-Djitnn.onnx.rewrite=false` turns the rewrites off.
+
+`OnnxSession.load(path, true)` runs in half precision: the matrix products (linear layers and
+attention) take FP16 operands with FP32 accumulation and the linear weights are stored in FP16;
+convolutions stay FP32.
+
+## Not yet supported
+
+- Conv1D and Conv3D with groups, grouped 1-D convolutions in ONNX models; NaN-propagating
+  reductions.
+- General (non-symmetric) eigendecomposition; complex tensors outside the Fourier transforms.
+- FP16 convolutions; FP8 tensor-core instructions.
+- Ranks running in parallel; NCCL.
+- Metal runs of the operators from "Generative and recurrent models" on.
+

@@ -1,6 +1,6 @@
 # Performance
 
-Wave 1, KernelContext baseline, measured 2026-10-01. Kernel times come from the TornadoVM profiler
+The KernelContext baseline, measured 2026-10-01. Kernel times come from the TornadoVM profiler
 (median of 30 replays); wall times include dispatch. The Apple OpenCL profiler's kernel times are
 not usable, so OpenCL rows use wall time.
 
@@ -46,7 +46,7 @@ fused cross-entropy with a one-kernel backward. On CUDA, CUDA-graph replay took 
 | Fused linear and cross-entropy | 31 to 22 kernels per MLP step; Metal and OpenCL steps 22-34% faster |
 | CUDA graphs | CUDA MLP step 16% faster |
 
-## Wave 2 kernels (M4 Pro, Metal; batch 64)
+## Convolution kernels (M4 Pro, Metal; batch 64)
 
 | Kernel | Forward | Input gradient | Weight gradient | PyTorch MPS forward |
 |---|---|---|---|---|
@@ -77,7 +77,8 @@ On CIFAR-10 (3x32x32 inputs, batch 64, one epoch), steady-state steps:
 
 ## Transformer training steps (batch 16 x 128 tokens, 4 layers of 128, AdamW, clipping)
 
-Steady-state steps of the transformer gates, before and after the wave 3 performance pass:
+Steady-state steps of the transformer gates, before and after the transformer performance work
+(split-K, fused attention, fewer launches, tensor cores):
 
 | | Metal (M4 Pro) | OpenCL (M4 Pro) | CUDA (A10) |
 |---|---|---|---|
@@ -91,7 +92,7 @@ Steady-state steps of the transformer gates, before and after the wave 3 perform
 The loss curves are unchanged: every gate still matches PyTorch to four digits (FP32) or within
 0.1% (mixed precision).
 
-What the pass changed, found with the per-operator profile (`TransformerBenchAccelTest` with
+What changed, found with the per-operator profile (`TransformerBenchAccelTest` with
 `-Djitnn.test.profile=true`, `Engine.kernelBreakdown()`):
 
 | Change | Effect (GPT-2 step) |
@@ -105,7 +106,7 @@ What the pass changed, found with the per-operator profile (`TransformerBenchAcc
 | Tensor-core GEMMs on CUDA for FP16/BF16 operands (every transpose, split-K) | CUDA GPT-2 BF16 5.8 → 4.7 ms, BERT FP16 7.5 → 6.4 ms |
 
 A step of these small models is still dominated by the number of kernels on Apple GPUs (about
-0.15 ms of dispatch each, TornadoVM J11). On the A10, with CUDA graphs, a GPT-2 step spends 7.5
+0.15 ms of TornadoVM dispatch each). On the A10, with CUDA graphs, a GPT-2 step spends 7.5
 ms in 301 kernels; the GEMMs are about 3 ms of it, the attention kernels 1.4 ms, and the
 optimiser and gradient-statistics kernels the rest of the non-GEMM time.
 
@@ -129,9 +130,9 @@ Device memory for intermediates, with and without buffer reuse:
 | MobileNetV2 training step | 1,965 MB | 1,091 MB |
 | MobileNetV2 evaluation, batch 250 (`Grad.inference`) | 3,810 MB | 427 MB |
 
-## Wave 4 training steps (A100)
+## Generative and recurrent training steps (A100)
 
-Steady-state steps of the wave 4 gates, PyTorch 2.14 with cuDNN (TF32 off) against jitNN, both
+Steady-state steps of the generative and recurrent gates, PyTorch 2.14 with cuDNN (TF32 off) against jitNN, both
 reading the loss back every step:
 
 | Gate | PyTorch (CUDA) | jitNN, CUDA | jitNN, OpenCL |
@@ -149,6 +150,62 @@ from memory every timestep, where cuDNN keeps it on chip in a persistent kernel.
 On the A100, tensor-core GEMMs reach 55 TFLOP/s (FP16 and BF16, 4096, A B) and 66 TFLOP/s (A B^T);
 GPT-2 under BF16 autocast trains at 4.6 ms per step.
 
+## Inference: ResNet-50 and BERT-base (A100)
+
+Latency per call on an NVIDIA A100 80GB, CUDA backend: host input in, host output out, 10 warm-up
+calls, then the median of 50 timed calls. FP32 runs have TF32 off in every framework, so they
+compare FP32 arithmetic. BERT-base is the encoder (12 layers of 768, hidden states out).
+
+### jitNN's own models
+
+`ResNet.resnet50` and `Bert` built in Java from the same seeds as the Python side, so every
+framework runs the same weights on the same inputs (`InferenceBenchAccelTest` and
+`scripts/bench/t1.py`), against PyTorch 2.14 and ONNX Runtime 1.30, in ms:
+
+| Model, batch | jitNN | PyTorch | ONNX Runtime |
+|---|---|---|---|
+| ResNet-50, b1, FP32 | 4.0 | 7.8 | 3.6 |
+| BERT-base, b1, seq 128, FP32 | 6.5 | 5.5 | 3.6 |
+| BERT-base, b1, seq 128, FP16 | 4.2 | 6.3 | 2.8 |
+
+These include the inference fusions (convolution + BatchNorm folding, GEMM epilogues) and
+split-K for forward products. At large batch jitNN is 2-3x behind, set by the speed of its
+convolution and GEMM kernels.
+
+### The same models from ONNX files
+
+ResNet-50 and BERT-base exported to ONNX by PyTorch, run by `jitnn-onnx` (`OnnxT1AccelTest`) and
+by ONNX Runtime's CUDA provider (`scripts/onnx/t1_onnx.py`) on the same files and inputs, in ms:
+
+| Model | Batch | Precision | jitnn-onnx | ONNX Runtime |
+|---|---|---|---|---|
+| ResNet-50 | 1 | FP32 | 3.15 | 3.58 |
+| ResNet-50 | 32 | FP32 | 46.0 | 20.4 |
+| ResNet-50 | 128 | FP32 | 172.9 | 79.2 |
+| ResNet-50 | 1 | FP16 | 3.41 | 1.91 |
+| ResNet-50 | 32 | FP16 | 46.5 | 5.8 |
+| ResNet-50 | 128 | FP16 | 173.2 | 20.6 |
+| BERT-base | 1 x 128 | FP32 | 7.48 | 3.62 |
+| BERT-base | 32 x 128 | FP32 | 98.2 | 53.3 |
+| BERT-base | 8 x 512 | FP32 | 106.5 | 60.3 |
+| BERT-base | 1 x 128 | FP16 | 6.25 | 2.45 |
+| BERT-base | 32 x 128 | FP16 | 40.2 | 10.4 |
+| BERT-base | 8 x 512 | FP16 | 49.0 | 12.0 |
+
+jitNN's outputs agree with ONNX Runtime's to 1.4e-6 (FP32) and 3.3e-3 (FP16), relative. On the
+OpenCL backend of the same A100, ResNet-50 at batch 1 takes 9.6 ms and BERT-base at batch 1 (FP32)
+20.7 ms.
+
+The remaining gap is kernel speed: jitNN's GEMM, convolution and attention kernels against
+cuBLAS and cuDNN. jitNN has no FP16 convolutions yet, so the FP16 ResNet-50 runs its
+convolutions in FP32, which explains why it gains nothing from half precision.
+
+To reproduce: `python scripts/bench/t1.py <dir>` exports the models and times PyTorch and ONNX
+Runtime; `python scripts/onnx/t1_onnx.py <dir>` writes ONNX Runtime's outputs and timings next to
+the models; then
+`./mvnw test -Paccel-tests -pl jitnn-onnx -Dtest=OnnxT1AccelTest -Djitnn.onnx.t1=<dir>` runs
+jitNN on them. `scripts/bench/djl` holds the same comparison through DJL, as a baseline.
+
 ## Known gaps
 
 - Convolutions run on the same register-blocked tiles as the GEMM and share its ceiling: about
@@ -158,3 +215,8 @@ GPT-2 under BF16 autocast trains at 4.6 ms per step.
   TFLOP/s; getting further needs vector loads, double buffering and larger SIMD-group tiles.
 - Metal transpose and strided reductions sit at 100-140 GB/s.
 - LSTM and GRU steps are 4-6x slower than cuDNN (one kernel per timestep; see above).
+- Large-batch inference is 2-3x behind ONNX Runtime in FP32 and further in FP16 (no FP16
+  convolutions; GEMM and attention kernels slower than cuBLAS and cuDNN).
+- Data-parallel ranks run one after another, so several devices give no speed-up yet.
+- The Fourier transforms are direct O(n^2) DFTs, and the matrix decompositions use one
+  work-group per matrix: fine for the sizes inside models, slow for large inputs.

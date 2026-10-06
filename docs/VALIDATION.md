@@ -1,6 +1,6 @@
 # Validation
 
-Four layers of checks run on the host and on every device.
+Five layers of checks run on the host and on every device.
 
 1. **Host reference.** Every operator has a double-precision Java implementation, written
    independently of its kernel. `Engine.Backend.REFERENCE` runs it, and it is the oracle the device
@@ -9,17 +9,26 @@ Four layers of checks run on the host and on every device.
    broadcasting binaries, every unary, reductions, all four GEMM transposes, permute, reshape,
    softmax, log-softmax, cross-entropy, fused linear and an MLP chain. This currently runs in FP32
    with a loose tolerance, until jitNN has an FP64 type.
-3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes 356 operator cases (waves 1 to 5:
-   element-wise, reductions, GEMM, convolution, BatchNorm, pooling, the transformer activations,
-   slicing and joining, embedding, LayerNorm and RMSNorm, batched matmul, attention with causal and
-   padding masks, multi-head attention against `nn.MultiheadAttention`, RoPE, top-k, FP16/BF16 casts and half-precision GEMMs,
-   LeakyReLU, softplus, MSE, BCE with and without logits, Gaussian KL, transposed convolution,
-   nearest and bilinear resizing, and LSTM and GRU layers against PyTorch's own), in FP64
-   (inputs, output and every input gradient, on odd, size-1 and broadcast shapes), plus 5
-   optimiser cases (three `torch.optim` steps each), and Philox values reproduced in numpy.
-   `GoldenTest` checks the reference against them; `GoldenAccelTest` and `OptimGoldenAccelTest`
-   check every device.
-4. **Model parity.** Models start from bit-identical initial weights (`scripts/pytorch/jitnn_init.py`
+3. **PyTorch goldens.** `scripts/pytorch/goldens.py` computes the golden set, 449 cases: 435
+   operator cases (element-wise, reductions, GEMM, convolution, BatchNorm, pooling, the
+   transformer activations, slicing and joining, embedding, LayerNorm and RMSNorm, batched
+   matmul, attention with causal and padding masks, multi-head attention against
+   `nn.MultiheadAttention`, RoPE, top-k, FP16/BF16 casts and half-precision GEMMs, the losses,
+   transposed convolution, resizing, LSTM and GRU layers against PyTorch's own, the extended
+   operator set, CTC and the metric losses, linear algebra against `torch.linalg`, Fourier
+   transforms against `torch.fft`, sparse products, nonzero, masked select, unique, FP8, and linear layers and dequantisation on
+   GGUF's Q4_0, Q4_1, Q4_K, Q5_K and Q6_K blocks, with random blocks dequantised by llama.cpp's
+   `gguf` package as the reference), in
+   FP64 (inputs, output and every input gradient, on odd, size-1 and broadcast shapes), and 14
+   optimiser cases (three steps each of `torch.optim`, or for LAMB and LARS, which `torch.optim`
+   lacks, of PyTorch implementations in the script), plus Philox values
+   reproduced in numpy. `GoldenTest` checks the reference against them; `GoldenAccelTest` and
+   `OptimGoldenAccelTest` check every device.
+4. **Other references.** `scripts/sklearn/ml_goldens.py` stores datasets and scikit-learn's
+   results for the classical machine-learning estimators (`MlAccelTest`), and
+   `scripts/onnx/onnx_goldens.py` builds ONNX models with ONNX Runtime's outputs for the ONNX
+   importer (`OnnxGoldenTest`, `OnnxGoldenAccelTest`).
+5. **Model parity.** Models start from bit-identical initial weights (`scripts/pytorch/jitnn_init.py`
    reimplements jitNN's Philox initialisation; `models.py` builds ResNet-18 and MobileNetV2 with the
    same seeds) and train on the same batches as PyTorch.
    - **MNIST gates** (MLP, 2 epochs; LeNet-5, 1 epoch): losses of steps 0-9 within 1e-4, steps
@@ -42,7 +51,7 @@ Four layers of checks run on the host and on every device.
      under FP16 autocast with dynamic loss scaling), against the FP32 PyTorch run: half-precision
      operands cannot follow FP32 step by step, so the step-0 loss is checked to 1e-2 and the end of
      training to 3%.
-   - **Wave 4 gates** (`scripts/pytorch/wave4.py`; the same initial weights, batches and noise as
+   - **Generative and recurrent gates** (`scripts/pytorch/wave4.py`; the same initial weights, batches and noise as
      PyTorch, with noise from jitNN's Philox): a VAE on MNIST (BCE plus Gaussian KL, 400 steps), a
      DCGAN on MNIST (transposed convolutions, LeakyReLU, BCE with logits, two Adam optimisers, 300
      steps), a U-Net segmenting MNIST digits (transposed convolution, bilinear upsampling, skip
@@ -53,6 +62,9 @@ Four layers of checks run on the host and on every device.
      summation order alone moves the curve by 5-7%) and the evaluation metric.
 
 ## Results
+
+The core, CNN and transformer gates on Apple and NVIDIA GPUs (the golden counts are those of the
+core, CNN and transformer operators):
 
 | Check | Reference | OpenCL (M4 Pro) | Metal (M4 Pro) | CUDA (RTX 5070 Ti) | CUDA (A10) |
 |---|---|---|---|---|---|
@@ -86,12 +98,12 @@ Four layers of checks run on the host and on every device.
 | Llama FP16 + loss scaling (FP32 PyTorch: 1.9951 / 2.5854) | | 1.9951 / 2.5854 | 1.9952 / 2.5858 | | 1.9951 / 2.5853 |
 | BERT FP16 + loss scaling (FP32 PyTorch: 3.7603 / 3.4829) | | 3.7606 / 3.4842 | 3.7617 / 3.4851 | | 3.7608 / 3.4818 |
 
-Wave 4 on the A100 (CUDA and OpenCL), against PyTorch references made on the same GPU; the A10
-passes the same gates against references made on it. Metal has not run these yet.
+The generative and recurrent gates on the A100 (CUDA and OpenCL), against PyTorch references made
+on the same GPU; the A10 passes the same gates against references made on it. Metal has not run
+these yet.
 
 | Check | PyTorch | CUDA (A100) | OpenCL (A100) |
 |---|---|---|---|
-| Operator goldens (225) and gradient checks | | pass | pass |
 | VAE: worst step-0 gradient, fraction of its bound | | 0.04 | 0.04 |
 | VAE: mean loss of the last 50 steps / test loss | 140.89 / 134.87 | 140.87 / 134.78 | 140.91 / 134.81 |
 | DCGAN: worst step-0 gradient, discriminator / generator | | 0.17 / 0.08 | 0.17 / 0.06 |
@@ -105,6 +117,73 @@ passes the same gates against references made on it. Metal has not run these yet
 
 Every earlier gate (MNIST, ResNet-18 and MobileNetV2 on MNIST and CIFAR-10, the transformers in
 FP32 and mixed precision) also passes on both A100 backends.
+
+### Current state on the A100
+
+Measured with TornadoVM `develop` (7.1.1-dev) on an NVIDIA A100 80GB (aarch64), on both the
+CUDA and the OpenCL backend. Metal has not run the linear algebra, Fourier, sparse, embedding,
+classical machine-learning, FP8, collective and ONNX checks yet.
+
+| Check | Reference | CUDA (A100) | OpenCL (A100) |
+|---|---|---|---|
+| PyTorch golden set: 435 operator cases | pass | pass | pass |
+| PyTorch optimiser goldens (14) | pass | pass | pass |
+| ONNX goldens (78 models) against ONNX Runtime (CPU) | pass | pass | pass |
+| Model gates (56; two inference benchmarks skipped by default) | | pass | pass |
+| scikit-learn comparisons (`MlAccelTest`) | | pass | pass |
+| Embedding gates | | pass | pass |
+| Data-parallel gate | | pass | pass |
+
+The ONNX goldens are 76 single-operator models built with the `onnx` package, and a CNN and a
+transformer block exported from PyTorch.
+
+#### Classical machine learning against scikit-learn 1.9.1
+
+`MlAccelTest` fits each estimator on the data `scripts/sklearn/ml_goldens.py` stored and compares
+with scikit-learn's result on the same data.
+
+| Estimator | Agreement with scikit-learn |
+|---|---|
+| k-means from given centres | centres within 1.4e-6, identical labels |
+| k-means++ | inertia 4261.40 (scikit-learn 4261.40) |
+| kNN | identical classes and probabilities; regression within 2e-6 |
+| PCA | components within 1.2e-6 |
+| Least squares, ridge | coefficients within 1e-6 |
+| Logistic regression | coefficients within 6.5e-4, probabilities within 1.1e-4 |
+| Linear SVM | coefficients within 3e-6 |
+| Naive Bayes | probabilities within 3e-6 |
+
+Trees and t-SNE depend on random choices that differ between the two libraries, so they are
+compared by held-out quality:
+
+| Model | jitNN | scikit-learn |
+|---|---|---|
+| Decision tree, accuracy | 0.815 | 0.800 |
+| Random forest, accuracy | 0.875 | 0.875 |
+| Gradient boosting, accuracy | 0.870 | 0.860 |
+| Decision tree, R^2 | 0.690 | 0.636 |
+| Random forest, R^2 | 0.849 | 0.839 |
+| Gradient boosting, R^2 | 0.938 | 0.931 |
+| t-SNE, trustworthiness | 0.960 (CUDA), 0.965 (OpenCL) | 0.967 |
+
+#### Embedding models
+
+`EmbeddingModelsAccelTest` trains each model on a corpus with four planted topics and checks that
+the loss falls and that a word's (or document's) nearest neighbour belongs to its topic:
+
+| Model | Loss, first to last steps | Nearest-neighbour purity |
+|---|---|---|
+| word2vec skip-gram | 4.14 -> 1.58 | 1.000 |
+| word2vec CBOW | 4.13 -> 2.32 | 1.000 |
+| GloVe | 3.43 -> 0.0005 | 1.000 |
+| doc2vec PV-DBOW | 4.16 -> 1.52 | 1.000 |
+| doc2vec PV-DM | 4.14 -> 1.57 | 1.000 |
+
+#### Data-parallel training
+
+`DataParallelAccelTest` trains two ranks on half batches each and one rank on the full batches,
+from the same initial weights. Losses and final parameters agree within 2e-5 with both ranks on
+CUDA, both on OpenCL, and with one rank on CUDA and one on OpenCL on the same A100.
 
 The RTX 5070 Ti column predates the CIFAR-10 and transformer gates; the A10 column runs every gate.
 Without BatchNorm amplifying rounding differences, the transformer runs stay within 1e-7 of
