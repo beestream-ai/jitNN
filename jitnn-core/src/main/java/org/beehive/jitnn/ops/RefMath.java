@@ -63,6 +63,12 @@ final class RefMath {
             case ElementwiseKernels.THRESHOLD_GRAD -> x > alpha ? y : 0;
             case ElementwiseKernels.PRELU -> x > 0 ? x : y * x;
             case ElementwiseKernels.PRELU_SLOPE -> x > 0 ? 1 : y;
+            case ElementwiseKernels.ATAN2 -> Math.atan2(x, y);
+            case ElementwiseKernels.NE -> x != y ? 1 : 0;
+            case ElementwiseKernels.LE -> x <= y ? 1 : 0;
+            case ElementwiseKernels.LOGICAL_AND -> x != 0 && y != 0 ? 1 : 0;
+            case ElementwiseKernels.LOGICAL_OR -> x != 0 || y != 0 ? 1 : 0;
+            case ElementwiseKernels.LOGICAL_XOR -> (x != 0) != (y != 0) ? 1 : 0;
             default -> x;
         };
     }
@@ -95,6 +101,27 @@ final class RefMath {
             case ElementwiseKernels.HARD_SIGMOID -> Math.min(Math.max(x / 6 + 0.5, 0), 1);
             case ElementwiseKernels.HARD_SWISH -> x * Math.min(Math.max(x / 6 + 0.5, 0), 1);
             case ElementwiseKernels.THRESHOLD -> x > alpha ? x : 0;
+            case ElementwiseKernels.SIN -> Math.sin(x);
+            case ElementwiseKernels.COS -> Math.cos(x);
+            case ElementwiseKernels.TAN -> Math.tan(x);
+            case ElementwiseKernels.ASIN -> Math.asin(x);
+            case ElementwiseKernels.ACOS -> Math.acos(x);
+            case ElementwiseKernels.ATAN -> Math.atan(x);
+            case ElementwiseKernels.SINH -> Math.sinh(x);
+            case ElementwiseKernels.COSH -> Math.cosh(x);
+            case ElementwiseKernels.ASINH -> Math.log(x + Math.sqrt(x * x + 1));
+            case ElementwiseKernels.ACOSH -> Math.log(x + Math.sqrt(x * x - 1));
+            case ElementwiseKernels.ATANH -> 0.5 * Math.log((1 + x) / (1 - x));
+            case ElementwiseKernels.ERF -> 1 - erfc(x);
+            case ElementwiseKernels.ERFC -> erfc(x);
+            case ElementwiseKernels.ROUND -> Math.rint(x);
+            case ElementwiseKernels.TRUNC -> x < 0 ? Math.ceil(x) : Math.floor(x);
+            case ElementwiseKernels.FLOOR -> Math.floor(x);
+            case ElementwiseKernels.CEIL -> Math.ceil(x);
+            case ElementwiseKernels.SIGN -> Math.signum(x);
+            case ElementwiseKernels.LOG1P -> Math.log1p(x);
+            case ElementwiseKernels.EXPM1 -> Math.expm1(x);
+            case ElementwiseKernels.LOGICAL_NOT -> x == 0 ? 1 : 0;
             default -> alpha;
         };
     }

@@ -245,6 +245,27 @@ add("elu_small", "elu", [1.0], [rnd(9, 7, lo=-1e-3, hi=1e-3)])
 add("prelu_shared", "prelu", [], [rnd(4, 3, 5), rnd(1)])
 add("prelu_channels", "prelu", [], [rnd(2, 6, 4, 3), rnd(6)])
 add("rrelu_eval", "rrelu_eval", [0.125, 1 / 3], [rnd(9, 8)])
+# ---- wave 5: math (inputs inside each domain), comparisons, logic, where, one-hot
+for op, gen in [("sin", rnd), ("cos", rnd), ("tan", lambda *d: rnd(*d, lo=-1.3, hi=1.3)), ("asin", lambda *d: rnd(*d, lo=-0.95, hi=0.95)),
+                ("acos", lambda *d: rnd(*d, lo=-0.95, hi=0.95)), ("atan", lambda *d: rnd(*d, lo=-5, hi=5)), ("sinh", lambda *d: rnd(*d, lo=-4, hi=4)),
+                ("cosh", lambda *d: rnd(*d, lo=-4, hi=4)), ("asinh", lambda *d: rnd(*d, lo=-5, hi=5)), ("acosh", lambda *d: rnd(*d, lo=1.1, hi=6)),
+                ("atanh", lambda *d: rnd(*d, lo=-0.9, hi=0.9)), ("erf", lambda *d: rnd(*d, lo=-3, hi=3)), ("erfc", lambda *d: rnd(*d, lo=-3, hi=3)),
+                ("log1p", lambda *d: rnd(*d, lo=-0.9, hi=5)), ("expm1", lambda *d: rnd(*d, lo=-3, hi=3))]:
+    add(f"math_{op}", op, [], [gen(9, 7)])
+add("math_sinh_small", "sinh", [], [rnd(5, 4, lo=-1e-3, hi=1e-3)])
+add("math_erf_small", "erf", [], [rnd(5, 4, lo=-0.4, hi=0.4)])
+add("math_expm1_small", "expm1", [], [rnd(5, 4, lo=-1e-4, hi=1e-4)])
+halves = np.array([0.5, 1.5, 2.5, -0.5, -1.5, -2.5, 3.49, -3.51, 0.0, 7.0], np.float32)
+for op in ("round", "trunc", "floor", "ceil", "sign"):
+    add(f"math_{op}", op, [], [np.concatenate([rnd(30, lo=-5, hi=5), halves])], grads=[False])
+add("atan2", "atan2", [], [rnd(7, 6), rnd(7, 6)])
+add("atan2_broadcast", "atan2", [], [rnd(4, 5), rnd(5)])
+ints = lambda *d: rng.integers(-2, 3, size=d).astype(np.float32)
+for op in ("ne", "le", "logical_and", "logical_or", "logical_xor"):
+    add(op, op, [], [ints(6, 7), ints(7)], grads=[False, False])
+add("logical_not", "logical_not", [], [ints(6, 7)], grads=[False])
+add("where", "where", [], [(rnd(6, 7) > 0).astype(np.float32), rnd(6, 7), rnd(7)], grads=[False, True, True])
+add("one_hot", "one_hot", [5], [np.array([0, 4, 2, 2, 1, 3, 0], np.int32)])
 # ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
 def rnn_case(name, op, t, b, i, h, gates):
     w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
@@ -476,6 +497,20 @@ def forward(op, attrs, t):
         return torch.nn.functional.prelu(t[0], t[1])
     if op == "rrelu_eval":
         return torch.nn.functional.rrelu(t[0], attrs[0], attrs[1], training=False)
+    if op in ("sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "asinh", "acosh", "atanh", "erf", "erfc", "log1p", "expm1", "round", "trunc", "floor", "ceil", "sign"):
+        return getattr(torch, op)(t[0])
+    if op == "atan2":
+        return torch.atan2(t[0], t[1])
+    if op in ("ne", "le"):
+        return getattr(torch, op)(t[0], t[1]).to(t[0].dtype)
+    if op in ("logical_and", "logical_or", "logical_xor"):
+        return getattr(torch, op)(t[0], t[1]).to(t[0].dtype)
+    if op == "logical_not":
+        return torch.logical_not(t[0]).to(t[0].dtype)
+    if op == "where":
+        return torch.where(t[0] != 0, t[1], t[2])
+    if op == "one_hot":
+        return torch.nn.functional.one_hot(t[0].long(), attrs[0]).to(torch.float64)
     raise ValueError(op)
 
 
@@ -496,7 +531,8 @@ for name, op, attrs, inputs, grads in cases:
         arrays.append((name, "out", y.numpy().astype(np.int32)))
         continue
     w = rnd(*y.shape) if y.dim() > 0 else rnd(1).reshape(())
-    (y * torch.tensor(w.astype(np.float64))).sum().backward()
+    if y.requires_grad:
+        (y * torch.tensor(w.astype(np.float64))).sum().backward()
     arrays.append((name, "w", w))
     arrays.append((name, "out", y.detach().numpy().astype(np.float32)))
     for i, tt in enumerate(ts):

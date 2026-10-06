@@ -81,6 +81,13 @@ public final class ElementwiseKernels {
     public static final int PRELU = 36;
     /** 1 where x > 0, else y (the slope): dPReLU/dx. */
     public static final int PRELU_SLOPE = 37;
+    // comparisons and logic give 0 or 1
+    public static final int ATAN2 = 38;
+    public static final int NE = 39;
+    public static final int LE = 40;
+    public static final int LOGICAL_AND = 41;
+    public static final int LOGICAL_OR = 42;
+    public static final int LOGICAL_XOR = 43;
 
     // Unary op codes: out = f(x; alpha, beta).
     public static final int NEG = 0;
@@ -127,6 +134,28 @@ public final class ElementwiseKernels {
     public static final int HARD_SWISH = 25;
     /** x where x > alpha, else 0 (Keras's ThresholdedReLU). */
     public static final int THRESHOLD = 26;
+    // math and logic (wave 5); gradients are composed in Unary.backward
+    public static final int SIN = 27;
+    public static final int COS = 28;
+    public static final int TAN = 29;
+    public static final int ASIN = 30;
+    public static final int ACOS = 31;
+    public static final int ATAN = 32;
+    public static final int SINH = 33;
+    public static final int COSH = 34;
+    public static final int ASINH = 35;
+    public static final int ACOSH = 36;
+    public static final int ATANH = 37;
+    public static final int ERF = 38;
+    public static final int ERFC = 39;
+    public static final int ROUND = 40;
+    public static final int TRUNC = 41;
+    public static final int FLOOR = 42;
+    public static final int CEIL = 43;
+    public static final int SIGN = 44;
+    public static final int LOG1P = 45;
+    public static final int EXPM1 = 46;
+    public static final int LOGICAL_NOT = 47;
 
     private static final float SQRT_HALF = 0.70710678f;
     private static final float INV_SQRT_2PI = 0.39894228f;
@@ -211,6 +240,36 @@ public final class ElementwiseKernels {
         if (x > 0.0f) {
             float l = TornadoMath.log(x);
             r = l > -100.0f ? l : -100.0f;
+        }
+        return r;
+    }
+
+    /** erf: an odd series below 0.5 (where 1 - erfc would cancel), 1 - erfc(x) beyond. */
+    public static float erf(float x) {
+        float a = TornadoMath.abs(x);
+        float r;
+        if (a < 0.5f) {
+            float x2 = x * x;
+            r = 1.1283791671f * x * (1.0f - x2 * (1.0f / 3.0f - x2 * (0.1f - x2 * (1.0f / 42.0f - x2 * (1.0f / 216.0f - x2 * (1.0f / 1320.0f - x2 / 9360.0f))))));
+        } else {
+            r = 1.0f - erfc(a);
+            r = x < 0.0f ? -r : r;
+        }
+        return r;
+    }
+
+    /** Round half to even (PyTorch's round). */
+    public static float roundHalfEven(float x) {
+        float f = TornadoMath.floor(x);
+        float d = x - f;
+        float r;
+        if (d > 0.5f) {
+            r = f + 1.0f;
+        } else if (d < 0.5f) {
+            r = f;
+        } else {
+            float half = f * 0.5f;
+            r = half == TornadoMath.floor(half) ? f : f + 1.0f;
         }
         return r;
     }
@@ -302,6 +361,18 @@ public final class ElementwiseKernels {
             r = x > 0.0f ? x : y * x;
         } else if (op == PRELU_SLOPE) {
             r = x > 0.0f ? 1.0f : y;
+        } else if (op == ATAN2) {
+            r = TornadoMath.atan2(x, y);
+        } else if (op == NE) {
+            r = x != y ? 1.0f : 0.0f;
+        } else if (op == LE) {
+            r = x <= y ? 1.0f : 0.0f;
+        } else if (op == LOGICAL_AND) {
+            r = (x != 0.0f) & (y != 0.0f) ? 1.0f : 0.0f;
+        } else if (op == LOGICAL_OR) {
+            r = (x != 0.0f) | (y != 0.0f) ? 1.0f : 0.0f;
+        } else if (op == LOGICAL_XOR) {
+            r = (x != 0.0f) != (y != 0.0f) ? 1.0f : 0.0f;
         } else {
             r = x;
         }
@@ -364,6 +435,48 @@ public final class ElementwiseKernels {
             r = x * (h < 0.0f ? 0.0f : (h > 1.0f ? 1.0f : h));
         } else if (op == THRESHOLD) {
             r = x > alpha ? x : 0.0f;
+        } else if (op == SIN) {
+            r = TornadoMath.sin(x);
+        } else if (op == COS) {
+            r = TornadoMath.cos(x);
+        } else if (op == TAN) {
+            r = TornadoMath.tan(x);
+        } else if (op == ASIN) {
+            r = TornadoMath.asin(x);
+        } else if (op == ACOS) {
+            r = TornadoMath.acos(x);
+        } else if (op == ATAN) {
+            r = TornadoMath.atan(x);
+        } else if (op == SINH) {
+            r = 0.5f * (expm1(x) - expm1(-x));
+        } else if (op == COSH) {
+            r = 0.5f * (TornadoMath.exp(x) + TornadoMath.exp(-x));
+        } else if (op == ASINH) {
+            r = TornadoMath.asinh(x);
+        } else if (op == ACOSH) {
+            r = TornadoMath.acosh(x);
+        } else if (op == ATANH) {
+            r = 0.5f * log1p(2.0f * x / (1.0f - x));
+        } else if (op == ERF) {
+            r = erf(x);
+        } else if (op == ERFC) {
+            r = erfc(x);
+        } else if (op == ROUND) {
+            r = roundHalfEven(x);
+        } else if (op == TRUNC) {
+            r = x < 0.0f ? TornadoMath.ceil(x) : TornadoMath.floor(x);
+        } else if (op == FLOOR) {
+            r = TornadoMath.floor(x);
+        } else if (op == CEIL) {
+            r = TornadoMath.ceil(x);
+        } else if (op == SIGN) {
+            r = x > 0.0f ? 1.0f : (x < 0.0f ? -1.0f : 0.0f);
+        } else if (op == LOG1P) {
+            r = log1p(x);
+        } else if (op == EXPM1) {
+            r = expm1(x);
+        } else if (op == LOGICAL_NOT) {
+            r = x == 0.0f ? 1.0f : 0.0f;
         } else {
             r = alpha;
         }
@@ -404,6 +517,23 @@ public final class ElementwiseKernels {
         int i = kc.globalIdx;
         if (i < n) {
             out.set(i, unaryOp(op, x.get(i), alpha, beta));
+        }
+    }
+
+    /** out = c != 0 ? a : b, all of n elements (broadcast beforehand). */
+    public static void where(KernelContext kc, FloatArray c, FloatArray a, FloatArray b, FloatArray out, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            out.set(i, c.get(i) != 0.0f ? a.get(i) : b.get(i));
+        }
+    }
+
+    /** out[i, j] = labels[i] == j ? 1 : 0 for j < classes; n = labels * classes. */
+    public static void oneHot(KernelContext kc, IntArray labels, FloatArray out, int classes, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            int row = i / classes;
+            out.set(i, labels.get(row) == i - row * classes ? 1.0f : 0.0f);
         }
     }
 

@@ -433,6 +433,141 @@ public final class Tensor {
         return Unary.apply(Unary.Kind.LEAKY_RELU, this, slope, 0);
     }
 
+    /** Element-wise sine. */
+    public Tensor sin() {
+        return Unary.apply(Unary.Kind.SIN, this, 0, 0);
+    }
+
+    /** Element-wise cosine. */
+    public Tensor cos() {
+        return Unary.apply(Unary.Kind.COS, this, 0, 0);
+    }
+
+    /** Element-wise tangent. */
+    public Tensor tan() {
+        return Unary.apply(Unary.Kind.TAN, this, 0, 0);
+    }
+
+    /** Element-wise arcsine. */
+    public Tensor asin() {
+        return Unary.apply(Unary.Kind.ASIN, this, 0, 0);
+    }
+
+    /** Element-wise arccosine. */
+    public Tensor acos() {
+        return Unary.apply(Unary.Kind.ACOS, this, 0, 0);
+    }
+
+    /** Element-wise arctangent. */
+    public Tensor atan() {
+        return Unary.apply(Unary.Kind.ATAN, this, 0, 0);
+    }
+
+    /** Element-wise hyperbolic sine. */
+    public Tensor sinh() {
+        return Unary.apply(Unary.Kind.SINH, this, 0, 0);
+    }
+
+    /** Element-wise hyperbolic cosine. */
+    public Tensor cosh() {
+        return Unary.apply(Unary.Kind.COSH, this, 0, 0);
+    }
+
+    /** Element-wise inverse hyperbolic sine. */
+    public Tensor asinh() {
+        return Unary.apply(Unary.Kind.ASINH, this, 0, 0);
+    }
+
+    /** Element-wise inverse hyperbolic cosine. */
+    public Tensor acosh() {
+        return Unary.apply(Unary.Kind.ACOSH, this, 0, 0);
+    }
+
+    /** Element-wise inverse hyperbolic tangent. */
+    public Tensor atanh() {
+        return Unary.apply(Unary.Kind.ATANH, this, 0, 0);
+    }
+
+    /** Element-wise error function. */
+    public Tensor erf() {
+        return Unary.apply(Unary.Kind.ERF, this, 0, 0);
+    }
+
+    /** Element-wise complementary error function. */
+    public Tensor erfc() {
+        return Unary.apply(Unary.Kind.ERFC, this, 0, 0);
+    }
+
+    /** Element-wise rounding to the nearest integer, halves to even (PyTorch's round). */
+    public Tensor round() {
+        return Unary.apply(Unary.Kind.ROUND, this, 0, 0);
+    }
+
+    /** Element-wise rounding towards zero. */
+    public Tensor trunc() {
+        return Unary.apply(Unary.Kind.TRUNC, this, 0, 0);
+    }
+
+    /** Element-wise floor. */
+    public Tensor floor() {
+        return Unary.apply(Unary.Kind.FLOOR, this, 0, 0);
+    }
+
+    /** Element-wise ceiling. */
+    public Tensor ceil() {
+        return Unary.apply(Unary.Kind.CEIL, this, 0, 0);
+    }
+
+    /** Element-wise sign: -1, 0 or 1. */
+    public Tensor sign() {
+        return Unary.apply(Unary.Kind.SIGN, this, 0, 0);
+    }
+
+    /** Element-wise log(1 + x), accurate near 0. */
+    public Tensor log1p() {
+        return Unary.apply(Unary.Kind.LOG1P, this, 0, 0);
+    }
+
+    /** Element-wise exp(x) - 1, accurate near 0. */
+    public Tensor expm1() {
+        return Unary.apply(Unary.Kind.EXPM1, this, 0, 0);
+    }
+
+    /** Element-wise logical not: 1 where x is 0, else 0. */
+    public Tensor logicalNot() {
+        return Unary.apply(Unary.Kind.LOGICAL_NOT, this, 0, 0);
+    }
+
+    /** atan2(this, o), the angle of the point (o, this), with broadcasting. */
+    public Tensor atan2(Tensor o) {
+        return Binary.apply(Binary.Kind.ATAN2, this, o);
+    }
+
+    /** 1 where this != o, else 0, with broadcasting. */
+    public Tensor ne(Tensor o) {
+        return Binary.apply(Binary.Kind.NE, this, o);
+    }
+
+    /** 1 where this <= o, else 0, with broadcasting. */
+    public Tensor le(Tensor o) {
+        return Binary.apply(Binary.Kind.LE, this, o);
+    }
+
+    /** 1 where both are non-zero, with broadcasting. */
+    public Tensor logicalAnd(Tensor o) {
+        return Binary.apply(Binary.Kind.LOGICAL_AND, this, o);
+    }
+
+    /** 1 where either is non-zero, with broadcasting. */
+    public Tensor logicalOr(Tensor o) {
+        return Binary.apply(Binary.Kind.LOGICAL_OR, this, o);
+    }
+
+    /** 1 where exactly one is non-zero, with broadcasting. */
+    public Tensor logicalXor(Tensor o) {
+        return Binary.apply(Binary.Kind.LOGICAL_XOR, this, o);
+    }
+
     /** ELU: x for x > 0, else alpha (exp(x) - 1). */
     public Tensor elu(float alpha) {
         return Unary.apply(Unary.Kind.ELU, this, alpha, 0);

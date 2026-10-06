@@ -52,7 +52,13 @@ public final class Binary implements Op {
         HARD_SWISH_GRAD(ElementwiseKernels.HARD_SWISH_GRAD),
         THRESHOLD_GRAD(ElementwiseKernels.THRESHOLD_GRAD),
         PRELU(ElementwiseKernels.PRELU),
-        PRELU_SLOPE(ElementwiseKernels.PRELU_SLOPE);
+        PRELU_SLOPE(ElementwiseKernels.PRELU_SLOPE),
+        ATAN2(ElementwiseKernels.ATAN2),
+        NE(ElementwiseKernels.NE),
+        LE(ElementwiseKernels.LE),
+        LOGICAL_AND(ElementwiseKernels.LOGICAL_AND),
+        LOGICAL_OR(ElementwiseKernels.LOGICAL_OR),
+        LOGICAL_XOR(ElementwiseKernels.LOGICAL_XOR);
 
         final int code;
 
@@ -174,6 +180,12 @@ public final class Binary implements Op {
             case FIRST -> new Tensor[] { ga ? gy.sumTo(sa) : null, null };
             case BCE -> new Tensor[] { ga ? gy.mul(apply(Kind.BCE_DX, a, b)).sumTo(sa) : null, gb ? gy.mul(apply(Kind.BCE_DY, a, b)).sumTo(sb) : null };
             case PRELU -> new Tensor[] { ga ? gy.mul(apply(Kind.PRELU_SLOPE, a, b)).sumTo(sa) : null, gb ? gy.mul(a.minimum(Tensor.scalar(0.0f))).sumTo(sb) : null };
+            case ATAN2 -> {
+                // d atan2(a, b) = (b da - a db) / (a^2 + b^2)
+                Tensor r = a.square().add(b.square());
+                yield new Tensor[] { ga ? gy.mul(b).div(r).sumTo(sa) : null, gb ? gy.mul(a).div(r).neg().sumTo(sb) : null };
+            }
+            case GT, LT, GE, EQ, NE, LE, LOGICAL_AND, LOGICAL_OR, LOGICAL_XOR -> new Tensor[] { null, null };
             case ADD_RELU -> {
                 Tensor g = apply(Kind.RELU_GRAD, n.out(0), gy);
                 yield new Tensor[] { ga ? g.sumTo(sa) : null, gb ? g.sumTo(sb) : null };

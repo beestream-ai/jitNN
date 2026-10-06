@@ -55,7 +55,13 @@ final class GoldenOps {
         double[] tf = Golden.tolerance(c, false);
         Golden.Arr w = c.get("w");
         Tensor loss = y.mul(Tensor.of(w.f(), w.dims())).sum();
-        loss.backward();
+        boolean anyGrad = false;
+        for (int i = 0; i < inputs.length; i++) {
+            anyGrad |= c.get("grad" + i) != null;
+        }
+        if (anyGrad) {
+            loss.backward();
+        }
         close(c.get("out").f(), y.toFloatArray(), tf[0], tf[1], c.name() + " forward");
         for (var extra : Golden.EXTRAS.get().entrySet()) {
             close(c.get(extra.getKey()).f(), extra.getValue().toFloatArray(), tf[0], tf[1], c.name() + " " + extra.getKey());

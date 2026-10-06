@@ -337,6 +337,16 @@ public final class F {
         return Binary.apply(Binary.Kind.PRELU, x, Tensor.uniform(seed, lower, upper, x.shape().dims()));
     }
 
+    /** cond != 0 ? a : b element-wise, the three broadcast together. */
+    public static Tensor where(Tensor cond, Tensor a, Tensor b) {
+        return org.beehive.jitnn.ops.Select.where(cond, a, b);
+    }
+
+    /** INT32 labels [...] to a one-hot [..., classes]. */
+    public static Tensor oneHot(Tensor labels, int classes) {
+        return org.beehive.jitnn.ops.Select.oneHot(labels, classes);
+    }
+
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */
     public static Tensor swiglu(Tensor gate, Tensor up) {
         return gate.silu().mul(up);

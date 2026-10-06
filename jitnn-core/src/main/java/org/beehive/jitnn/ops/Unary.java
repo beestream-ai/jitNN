@@ -39,7 +39,28 @@ public final class Unary implements Op {
         SOFTSIGN(ElementwiseKernels.SOFTSIGN),
         HARD_SIGMOID(ElementwiseKernels.HARD_SIGMOID),
         HARD_SWISH(ElementwiseKernels.HARD_SWISH),
-        THRESHOLD(ElementwiseKernels.THRESHOLD);
+        THRESHOLD(ElementwiseKernels.THRESHOLD),
+        SIN(ElementwiseKernels.SIN),
+        COS(ElementwiseKernels.COS),
+        TAN(ElementwiseKernels.TAN),
+        ASIN(ElementwiseKernels.ASIN),
+        ACOS(ElementwiseKernels.ACOS),
+        ATAN(ElementwiseKernels.ATAN),
+        SINH(ElementwiseKernels.SINH),
+        COSH(ElementwiseKernels.COSH),
+        ASINH(ElementwiseKernels.ASINH),
+        ACOSH(ElementwiseKernels.ACOSH),
+        ATANH(ElementwiseKernels.ATANH),
+        ERF(ElementwiseKernels.ERF),
+        ERFC(ElementwiseKernels.ERFC),
+        ROUND(ElementwiseKernels.ROUND),
+        TRUNC(ElementwiseKernels.TRUNC),
+        FLOOR(ElementwiseKernels.FLOOR),
+        CEIL(ElementwiseKernels.CEIL),
+        SIGN(ElementwiseKernels.SIGN),
+        LOG1P(ElementwiseKernels.LOG1P),
+        EXPM1(ElementwiseKernels.EXPM1),
+        LOGICAL_NOT(ElementwiseKernels.LOGICAL_NOT);
 
         final int code;
 
@@ -127,6 +148,27 @@ public final class Unary implements Op {
             case HARD_SIGMOID -> Binary.apply(Binary.Kind.HARD_SIGMOID_GRAD, x, gy);
             case HARD_SWISH -> Binary.apply(Binary.Kind.HARD_SWISH_GRAD, x, gy);
             case THRESHOLD -> Binary.apply(Binary.Kind.THRESHOLD_GRAD, x, gy, alpha, 0.0f);
+            case SIN -> gy.mul(x.cos());
+            case COS -> gy.mul(x.sin()).neg();
+            case TAN -> gy.mul(y.square().add(1.0f));
+            case ASIN -> gy.div(x.square().neg().add(1.0f).sqrt());
+            case ACOS -> gy.div(x.square().neg().add(1.0f).sqrt()).neg();
+            case ATAN -> gy.div(x.square().add(1.0f));
+            case SINH -> gy.mul(x.cosh());
+            case COSH -> gy.mul(x.sinh());
+            case ASINH -> gy.div(x.square().add(1.0f).sqrt());
+            case ACOSH -> gy.div(x.square().add(-1.0f).sqrt());
+            case ATANH -> gy.div(x.square().neg().add(1.0f));
+            case ERF -> gy.mul(x.square().neg().exp().mul(1.1283791671f));
+            case ERFC -> gy.mul(x.square().neg().exp().mul(-1.1283791671f));
+            case ROUND -> null;
+            case TRUNC -> null;
+            case FLOOR -> null;
+            case CEIL -> null;
+            case SIGN -> null;
+            case LOG1P -> gy.div(x.add(1.0f));
+            case EXPM1 -> gy.mul(y.add(1.0f));
+            case LOGICAL_NOT -> null;
         };
         return new Tensor[] { gx };
     }
