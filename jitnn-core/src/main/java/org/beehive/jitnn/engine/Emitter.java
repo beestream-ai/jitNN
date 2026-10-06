@@ -80,6 +80,11 @@ public final class Emitter {
         return use((uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray) arrays.get(t.storage()));
     }
 
+    /** Q8_0 tensors: GGUF's 34-byte blocks of 32 values. */
+    public uk.ac.manchester.tornado.api.types.arrays.ByteArray q8(Tensor t) {
+        return use((uk.ac.manchester.tornado.api.types.arrays.ByteArray) arrays.get(t.storage()));
+    }
+
     /** bfloat16 tensors are stored as their raw 16-bit patterns. */
     public uk.ac.manchester.tornado.api.types.arrays.ShortArray bf16(Tensor t) {
         return use((uk.ac.manchester.tornado.api.types.arrays.ShortArray) arrays.get(t.storage()));

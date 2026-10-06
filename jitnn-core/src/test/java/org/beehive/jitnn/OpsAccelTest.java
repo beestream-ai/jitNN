@@ -3,6 +3,7 @@ package org.beehive.jitnn;
 import static org.beehive.jitnn.Checks.close;
 import static org.beehive.jitnn.Checks.seq;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.function.Supplier;
 
@@ -59,6 +60,26 @@ class OpsAccelTest {
         same("split-K conv 1x512x7x7 3x3 + bias + ReLU", () -> F.conv2dRelu(Tensor.uniform(28, -1, 1, 1, 512, 7, 7), Tensor.uniform(29, -0.02f, 0.02f, 512, 512, 3, 3), Tensor.uniform(30, -1, 1, 512), 1, 1, 1, 1), 1e-5, 2e-5);
         same("split-K grouped conv", () -> F.conv2d(Tensor.uniform(31, -1, 1, 2, 256, 5, 5), Tensor.uniform(32, -0.05f, 0.05f, 128, 64, 3, 3), null, 1, 1, 1, 4), 1e-5, 2e-5);
         same("conv 8x256x14x14 1x1 stride 2", () -> F.conv2d(Tensor.uniform(20, -1, 1, 8, 256, 14, 14), Tensor.uniform(21, -0.05f, 0.05f, 512, 256, 1, 1), null, 2, 0, 1, 1), 1e-5, 2e-5);
+    }
+
+    /** Q8_0 (GGUF blocks): device against the host reference, and the quantisation error against FP32. */
+    @Test
+    void q8() {
+        Supplier<Tensor> x = () -> Tensor.uniform(41, -1, 1, 6, 256);
+        Supplier<Tensor> w = () -> Tensor.uniform(42, -0.5f, 0.5f, 300, 256);
+        // one quantisation step (max |x| / 127 = 1/127) where rounding a half differs
+        same("q8 round trip", () -> F.dequantize(F.quantizeQ8(x.get())), 0, 1.0 / 127 + 1e-6);
+        same("q8 linear", () -> F.linearQ8(x.get(), F.quantizeQ8(w.get()), Tensor.uniform(43, -1, 1, 300)), 1e-3, 1e-3);
+        same("q8 linear batched", () -> F.linearQ8(Tensor.uniform(44, -1, 1, 2, 3, 256), F.quantizeQ8(w.get()), null), 1e-3, 1e-3);
+        float[] exact = on(Backend.TORNADO, () -> F.linear(x.get(), w.get(), null));
+        float[] quantised = on(Backend.TORNADO, () -> F.linearQ8(x.get(), F.quantizeQ8(w.get()), null));
+        double err = 0;
+        double norm = 0;
+        for (int i = 0; i < exact.length; i++) {
+            err += (exact[i] - quantised[i]) * (double) (exact[i] - quantised[i]);
+            norm += exact[i] * (double) exact[i];
+        }
+        assertTrue(Math.sqrt(err / norm) < 0.01, "Q8_0 linear relative error " + Math.sqrt(err / norm));
     }
 
     @Test

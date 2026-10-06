@@ -260,6 +260,15 @@ public final class Tensor {
             }
             return f;
         }
+        if (storage.dtype() == DType.Q8_0) {
+            uk.ac.manchester.tornado.api.types.arrays.ByteArray q = (uk.ac.manchester.tornado.api.types.arrays.ByteArray) storage.host();
+            float[] out = new float[numel()];
+            for (int i = 0; i < out.length; i++) {
+                int block = i / 32 * 34;
+                out[i] = q.getHalfFloat(block).getFloat32() * q.get(block + 2 + i % 32);
+            }
+            return out;
+        }
         if (storage.dtype() == DType.F16) {
             uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray h = (uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray) storage.host();
             float[] out = new float[numel()];

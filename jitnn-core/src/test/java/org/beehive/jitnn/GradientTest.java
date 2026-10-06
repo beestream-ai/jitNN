@@ -123,6 +123,12 @@ class GradientTest {
     }
 
     @Test
+    void quantisedLinearInput() {
+        float[] w = seq(64 * 3, 0.5f, 0);
+        gradCheck("linear q8", x -> F.linearQ8(x[0], F.quantizeQ8(Tensor.of(w, 3, 64)), null).square().sum(), new float[][] { seq(128, 1, 0.1f) }, new int[][] { { 2, 64 } });
+    }
+
+    @Test
     void reductions() {
         gradCheck("sum axis", x -> x[0].sum(0, false).square().sum(), new float[][] { A23 }, new int[][] { S23 });
         gradCheck("mean keepdim", x -> x[0].mean(1, true).square().sum(), new float[][] { A23 }, new int[][] { S23 });

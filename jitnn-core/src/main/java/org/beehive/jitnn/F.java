@@ -609,6 +609,21 @@ public final class F {
         return segmentReduce(embedding(indices, weight), offsets, mode);
     }
 
+    /** FP32 x (last axis a multiple of 32) quantised to Q8_0, GGUF's 8-bit block format. */
+    public static Tensor quantizeQ8(Tensor x) {
+        return org.beehive.jitnn.ops.Quant.quantizeQ8(x);
+    }
+
+    /** A Q8_0 tensor back to FP32. */
+    public static Tensor dequantize(Tensor q) {
+        return org.beehive.jitnn.ops.Quant.dequantize(q);
+    }
+
+    /** y = x W^T + b with Q8_0 weights W [out, in]; the gradient reaches x, not W. */
+    public static Tensor linearQ8(Tensor x, Tensor weight, Tensor bias) {
+        return org.beehive.jitnn.ops.Quant.linear(x, weight, bias);
+    }
+
     /** SwiGLU gating, silu(gate) * up, as in the Llama feed-forward block. */
     public static Tensor swiglu(Tensor gate, Tensor up) {
         return gate.silu().mul(up);
