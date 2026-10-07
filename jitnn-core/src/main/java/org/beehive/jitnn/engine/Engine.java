@@ -105,6 +105,17 @@ public final class Engine {
         }
     }
 
+    /**
+     * Runs {@code body} and returns the operators it recorded on this thread without running them
+     * (anything recorded before is run first). For tools that inspect or replay a model's
+     * operators, such as the kernel benchmark; the returned operators' outputs are never computed.
+     */
+    public static List<Node> capture(Runnable body) {
+        sync();
+        body.run();
+        return Trace.drain();
+    }
+
     /** Number of operators recorded and not yet run on this thread. */
     public static int pending() {
         return Trace.size();
