@@ -20,7 +20,8 @@ import org.beehive.jitnn.engine.Node;
  * the kernel optimisation plan: correctness is the goldens' job, so here each call is replayed on
  * made-up inputs; 20 warm-up calls, then at least 100 timed calls and 0.3 s; the median, p10 and
  * p90 of the per-call device time (TornadoVM's profiler) and of the host-to-host time; a window is
- * accepted when (p90 - p10) / median is under 5%, no clock sample in it shows a power or thermal
+ * accepted when (p90 - p10) / median is under 5% (or p90 - p10 is at most 2 us, the profiler's
+ * resolution), no clock sample in it shows a power or thermal
  * cap and the mean SM clock is at least 1,350 MHz, else retried after 10 s, up to three times.
  * One JSON line per call goes to the output file.
  *
@@ -36,6 +37,8 @@ public final class KernelBench {
     static final long MIN_WINDOW_NS = 300_000_000L;
     static final int MAX_CALLS = 2000;
     static final double MAX_SPREAD = 0.05;
+    /** The profiler's timestamps step by about 1 us: a spread of up to 2 us is resolution, not noise. */
+    static final double MIN_SPREAD_US = 2.0;
     static final int MIN_MHZ = Integer.getInteger("jitnn.kbench.minMhz", 1350);
     static final double BANDWIDTH = Double.parseDouble(System.getProperty("jitnn.kbench.bandwidth", "1721e9"));
     static final double FP32_PEAK = Double.parseDouble(System.getProperty("jitnn.kbench.fp32", "19.0e12"));
@@ -106,7 +109,7 @@ public final class KernelBench {
             Stats sd = Stats.of(d);
             ClockMonitor.Window w = clocks.available() ? clocks.window(start, end) : new ClockMonitor.Window(0, 0, false);
             boolean clockOk = !clocks.available() || (!w.throttled() && w.meanMhz() >= MIN_MHZ);
-            boolean ok = clockOk && sd.spread() < MAX_SPREAD;
+            boolean ok = clockOk && (sd.spread() < MAX_SPREAD || sd.p90() - sd.p10() <= MIN_SPREAD_US);
             last = new Result(sd, Stats.of(h), launches / d.length, w, attempt, d.length, ok);
             if (ok) {
                 return last;
