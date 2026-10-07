@@ -25,7 +25,8 @@ import org.beehive.jitnn.engine.Node;
  * cap and the mean SM clock is at least 1,350 MHz, else retried after 10 s, up to three times.
  * One JSON line per call goes to the output file.
  *
- * <p>Needs {@code -Djitnn.profile=true} (and on CUDA {@code -Djitnn.cudaGraph=false}). Properties:
+ * <p>Device times need {@code -Djitnn.profile=true} (and on CUDA {@code -Djitnn.cudaGraph=false});
+ * without the profiler the run measures host-to-host times only, free of the profiler's cost. Properties:
  * {@code jitnn.kbench.out} (file, appended), {@code jitnn.kbench.workloads} and
  * {@code jitnn.kbench.families} (comma-separated filters), {@code jitnn.kbench.label} (free text
  * recorded with every line, e.g. the commits).
@@ -40,6 +41,7 @@ public final class KernelBench {
     /** The profiler's timestamps step by about 1 us: a spread of up to 2 us is resolution, not noise. */
     static final double MIN_SPREAD_US = 2.0;
     static final int MIN_MHZ = Integer.getInteger("jitnn.kbench.minMhz", 1350);
+    static final boolean PROFILE = Boolean.getBoolean("jitnn.profile");
     static final double BANDWIDTH = Double.parseDouble(System.getProperty("jitnn.kbench.bandwidth", "1721e9"));
     static final double FP32_PEAK = Double.parseDouble(System.getProperty("jitnn.kbench.fp32", "19.0e12"));
     static final double HALF_PEAK = Double.parseDouble(System.getProperty("jitnn.kbench.half", "245e12"));
@@ -109,13 +111,17 @@ public final class KernelBench {
             Stats sd = Stats.of(d);
             ClockMonitor.Window w = clocks.available() ? clocks.window(start, end) : new ClockMonitor.Window(0, 0, false);
             boolean clockOk = !clocks.available() || (!w.throttled() && w.meanMhz() >= MIN_MHZ);
-            boolean ok = clockOk && (sd.spread() < MAX_SPREAD || sd.p90() - sd.p10() <= MIN_SPREAD_US);
-            last = new Result(sd, Stats.of(h), launches / d.length, w, attempt, d.length, ok);
+            Stats sh = Stats.of(h);
+            // without the profiler (host-only run) the host time is what is judged
+            Stats judged = PROFILE ? sd : sh;
+            boolean ok = clockOk && (judged.spread() < MAX_SPREAD || judged.p90() - judged.p10() <= MIN_SPREAD_US);
+            last = new Result(sd, sh, launches / d.length, w, attempt, d.length, ok);
             if (ok) {
                 return last;
             }
             try {
-                Thread.sleep(10_000);
+                // a capped clock needs the GPU to cool and recover; a noisy window just another try
+                Thread.sleep(clockOk ? 2_000 : 10_000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return last;
@@ -195,9 +201,9 @@ public final class KernelBench {
 
     /** Captures the workloads, times every distinct call and appends the results; returns how many were written. */
     public static int run() throws IOException {
-        if (!Boolean.getBoolean("jitnn.profile")) {
-            throw new IllegalStateException("the kernel benchmark needs -Djitnn.profile=true");
-        }
+        // without -Djitnn.profile=true only host-to-host times are measured (device fields are 0):
+        // the profiler's own cost would otherwise be part of the host time
+
         Path out = Path.of(System.getProperty("jitnn.kbench.out", "kernels.jsonl"));
         String label = System.getProperty("jitnn.kbench.label", "");
         String device = System.getProperty("jitnn.device", "default");

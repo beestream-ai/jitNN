@@ -1,6 +1,6 @@
 """Summarises kernel benchmark results, and compares two result sets.
 
-  python compare.py summary <jitnn run>.jsonl [more runs ...] [--baselines baselines.jsonl]
+  python compare.py summary <jitnn run>.jsonl [more runs ...] [--baselines baselines.jsonl] [--host <run without profiler>.jsonl]
   python compare.py diff <before runs prefix or file> <after runs prefix or file>
 
 Several runs of the same calls (separate JVMs) are merged by the median of their medians. The
@@ -45,6 +45,13 @@ def weight(r):
 
 
 def summary(args):
+    host = {}
+    if "--host" in args:
+        i = args.index("--host")
+        for line in open(args[i + 1]):
+            r = json.loads(line)
+            host[key(r)] = r["host_us"]
+        args = args[:i] + args[i + 2:]
     base = {}
     if "--baselines" in args:
         i = args.index("--baselines")
@@ -76,6 +83,9 @@ def summary(args):
         ratio = f"{f['jt'] / f['pt']:.2f}x" if f["pt"] else "-"
         print(f"{name:14s} {f['n']:5d} {f['t'] / 1e3:12.2f} {f['t'] / total:6.1%} {bw:9.0%} {ce:>8s} {ratio:>10s} {f['rejected']:12d}")
     print(f"{'total':14s} {len(rows):5d} {total / 1e3:12.2f}")
+    if host:
+        ht = sum(host[k] * weight(r) for k, r in rows.items() if k in host)
+        print(f"host-to-host time per step, calls run one at a time (profiler off): {ht / 1e3:.2f} ms; device time is {total / ht:.0%} of it")
     print("\nmost costly calls (device time x uses):")
     for k, r in sorted(rows.items(), key=lambda x: -x[1]["device_us"] * weight(x[1]))[:15]:
         ratio = f"{r['device_us'] / base[k]['torch_us']:.2f}x PyTorch" if k in base else ""
