@@ -74,7 +74,7 @@ public final class Conv2d implements Op {
     static final boolean PADDED = !"simple".equals(System.getProperty("jitnn.conv"));
     /**
      * Winograd for 3x3 stride-1 convolutions unless {@code -Djitnn.winograd=false}; {@code =2}
-     * keeps F(2x2, 3x3) everywhere, {@code =4} takes F(4x4, 3x3) wherever it has enough tiles.
+     * keeps F(2x2, 3x3) everywhere (see {@link #winograd4}).
      */
     static final String WINOGRAD_MODE = System.getProperty("jitnn.winograd", "auto");
     static final boolean WINOGRAD = !"false".equals(WINOGRAD_MODE);
@@ -150,16 +150,13 @@ public final class Conv2d implements Op {
      */
     /**
      * Whether a Winograd convolution with an oh x ow output uses F(4x4, 3x3): 4x fewer multiplies
-     * than direct convolution (F(2x2): 2.25x), on 6x6 tiles. By default only where the output is a
-     * whole number of 4x4 tiles (no wasted rows) and there are at least WINOGRAD_MIN_TILES of them.
+     * than direct convolution (F(2x2): 2.25x), on 6x6 tiles, wherever there are at least
+     * WINOGRAD_MIN_TILES 4x4 tiles. It wins even where the output is not a whole number of tiles
+     * (14x14: 338 to 282 us, 7x7: 418 to 311 us on the A100). {@code -Djitnn.winograd=2} keeps F(2x2).
      */
     static boolean winograd4(int n, int oh, int ow) {
         int tiles = n * Emitter.ceilDiv(oh, 4) * Emitter.ceilDiv(ow, 4);
-        return switch (WINOGRAD_MODE) {
-            case "2" -> false;
-            case "4" -> tiles >= WINOGRAD_MIN_TILES;
-            default -> oh % 4 == 0 && ow % 4 == 0 && tiles >= WINOGRAD_MIN_TILES;
-        };
+        return !"2".equals(WINOGRAD_MODE) && tiles >= WINOGRAD_MIN_TILES;
     }
 
     static void emitWinograd(Emitter e, FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow, int pad, int flip,
