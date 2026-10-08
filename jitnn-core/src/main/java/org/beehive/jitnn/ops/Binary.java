@@ -103,6 +103,49 @@ public final class Binary implements Op {
         return out;
     }
 
+    /** The {@code (i / div) % mod} kernel for block-repeating broadcasts unless {@code -Djitnn.binaryRepeat=false}. */
+    static final boolean REPEAT = !"false".equals(System.getProperty("jitnn.binaryRepeat"));
+
+    /**
+     * {div, mod} when the operand, aligned to the output's trailing dimensions, is 1 everywhere
+     * except one contiguous block of dimensions equal to the output's: element i of the output
+     * reads element (i / div) % mod. Null otherwise.
+     */
+    static int[] repeat(Shape operand, Shape out) {
+        int[] o = out.dims();
+        int[] p = operand.dims();
+        int lead = o.length - p.length;
+        if (lead < 0) {
+            return null;
+        }
+        int first = -1;
+        int last = -1;
+        for (int d = 0; d < o.length; d++) {
+            int size = d < lead ? 1 : p[d - lead];
+            if (size != 1) {
+                if (size != o[d] || (last >= 0 && last != d - 1)) {
+                    return null;
+                }
+                if (first < 0) {
+                    first = d;
+                }
+                last = d;
+            }
+        }
+        if (first < 0) {
+            return new int[] { 1, 1 };
+        }
+        int mod = 1;
+        for (int d = first; d <= last; d++) {
+            mod *= o[d];
+        }
+        int div = 1;
+        for (int d = last + 1; d < o.length; d++) {
+            div *= o[d];
+        }
+        return new int[] { div, mod };
+    }
+
     @Override
     public String name() {
         return "binary";
@@ -122,6 +165,10 @@ public final class Binary implements Op {
         FloatArray fo = e.f32(out);
         if (a.shape().equals(out.shape()) && b.shape().equals(out.shape())) {
             e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::binary, e.context(), fa, fb, fo, code, alpha, beta, count));
+        } else if (REPEAT && repeat(a.shape(), out.shape()) != null && repeat(b.shape(), out.shape()) != null) {
+            int[] ra = repeat(a.shape(), out.shape());
+            int[] rb = repeat(b.shape(), out.shape());
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::binaryRepeat, e.context(), fa, fb, fo, code, alpha, beta, count, ra[0], ra[1], rb[0], rb[1]));
         } else {
             IntArray meta = e.constant(broadcastMeta(a.shape(), b.shape(), out.shape()));
             e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::binaryBroadcast, e.context(), fa, fb, fo, meta, code, alpha, beta, count));

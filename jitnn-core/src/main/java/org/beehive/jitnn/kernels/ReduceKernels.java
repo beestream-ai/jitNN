@@ -143,6 +143,48 @@ public final class ReduceKernels {
         }
     }
 
+    /** Columns per work-group of {@link #reduceColumnsGroup}. */
+    public static final int COL_TILE = 32;
+    /** Row lanes per work-group of {@link #reduceColumnsGroup}. */
+    public static final int ROW_LANES = 8;
+
+    /**
+     * First pass of a split reduction over a strided axis, by work-groups: a group of 32 x 8
+     * threads takes COL_TILE consecutive output columns (128-byte rows) and rows
+     * {@code [p * chunk, (p + 1) * chunk)}, each of the 8 row lanes reducing every 8th row; the lanes
+     * are combined in order (deterministic) into {@code partial[p * outputs + column]}. Launch
+     * parts * ceil(outputs / COL_TILE) groups of 256 threads.
+     */
+    public static void reduceColumnsGroup(KernelContext kc, FloatArray x, FloatArray partial, int outer, int len, int inner, int parts, int chunk, int op) {
+        float[] buf = kc.allocateFloatLocalArray(COL_TILE * ROW_LANES);
+        int tid = kc.localIdx;
+        int lc = tid % COL_TILE;
+        int lr = tid / COL_TILE;
+        int outputs = outer * inner;
+        int tiles = (outputs + COL_TILE - 1) / COL_TILE;
+        int p = kc.groupIdx / tiles;
+        int col = (kc.groupIdx - p * tiles) * COL_TILE + lc;
+        int start = p * chunk;
+        int end = start + chunk < len ? start + chunk : len;
+        float acc = identity(op);
+        if (col < outputs) {
+            int o = col / inner;
+            int j = col - o * inner;
+            for (int k = start + lr; k < end; k += ROW_LANES) {
+                acc = combine(op, acc, x.get((o * len + k) * inner + j));
+            }
+        }
+        buf[tid] = acc;
+        kc.localBarrier();
+        if ((lr == 0) & (col < outputs)) {
+            float r = buf[lc];
+            for (int q = 1; q < ROW_LANES; q++) {
+                r = combine(op, r, buf[q * COL_TILE + lc]);
+            }
+            partial.set(p * outputs + col, r);
+        }
+    }
+
     /** Index of the first maximum along the axis, one thread per output. */
     public static void argmaxThread(KernelContext kc, FloatArray x, IntArray out, int outer, int len, int inner) {
         int i = kc.globalIdx;

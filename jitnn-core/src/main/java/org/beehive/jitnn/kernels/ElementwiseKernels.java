@@ -670,6 +670,30 @@ public final class ElementwiseKernels {
         }
     }
 
+    /**
+     * Binary op where each operand repeats one contiguous block of the output: element i reads
+     * a[(i / aDiv) % aMod] and b[(i / bDiv) % bMod] (a full operand: div 1, mod n; a suffix such as
+     * a bias: div 1; a per-channel [C, 1, 1]: div H W, mod C). No per-dimension index arithmetic.
+     */
+    public static void binaryRepeat(KernelContext kc, FloatArray a, FloatArray b, FloatArray out, int op, float alpha, float beta, int n, int aDiv, int aMod, int bDiv, int bMod) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            float x = a.get((i / aDiv) % aMod);
+            float y = b.get((i / bDiv) % bMod);
+            float r;
+            if (op >= MAXIMUM) {
+                r = binaryNaN(op, x, y, alpha, beta);
+            } else if (op >= ATAN2) {
+                r = binaryMath(op, x, y, alpha, beta);
+            } else if (op >= ELU_GRAD) {
+                r = binaryActivationGrad(op, x, y, alpha, beta);
+            } else {
+                r = binaryBase(op, x, y, alpha, beta);
+            }
+            out.set(i, r);
+        }
+    }
+
     public static void unary(KernelContext kc, FloatArray x, FloatArray out, int op, float alpha, float beta, int n) {
         int i = kc.globalIdx;
         if (i < n) {

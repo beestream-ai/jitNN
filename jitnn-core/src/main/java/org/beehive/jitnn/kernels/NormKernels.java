@@ -290,6 +290,117 @@ public final class NormKernels {
         }
     }
 
+    /** Rows per work-group of the warp-per-row kernels (one 32-lane warp per row). */
+    public static final int WARP_ROWS = 8;
+
+    /**
+     * {@link #rowNormForward} with one warp per row: the row sums are warp reductions
+     * ({@code simdSum}, no barriers), 8 rows per work-group of 256 threads. CUDA (and Metal) only.
+     */
+    public static void rowNormForwardWarp(KernelContext kc, FloatArray x, FloatArray w, FloatArray b, FloatArray y, FloatArray mean, FloatArray rstd, int rows, int cols, float eps, int mode,
+            int hasBias) {
+        int lane = kc.localIdx % 32;
+        int row = kc.groupIdx * WARP_ROWS + kc.localIdx / 32;
+        if (row < rows) {
+            int base = row * cols;
+            float mu = 0.0f;
+            if (mode == LAYER) {
+                float sum = 0.0f;
+                for (int c = lane; c < cols; c += 32) {
+                    sum += x.get(base + c);
+                }
+                mu = kc.simdSum(sum) / cols;
+            }
+            float sq = 0.0f;
+            for (int c = lane; c < cols; c += 32) {
+                float d = x.get(base + c) - mu;
+                sq += d * d;
+            }
+            float r = 1.0f / TornadoMath.sqrt(kc.simdSum(sq) / cols + eps);
+            for (int c = lane; c < cols; c += 32) {
+                float v = (x.get(base + c) - mu) * r * w.get(c);
+                if (hasBias != 0) {
+                    v += b.get(c);
+                }
+                y.set(base + c, v);
+            }
+            if (lane == 0) {
+                mean.set(row, mu);
+                rstd.set(row, r);
+            }
+        }
+    }
+
+    /** {@link #rowNormBackward} with one warp per row, as {@link #rowNormForwardWarp}. */
+    public static void rowNormBackwardWarp(KernelContext kc, FloatArray dy, FloatArray x, FloatArray w, FloatArray mean, FloatArray rstd, FloatArray dx, int rows, int cols, int mode) {
+        int lane = kc.localIdx % 32;
+        int row = kc.groupIdx * WARP_ROWS + kc.localIdx / 32;
+        if (row < rows) {
+            int base = row * cols;
+            float mu = mean.get(row);
+            float r = rstd.get(row);
+            float sa = 0.0f;
+            float sb = 0.0f;
+            for (int c = lane; c < cols; c += 32) {
+                float g = dy.get(base + c) * w.get(c);
+                sa += g;
+                sb += g * (x.get(base + c) - mu) * r;
+            }
+            float meanG = kc.simdSum(sa) / cols;
+            float meanGX = kc.simdSum(sb) / cols;
+            if (mode != LAYER) {
+                meanG = 0.0f;
+            }
+            for (int c = lane; c < cols; c += 32) {
+                float xhat = (x.get(base + c) - mu) * r;
+                float g = dy.get(base + c) * w.get(c);
+                dx.set(base + c, r * (g - meanG - xhat * meanGX));
+            }
+        }
+    }
+
+    /** Rows per chunk of {@link #rowNormParamPartialsChunked}. */
+    public static final int PARAM_ROWS = 16;
+
+    /** {@link #rowNormParamPartials} over chunks of {@link #PARAM_ROWS} rows (4x the threads). */
+    public static void rowNormParamPartialsChunked(KernelContext kc, FloatArray dy, FloatArray x, FloatArray mean, FloatArray rstd, FloatArray partW, FloatArray partB, int rows, int cols, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            int k = i / cols;
+            int c = i - k * cols;
+            int r0 = k * PARAM_ROWS;
+            int r1 = r0 + PARAM_ROWS < rows ? r0 + PARAM_ROWS : rows;
+            float sw = 0.0f;
+            float sb = 0.0f;
+            for (int r = r0; r < r1; r++) {
+                float g = dy.get(r * cols + c);
+                sw += g * (x.get(r * cols + c) - mean.get(r)) * rstd.get(r);
+                sb += g;
+            }
+            partW.set(i, sw);
+            partB.set(i, sb);
+        }
+    }
+
+    /** dw[c] and, with hasBias, db[c]: the partials summed over the chunks in order, in one launch (2 * cols threads). */
+    public static void sumPartialsPair(KernelContext kc, FloatArray partW, FloatArray partB, FloatArray dw, FloatArray db, int chunks, int cols, int hasBias) {
+        int i = kc.globalIdx;
+        if (i < cols) {
+            float s = 0.0f;
+            for (int k = 0; k < chunks; k++) {
+                s += partW.get(k * cols + i);
+            }
+            dw.set(i, s);
+        } else if ((hasBias != 0) & (i < 2 * cols)) {
+            int c = i - cols;
+            float s = 0.0f;
+            for (int k = 0; k < chunks; k++) {
+                s += partB.get(k * cols + c);
+            }
+            db.set(c, s);
+        }
+    }
+
     /**
      * Local response normalisation across channels (PyTorch's local_response_norm): for x
      * [N, C, P], s = k + alpha / size * sum of x^2 over channels c - size/2 .. c + (size - 1)/2, and

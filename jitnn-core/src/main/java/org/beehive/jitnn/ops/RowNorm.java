@@ -8,6 +8,7 @@ import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.NormKernels;
 
+import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
 /**
@@ -64,8 +65,16 @@ public final class RowNorm implements Op {
         FloatArray y = e.f32(n.out(0));
         FloatArray mean = e.f32(n.out(1));
         FloatArray rstd = e.f32(n.out(2));
+        if (WARP && e.isCuda()) {
+            WorkerGrid grid = Emitter.blocks1D(Emitter.ceilDiv(rows, NormKernels.WARP_ROWS), 32 * NormKernels.WARP_ROWS);
+            e.task(grid, (g, id) -> g.task(id, NormKernels::rowNormForwardWarp, e.context(), x, w, b, y, mean, rstd, rows, cols, eps, mode, hasBias));
+            return;
+        }
         e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForward, e.context(), x, w, b, y, mean, rstd, cols, eps, mode, hasBias));
     }
+
+    /** Warp-per-row kernels with warp reductions on CUDA unless {@code -Djitnn.rownorm=group}. */
+    static final boolean WARP = !"group".equals(System.getProperty("jitnn.rownorm"));
 
     @Override
     public void reference(Node n) {
@@ -141,6 +150,20 @@ public final class RowNorm implements Op {
             FloatArray rstd = e.f32(n.in(4));
             FloatArray dx = e.f32(n.out(0));
             FloatArray dw = e.f32(n.out(1));
+            if (WARP && e.isCuda()) {
+                // dx: a warp per row; dw, db: 16-row partials, then both sums in one launch
+                int chunks = Emitter.ceilDiv(rows, NormKernels.PARAM_ROWS);
+                FloatArray partW = e.scratch(chunks * cols);
+                FloatArray partB = e.scratch(chunks * cols);
+                int parts = chunks * cols;
+                FloatArray db = hasBias ? e.f32(n.out(2)) : e.dummyF32();
+                int bias = hasBias ? 1 : 0;
+                WorkerGrid grid = Emitter.blocks1D(Emitter.ceilDiv(rows, NormKernels.WARP_ROWS), 32 * NormKernels.WARP_ROWS);
+                e.task(grid, (g, id) -> g.task(id, NormKernels::rowNormBackwardWarp, e.context(), dy, x, w, mean, rstd, dx, rows, cols, mode));
+                e.task(Emitter.grid1D(parts), (g, id) -> g.task(id, NormKernels::rowNormParamPartialsChunked, e.context(), dy, x, mean, rstd, partW, partB, rows, cols, parts));
+                e.task(Emitter.grid1D(2 * cols), (g, id) -> g.task(id, NormKernels::sumPartialsPair, e.context(), partW, partB, dw, db, chunks, cols, bias));
+                return;
+            }
             int chunks = Emitter.ceilDiv(rows, NormKernels.PARAM_CHUNK);
             FloatArray partW = e.scratch(chunks * cols);
             FloatArray partB = e.scratch(chunks * cols);
