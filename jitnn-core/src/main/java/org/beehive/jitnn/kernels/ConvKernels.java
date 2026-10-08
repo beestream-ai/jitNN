@@ -3259,6 +3259,53 @@ public final class ConvKernels {
         }
     }
 
+    // ---------------------------------------------------------------- input gradient through columns
+
+    /** dst[(c * n + ni) * plane + q] = src[(ni * c + ci) * plane + q]: NCHW to channel-major [C, N, H W]. One thread per element. */
+    public static void toChannelMajor(KernelContext kc, FloatArray src, FloatArray dst, int c, int n, int plane) {
+        int idx = kc.globalIdx;
+        if (idx < c * n * plane) {
+            int q = idx % plane;
+            int t = idx / plane;
+            int ni = t % n;
+            int ci = t / n;
+            dst.set(idx, src.get((ni * c + ci) * plane + q));
+        }
+    }
+
+    /**
+     * col2im as a gather: dx[n, ci, ih, iw] = the sum over the taps (kh, kw) that reach it of
+     * col[(ci * ks + kh) * ks + kw, (n * oh + ohi) * ow + owi], col = W^T dy [cin ks ks, N OH OW].
+     * Each thread owns one dx element and adds its taps in order (deterministic).
+     */
+    public static void col2im(KernelContext kc, FloatArray col, FloatArray dx, int cin, int h, int wd, int oh, int ow, int ks, int stride, int pad, int dil, int n) {
+        int idx = kc.globalIdx;
+        if (idx < n * cin * h * wd) {
+            int iw = idx % wd;
+            int t = idx / wd;
+            int ih = t % h;
+            t = t / h;
+            int ci = t % cin;
+            int ni = t / cin;
+            int cols = n * oh * ow;
+            float acc = 0.0f;
+            for (int kh = 0; kh < ks; kh++) {
+                int hn = ih + pad - kh * dil;
+                int ohi = hn / stride;
+                if ((hn >= 0) & (ohi * stride == hn) & (ohi < oh)) {
+                    for (int kw = 0; kw < ks; kw++) {
+                        int wn = iw + pad - kw * dil;
+                        int owi = wn / stride;
+                        if ((wn >= 0) & (owi * stride == wn) & (owi < ow)) {
+                            acc += col.get(((ci * ks + kh) * ks + kw) * cols + (ni * oh + ohi) * ow + owi);
+                        }
+                    }
+                }
+            }
+            dx.set(idx, acc);
+        }
+    }
+
     // ---------------------------------------------------------------- depthwise (direct)
 
     /** Depthwise forward, one thread per output: out[n, c, oh, ow] = sum_kh,kw x * w[c] (+ bias, ReLU). */

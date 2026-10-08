@@ -124,6 +124,9 @@ public final class Conv2d implements Op {
     /** The input gradient of strided convolutions split into stride phases unless {@code -Djitnn.convPhases=false}. */
     static final boolean PHASES = !"false".equals(System.getProperty("jitnn.convPhases"));
 
+    /** Largest column buffer (floats) for the input gradient of strided convolutions as a GEMM. */
+    static final long COL_MAX_FLOATS = 64L << 20;
+
     /** Fewest 2x2 output tiles for the Winograd path: below it the batched GEMM leaves the GPU idle. */
     static final int WINOGRAD_MIN_TILES = 128;
 
@@ -308,6 +311,19 @@ public final class Conv2d implements Op {
             if (winograd(a, h, wd)) {
                 // the input gradient is the 3x3 convolution of dy with the flipped, transposed filter
                 emitWinograd(e, dy, w, dx, e.dummyF32(), a[N], cout, oh, ow, cin, h, wd, 2 - pd, 1, 0);
+                return;
+            }
+            long colFloats = (long) cin * k * k * a[N] * oh * ow;
+            if (PHASES && st > 1 && gr == 1 && colFloats <= COL_MAX_FLOATS) {
+                // col = W^T dy as one GEMM [cin k k, N OH OW] (every product contributes), then gathered into dx
+                int n = a[N];
+                int plane = oh * ow;
+                int cols = n * plane;
+                FloatArray dyc = e.scratch(cout * cols);
+                FloatArray col = e.scratch((int) colFloats);
+                e.task(Emitter.grid1D(cout * cols), (g, id) -> g.task(id, ConvKernels::toChannelMajor, e.context(), dy, dyc, cout, n, plane));
+                MatMul.emitGemm(e, w, dyc, col, null, cin * k * k, cols, cout, 1, 0, 0);
+                e.task(Emitter.grid1D(n * cin * h * wd), (g, id) -> g.task(id, ConvKernels::col2im, e.context(), col, dx, cin, h, wd, oh, ow, k, st, pd, dl, n));
                 return;
             }
             if (PHASES && st > 1 && dl == 1) {
