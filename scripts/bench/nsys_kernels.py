@@ -3,7 +3,7 @@ per CUDA kernel, launches, median duration, grid and block, registers per thread
 and the theoretical occupancy on an A100 (65,536 registers, 2,048 threads, 32 blocks and 164 KiB of
 shared memory per SM; registers allocated per warp in 256-register units).
 
-usage: nsys stats --report cuda_gpu_trace --format csv -o <prefix> <trace>.nsys-rep
+usage: nsys stats --force-export=true --report cuda_gpu_trace --format csv -o <prefix> <trace>.nsys-rep
        python nsys_kernels.py <prefix>_cuda_gpu_trace.csv
 """
 import csv

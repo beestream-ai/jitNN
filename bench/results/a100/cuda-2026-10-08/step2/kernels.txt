@@ -1,0 +1,14 @@
+kernel                                                   n median us             grid      block  regs   smem B occupancy limit
+gemm128                                               4145     662.6            8x8x1    16x16x1   107     8388       25% registers
+gemm64                                                1207    1173.1          12x64x1    16x16x1    56     8388       50% registers
+lstmForward                                            800    1158.2          256x1x1    256x1x1    96        0       25% registers
+gruForward                                             800     875.5          256x1x1    256x1x1    80        0       38% registers
+lstmBackward                                          1888     173.1          256x1x1    256x1x1    31        0      100% registers
+forward                                                196    1492.6        12288x1x1    256x1x1    77    18874       38% registers
+backwardKV                                             247     609.8         6144x1x1    256x1x1    32    20971      100% registers
+backwardQ                                              247     551.5         6144x1x1    256x1x1    39    19922       75% registers
+lstmInitial                                             59     173.1          256x1x1    256x1x1    78        0       38% registers
+delta                                                  247      30.4           96x1x1    256x1x1    72        0       38% registers
+philox                                                 706       2.9           37x1x1    256x1x1    16        0      100% threads
+gatherRows                                               1      10.3         4096x1x1    256x1x1    16        0      100% threads
+rowNormForward                                           1       7.6         1024x1x1    256x1x1    40     1048       75% registers
