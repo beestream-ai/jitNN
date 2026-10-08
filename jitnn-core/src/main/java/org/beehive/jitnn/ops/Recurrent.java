@@ -107,6 +107,15 @@ public final class Recurrent {
         return Emitter.grid1D(a[B] * a[H]);
     }
 
+    /** The tiled step kernels unless {@code -Djitnn.rnn=simple} (the thread-per-cell kernels). */
+    static final boolean TILED = !"simple".equals(System.getProperty("jitnn.rnn"));
+
+    /** Work-groups of the tiled step kernels: batch tiles x unit tiles. */
+    private static WorkerGrid steps(int[] a) {
+        int groups = Emitter.ceilDiv(a[B], RnnKernels.STEP_ROWS) * Emitter.ceilDiv(a[H], RnnKernels.STEP_UNITS);
+        return Emitter.blocks1D(groups, RnnKernels.STEP_ROWS * RnnKernels.STEP_UNITS);
+    }
+
     /** The previous hidden states [h0, y_0 .. y_{T-2}] as [T B, H], for dW_hh. */
     private static Tensor previous(Tensor h0, Tensor y, int[] a) {
         Tensor first = h0.reshape(1, a[B], a[H]);
@@ -165,7 +174,11 @@ public final class Recurrent {
             int b = a[B], h = a[H];
             for (int t = 0; t < a[T]; t++) {
                 int step = t;
-                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmForward, e.context(), xg, whh, bhh, h0, c0, y, cs, gates, len, step, b, h));
+                if (TILED) {
+                    e.task(steps(a), (g, id) -> g.task(id, RnnKernels::lstmStep, e.context(), xg, whh, bhh, h0, c0, y, cs, gates, len, step, b, h));
+                } else {
+                    e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmForward, e.context(), xg, whh, bhh, h0, c0, y, cs, gates, len, step, b, h));
+                }
             }
         }
 
@@ -341,7 +354,11 @@ public final class Recurrent {
             int b = a[B], h = a[H];
             for (int t = 0; t < a[T]; t++) {
                 int step = t;
-                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruForward, e.context(), xg, whh, bhh, h0, y, gates, hn, len, step, b, h));
+                if (TILED) {
+                    e.task(steps(a), (g, id) -> g.task(id, RnnKernels::gruStep, e.context(), xg, whh, bhh, h0, y, gates, hn, len, step, b, h));
+                } else {
+                    e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruForward, e.context(), xg, whh, bhh, h0, y, gates, hn, len, step, b, h));
+                }
             }
         }
 

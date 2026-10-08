@@ -278,4 +278,197 @@ public final class RnnKernels {
             dh0.set(idx, acc);
         }
     }
+
+    /** Batch rows per work-group of the tiled step kernels. */
+    public static final int STEP_ROWS = 32;
+    /** Hidden units per work-group (each with all of its gates). */
+    public static final int STEP_UNITS = 8;
+    /** Hidden-state columns staged in local memory per chunk. */
+    public static final int STEP_K = 32;
+
+    /**
+     * LSTM step t as a tiled product: a work-group of STEP_ROWS x STEP_UNITS threads computes the
+     * four gates of STEP_UNITS hidden units for STEP_ROWS sequences, staging STEP_K-wide chunks of
+     * h_{t-1} (padded rows, no bank conflicts) and of the units' rows of W_hh in local memory with
+     * coalesced loads, so each weight is read once per work-group instead of once per sequence. The
+     * cell update follows in the same kernel; semantics as {@link #lstmForward}. Launch
+     * ceil(b / STEP_ROWS) * ceil(h / STEP_UNITS) groups of STEP_ROWS * STEP_UNITS threads.
+     */
+    public static void lstmStep(KernelContext kc, FloatArray xg, FloatArray whh, FloatArray bhh, FloatArray h0, FloatArray c0, FloatArray y, FloatArray cs, FloatArray gates,
+            IntArray lengths, int t, int b, int h) {
+        float[] hs = kc.allocateFloatLocalArray(STEP_ROWS * (STEP_K + 1));
+        float[] ws = kc.allocateFloatLocalArray(4 * STEP_UNITS * STEP_K);
+        int tid = kc.localIdx;
+        int tb = tid % STEP_ROWS;
+        int tu = tid / STEP_ROWS;
+        int unitTiles = (h + STEP_UNITS - 1) / STEP_UNITS;
+        int b0 = (kc.groupIdx / unitTiles) * STEP_ROWS;
+        int u0 = (kc.groupIdx % unitTiles) * STEP_UNITS;
+        int threads = STEP_ROWS * STEP_UNITS;
+        float a0 = 0.0f;
+        float a1 = 0.0f;
+        float a2 = 0.0f;
+        float a3 = 0.0f;
+        for (int k0 = 0; k0 < h; k0 += STEP_K) {
+            for (int idx = tid; idx < STEP_ROWS * STEP_K; idx += threads) {
+                int rb = idx / STEP_K;
+                int kk = idx - rb * STEP_K;
+                int bi = b0 + rb;
+                int kx = k0 + kk;
+                float v = 0.0f;
+                if ((bi < b) & (kx < h)) {
+                    if (t == 0) {
+                        v = h0.get(bi * h + kx);
+                    } else {
+                        v = y.get(((t - 1) * b + bi) * h + kx);
+                    }
+                }
+                hs[rb * (STEP_K + 1) + kk] = v;
+            }
+            for (int idx = tid; idx < 4 * STEP_UNITS * STEP_K; idx += threads) {
+                int r = idx / STEP_K;
+                int kk = idx - r * STEP_K;
+                int gate = r / STEP_UNITS;
+                int uu = r - gate * STEP_UNITS;
+                int u = u0 + uu;
+                int kx = k0 + kk;
+                float v = 0.0f;
+                if ((u < h) & (kx < h)) {
+                    v = whh.get((gate * h + u) * h + kx);
+                }
+                ws[r * STEP_K + kk] = v;
+            }
+            kc.localBarrier();
+            for (int kk = 0; kk < STEP_K; kk++) {
+                float hv = hs[tb * (STEP_K + 1) + kk];
+                a0 += hv * ws[tu * STEP_K + kk];
+                a1 += hv * ws[(STEP_UNITS + tu) * STEP_K + kk];
+                a2 += hv * ws[(2 * STEP_UNITS + tu) * STEP_K + kk];
+                a3 += hv * ws[(3 * STEP_UNITS + tu) * STEP_K + kk];
+            }
+            kc.localBarrier();
+        }
+        int bi = b0 + tb;
+        int u = u0 + tu;
+        if ((bi < b) & (u < h)) {
+            int g4 = 4 * h;
+            int xrow = (t * b + bi) * g4;
+            int prev = ((t - 1) * b + bi) * h;
+            int out = (t * b + bi) * h + u;
+            if (t >= lengths.get(bi)) {
+                cs.set(out, cs.get(prev + u));
+                y.set(out, 0.0f);
+                gates.set(xrow + u, 0.0f);
+                gates.set(xrow + h + u, 0.0f);
+                gates.set(xrow + 2 * h + u, 0.0f);
+                gates.set(xrow + 3 * h + u, 0.0f);
+            } else {
+                float i = ElementwiseKernels.sigmoid(a0 + xg.get(xrow + u) + bhh.get(u));
+                float f = ElementwiseKernels.sigmoid(a1 + xg.get(xrow + h + u) + bhh.get(h + u));
+                float g = ElementwiseKernels.tanh(a2 + xg.get(xrow + 2 * h + u) + bhh.get(2 * h + u));
+                float o = ElementwiseKernels.sigmoid(a3 + xg.get(xrow + 3 * h + u) + bhh.get(3 * h + u));
+                float cp;
+                if (t == 0) {
+                    cp = c0.get(bi * h + u);
+                } else {
+                    cp = cs.get(prev + u);
+                }
+                float c = f * cp + i * g;
+                cs.set(out, c);
+                y.set(out, o * ElementwiseKernels.tanh(c));
+                gates.set(xrow + u, i);
+                gates.set(xrow + h + u, f);
+                gates.set(xrow + 2 * h + u, g);
+                gates.set(xrow + 3 * h + u, o);
+            }
+        }
+    }
+
+    /**
+     * GRU step t as a tiled product, as {@link #lstmStep} with three gates; semantics as
+     * {@link #gruForward}.
+     */
+    public static void gruStep(KernelContext kc, FloatArray xg, FloatArray whh, FloatArray bhh, FloatArray h0, FloatArray y, FloatArray gates, FloatArray hn,
+            IntArray lengths, int t, int b, int h) {
+        float[] hs = kc.allocateFloatLocalArray(STEP_ROWS * (STEP_K + 1));
+        float[] ws = kc.allocateFloatLocalArray(3 * STEP_UNITS * STEP_K);
+        int tid = kc.localIdx;
+        int tb = tid % STEP_ROWS;
+        int tu = tid / STEP_ROWS;
+        int unitTiles = (h + STEP_UNITS - 1) / STEP_UNITS;
+        int b0 = (kc.groupIdx / unitTiles) * STEP_ROWS;
+        int u0 = (kc.groupIdx % unitTiles) * STEP_UNITS;
+        int threads = STEP_ROWS * STEP_UNITS;
+        float ar = 0.0f;
+        float az = 0.0f;
+        float an = 0.0f;
+        for (int k0 = 0; k0 < h; k0 += STEP_K) {
+            for (int idx = tid; idx < STEP_ROWS * STEP_K; idx += threads) {
+                int rb = idx / STEP_K;
+                int kk = idx - rb * STEP_K;
+                int bi = b0 + rb;
+                int kx = k0 + kk;
+                float v = 0.0f;
+                if ((bi < b) & (kx < h)) {
+                    if (t == 0) {
+                        v = h0.get(bi * h + kx);
+                    } else {
+                        v = y.get(((t - 1) * b + bi) * h + kx);
+                    }
+                }
+                hs[rb * (STEP_K + 1) + kk] = v;
+            }
+            for (int idx = tid; idx < 3 * STEP_UNITS * STEP_K; idx += threads) {
+                int r = idx / STEP_K;
+                int kk = idx - r * STEP_K;
+                int gate = r / STEP_UNITS;
+                int uu = r - gate * STEP_UNITS;
+                int u = u0 + uu;
+                int kx = k0 + kk;
+                float v = 0.0f;
+                if ((u < h) & (kx < h)) {
+                    v = whh.get((gate * h + u) * h + kx);
+                }
+                ws[r * STEP_K + kk] = v;
+            }
+            kc.localBarrier();
+            for (int kk = 0; kk < STEP_K; kk++) {
+                float hv = hs[tb * (STEP_K + 1) + kk];
+                ar += hv * ws[tu * STEP_K + kk];
+                az += hv * ws[(STEP_UNITS + tu) * STEP_K + kk];
+                an += hv * ws[(2 * STEP_UNITS + tu) * STEP_K + kk];
+            }
+            kc.localBarrier();
+        }
+        int bi = b0 + tb;
+        int u = u0 + tu;
+        if ((bi < b) & (u < h)) {
+            int g3 = 3 * h;
+            int xrow = (t * b + bi) * g3;
+            int out = (t * b + bi) * h + u;
+            if (t >= lengths.get(bi)) {
+                y.set(out, 0.0f);
+                hn.set(out, 0.0f);
+                gates.set(xrow + u, 0.0f);
+                gates.set(xrow + h + u, 0.0f);
+                gates.set(xrow + 2 * h + u, 0.0f);
+            } else {
+                float hpu;
+                if (t == 0) {
+                    hpu = h0.get(bi * h + u);
+                } else {
+                    hpu = y.get(((t - 1) * b + bi) * h + u);
+                }
+                float r = ElementwiseKernels.sigmoid(ar + xg.get(xrow + u) + bhh.get(u));
+                float z = ElementwiseKernels.sigmoid(az + xg.get(xrow + h + u) + bhh.get(h + u));
+                float hnv = an + bhh.get(2 * h + u);
+                float n = ElementwiseKernels.tanh(xg.get(xrow + 2 * h + u) + r * hnv);
+                y.set(out, (1.0f - z) * n + z * hpu);
+                gates.set(xrow + u, r);
+                gates.set(xrow + h + u, z);
+                gates.set(xrow + 2 * h + u, n);
+                hn.set(out, hnv);
+            }
+        }
+    }
 }
