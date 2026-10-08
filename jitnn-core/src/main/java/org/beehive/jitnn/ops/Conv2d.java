@@ -120,6 +120,9 @@ public final class Conv2d implements Op {
         e.task(Emitter.grid1D(cout * cin), (g, id) -> g.task(id, ConvKernels::winogradGradWeight, e.context(), du, dw, cout, cin, slices));
     }
 
+    /** The input gradient of strided convolutions split into stride phases unless {@code -Djitnn.convPhases=false}. */
+    static final boolean PHASES = !"false".equals(System.getProperty("jitnn.convPhases"));
+
     /** Fewest 2x2 output tiles for the Winograd path: below it the batched GEMM leaves the GPU idle. */
     static final int WINOGRAD_MIN_TILES = 128;
 
@@ -304,6 +307,15 @@ public final class Conv2d implements Op {
             if (winograd(a, h, wd)) {
                 // the input gradient is the 3x3 convolution of dy with the flipped, transposed filter
                 emitWinograd(e, dy, w, dx, e.dummyF32(), a[N], cout, oh, ow, cin, h, wd, 2 - pd, 1, 0);
+                return;
+            }
+            if (PHASES && st > 1 && dl == 1) {
+                // one dense implicit GEMM per stride phase of dx: only the taps that reach it
+                int tilesN = Emitter.ceilDiv(cin / gr, 64);
+                int tilesM = Emitter.ceilDiv(a[N] * Emitter.ceilDiv(h, st) * Emitter.ceilDiv(wd, st), 64);
+                int n = a[N];
+                e.task(Emitter.blocks2D(tilesN * gr, st * st * tilesM, 16, 16),
+                        (g, id) -> g.task(id, ConvKernels::conv2dBackwardDataPhase, e.context(), dy, w, dx, cin, h, wd, cout, oh, ow, k, st, pd, gr, n, tilesN, tilesM));
                 return;
             }
             int m = a[N] * h * wd;

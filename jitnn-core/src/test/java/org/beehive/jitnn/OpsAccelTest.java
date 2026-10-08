@@ -71,6 +71,25 @@ class OpsAccelTest {
             F.conv2d(Tensor.uniform(47, -1, 1, 8, 24, 31, 33), w, null, 1, 1, 1, 1).mul(Tensor.uniform(48, -1, 1, 8, 40, 31, 33)).sum().backward();
             return w.grad();
         }, 1e-4, 1e-4);
+        // strided input gradients: one implicit GEMM per stride phase
+        same("conv 3x3 stride 2 input gradient", () -> {
+            Tensor x = Tensor.uniform(50, -1, 1, 4, 16, 13, 11).requiresGrad(true);
+            Tensor y = F.conv2d(x, Tensor.uniform(51, -0.1f, 0.1f, 24, 16, 3, 3), null, 2, 1, 1, 1);
+            y.mul(Tensor.uniform(52, -1, 1, y.shape().dims())).sum().backward();
+            return x.grad();
+        }, 1e-5, 2e-5);
+        same("conv 1x1 stride 2 input gradient", () -> {
+            Tensor x = Tensor.uniform(53, -1, 1, 2, 16, 14, 14).requiresGrad(true);
+            Tensor y = F.conv2d(x, Tensor.uniform(54, -0.1f, 0.1f, 32, 16, 1, 1), null, 2, 0, 1, 1);
+            y.mul(Tensor.uniform(55, -1, 1, y.shape().dims())).sum().backward();
+            return x.grad();
+        }, 1e-5, 2e-5);
+        same("conv 5x5 stride 3 input gradient", () -> {
+            Tensor x = Tensor.uniform(56, -1, 1, 2, 8, 15, 16).requiresGrad(true);
+            Tensor y = F.conv2d(x, Tensor.uniform(57, -0.1f, 0.1f, 12, 8, 5, 5), null, 3, 2, 1, 1);
+            y.mul(Tensor.uniform(58, -1, 1, y.shape().dims())).sum().backward();
+            return x.grad();
+        }, 1e-5, 2e-5);
         same("conv 8x64x24x24 1x1 + bias + ReLU", () -> F.conv2dRelu(Tensor.uniform(39, -1, 1, 8, 64, 24, 24), Tensor.uniform(40, -0.1f, 0.1f, 96, 64, 1, 1), Tensor.uniform(43, -1, 1, 96), 1, 0, 1, 1), 1e-5, 2e-5);
         same("conv 8x64x24x24 1x1", () -> F.conv2d(Tensor.uniform(44, -1, 1, 8, 64, 24, 24), Tensor.uniform(45, -0.1f, 0.1f, 96, 64, 1, 1), null, 1, 0, 1, 1), 1e-5, 2e-5);
         same("conv 8x256x14x14 1x1 stride 2", () -> F.conv2d(Tensor.uniform(20, -1, 1, 8, 256, 14, 14), Tensor.uniform(21, -0.05f, 0.05f, 512, 256, 1, 1), null, 2, 0, 1, 1), 1e-5, 2e-5);
