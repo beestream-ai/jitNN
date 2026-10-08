@@ -10,7 +10,8 @@ strides as FlashKernels64.
 The backward is two kernels over tiles of 32: backwardKV owns 32 keys and streams the queries and
 dO through (dV += P^T dO, dK += scale dS^T Q in 2x4 register blocks), backwardQ owns 32 queries
 and streams the keys and values through (dQ += scale dS K), with P = exp(scale q.k + mask - lse)
-and dS = P (dO.v - delta).
+and dS = P (dO.v - delta). backwardQ also computes delta = rowsum(dO * O) for its queries, so it
+runs first.
 """
 BQ, BK, D = 64, 32, 64
 QP, KP, SP = D + 1, D + 1, BK + 1
@@ -355,20 +356,48 @@ w("    }")
 
 # ---------------------------------------------------------------- dQ
 w("")
-w(f"    /** dQ: Z * ceil(T / {TB}) work-groups of 16x16 threads, each owning {TB} queries. */")
-prologue("backwardQ", "FloatArray q, FloatArray k, FloatArray v, FloatArray mask, FloatArray dout, FloatArray lse, FloatArray delta,\n            FloatArray dq, int t, int s, int d, float scale, int causal, int hasMask, IntArray meta", "t")
-w("        // as = Q, bs = dO (the work-group's queries); xs = K, ys = V (streamed)")
+w(f"    /**")
+w(f"     * dQ, and delta = rowsum(dO * O) for {{@link #backwardKV}} (launched after it): Z * ceil(T / {TB}) work-groups")
+w(f"     * of 16x16 threads, each owning {TB} queries.")
+w(f"     */")
+prologue("backwardQ", "FloatArray q, FloatArray k, FloatArray v, FloatArray mask, FloatArray o, FloatArray dout, FloatArray lse, FloatArray delta,\n            FloatArray dq, int t, int s, int d, float scale, int causal, int hasMask, IntArray meta", "t")
+w("        // as = Q, bs = dO (the work-group's queries); xs = K, ys = V (streamed); first xs = O for delta")
 load2("as", "q", "qBase", "qStr", "bs", "dout", "oBase", "oStr", "r0", "t", "        ")
+w(f"        for (int e = tid; e < {TB * D}; e += 256) {{")
+w(f"            int r = e / {D};")
+w(f"            int c = e - r * {D};")
+w("            float u = 0.0f;")
+w("            if ((r0 + r < t) & (c < d)) {")
+w("                u = o.get(oBase + (r0 + r) * oStr + c);")
+w("            }")
+w(f"            xs[r * {TP} + c] = u;")
+w("        }")
+w("        kc.localBarrier();")
+w(f"        // delta = rowsum(dO * O), 8 threads per row; written for backwardKV, which runs next")
+w("        {")
+w("            int dr = tid / 8;")
+w("            int dc = tid - dr * 8;")
+w("            float acc = 0.0f;")
+w("            for (int c = 0; c < 8; c++) {")
+w(f"                acc += bs[dr * {TP} + dc * 8 + c] * xs[dr * {TP} + dc * 8 + c];")
+w("            }")
+w(f"            ps[dr * {PP} + dc] = acc;")
+w("        }")
+w("        kc.localBarrier();")
 w(f"        if (tid < {TB}) {{")
 w("            float li = MASKED;")
 w("            float di = 0.0f;")
+w("            for (int c = 0; c < 8; c++) {")
+w(f"                di += ps[tid * {PP} + c];")
+w("            }")
 w("            if (r0 + tid < t) {")
 w("                li = lse.get(z * t + r0 + tid);")
-w("                di = delta.get(z * t + r0 + tid);")
+w("                delta.set(z * t + r0 + tid, di);")
 w("            }")
 w("            ls[tid] = li;")
 w("            dl[tid] = di;")
 w("        }")
+w("        kc.localBarrier();")
 for a in range(2):
     for c in range(4):
         w(f"        float dq{a}{c} = 0.0f;")

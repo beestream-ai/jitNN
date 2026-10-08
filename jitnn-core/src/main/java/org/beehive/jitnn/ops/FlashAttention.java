@@ -342,17 +342,20 @@ public final class FlashAttention implements Op {
             FloatArray dv = packed ? dq : e.f32(n.out(2));
             int rows = z * t;
             FloatArray delta = e.scratch(rows);
+            if (d <= FlashKernels64.D && d > FlashKernels32.D && TILED) {
+                // backwardQ computes delta for its queries, then backwardKV reads it
+                WorkerGrid tq = Emitter.blocks2D(z * Emitter.ceilDiv(t, 32), 1, 16, 16);
+                WorkerGrid tk = Emitter.blocks2D(z * Emitter.ceilDiv(s, 32), 1, 16, 16);
+                e.task(tq, (g, id) -> g.task(id, FlashTiled64::backwardQ, e.context(), q, k, v, mask, o, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
+                e.task(tk, (g, id) -> g.task(id, FlashTiled64::backwardKV, e.context(), q, k, v, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));
+                return;
+            }
             e.task(Emitter.grid1D(rows), (g, id) -> g.task(id, FlashKernels64::delta, e.context(), dout, o, delta, meta, t, d, rows));
             WorkerGrid qGrid = grid(z, t, d);
             WorkerGrid kGrid = grid(z, s, d);
             if (d <= FlashKernels32.D) {
                 e.task(qGrid, (g, id) -> g.task(id, FlashKernels32::backwardQ, e.context(), q, k, v, mask, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
                 e.task(kGrid, (g, id) -> g.task(id, FlashKernels32::backwardKV, e.context(), q, k, v, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));
-            } else if (d <= FlashKernels64.D && TILED) {
-                WorkerGrid tq = Emitter.blocks2D(z * Emitter.ceilDiv(t, 32), 1, 16, 16);
-                WorkerGrid tk = Emitter.blocks2D(z * Emitter.ceilDiv(s, 32), 1, 16, 16);
-                e.task(tq, (g, id) -> g.task(id, FlashTiled64::backwardQ, e.context(), q, k, v, mask, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
-                e.task(tk, (g, id) -> g.task(id, FlashTiled64::backwardKV, e.context(), q, k, v, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));
             } else if (d <= FlashKernels64.D) {
                 e.task(qGrid, (g, id) -> g.task(id, FlashKernels64::backwardQ, e.context(), q, k, v, mask, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
                 e.task(kGrid, (g, id) -> g.task(id, FlashKernels64::backwardKV, e.context(), q, k, v, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));

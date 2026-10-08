@@ -647,8 +647,11 @@ public final class FlashTiled64 {
         }
     }
 
-    /** dQ: Z * ceil(T / 32) work-groups of 16x16 threads, each owning 32 queries. */
-    public static void backwardQ(KernelContext kc, FloatArray q, FloatArray k, FloatArray v, FloatArray mask, FloatArray dout, FloatArray lse, FloatArray delta,
+    /**
+     * dQ, and delta = rowsum(dO * O) for {@link #backwardKV} (launched after it): Z * ceil(T / 32) work-groups
+     * of 16x16 threads, each owning 32 queries.
+     */
+    public static void backwardQ(KernelContext kc, FloatArray q, FloatArray k, FloatArray v, FloatArray mask, FloatArray o, FloatArray dout, FloatArray lse, FloatArray delta,
             FloatArray dq, int t, int s, int d, float scale, int causal, int hasMask, IntArray meta) {
         float[] as = kc.allocateFloatLocalArray(2080);
         float[] bs = kc.allocateFloatLocalArray(2080);
@@ -678,7 +681,7 @@ public final class FlashTiled64 {
         int mBase = b * meta.get(1) + hh * meta.get(2);
         int mi = meta.get(3);
         int mj = meta.get(4);
-        // as = Q, bs = dO (the work-group's queries); xs = K, ys = V (streamed)
+        // as = Q, bs = dO (the work-group's queries); xs = K, ys = V (streamed); first xs = O for delta
         for (int e = tid; e < 2048; e += 256) {
             int r = e / 64;
             int c = e - r * 64;
@@ -692,16 +695,41 @@ public final class FlashTiled64 {
             as[r * 65 + c] = u;
             bs[r * 65 + c] = y;
         }
+        for (int e = tid; e < 2048; e += 256) {
+            int r = e / 64;
+            int c = e - r * 64;
+            float u = 0.0f;
+            if ((r0 + r < t) & (c < d)) {
+                u = o.get(oBase + (r0 + r) * oStr + c);
+            }
+            xs[r * 65 + c] = u;
+        }
+        kc.localBarrier();
+        // delta = rowsum(dO * O), 8 threads per row; written for backwardKV, which runs next
+        {
+            int dr = tid / 8;
+            int dc = tid - dr * 8;
+            float acc = 0.0f;
+            for (int c = 0; c < 8; c++) {
+                acc += bs[dr * 65 + dc * 8 + c] * xs[dr * 65 + dc * 8 + c];
+            }
+            ps[dr * 33 + dc] = acc;
+        }
+        kc.localBarrier();
         if (tid < 32) {
             float li = MASKED;
             float di = 0.0f;
+            for (int c = 0; c < 8; c++) {
+                di += ps[tid * 33 + c];
+            }
             if (r0 + tid < t) {
                 li = lse.get(z * t + r0 + tid);
-                di = delta.get(z * t + r0 + tid);
+                delta.set(z * t + r0 + tid, di);
             }
             ls[tid] = li;
             dl[tid] = di;
         }
+        kc.localBarrier();
         float dq00 = 0.0f;
         float dq01 = 0.0f;
         float dq02 = 0.0f;
