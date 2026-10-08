@@ -149,7 +149,7 @@ public final class MatMul implements Op {
         } else {
             FloatArray a = e.f32(node.in(0));
             FloatArray b = e.f32(node.in(1));
-            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64Batched, e.context(), a, b, part, bias, m, n, ks, 1, 0, 0, strideA, strideB, tilesY));
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), a, b, part, bias, m, n, ks, 1, 0, 0, strideA, strideB, tilesY));
         }
         int cells = m * n;
         e.task(Emitter.grid1D(cells), (g, id) -> g.task(id, org.beehive.jitnn.kernels.NormKernels::sumPartials, e.context(), part, c, slices, cells));
@@ -183,7 +183,7 @@ public final class MatMul implements Op {
             int tilesY = Emitter.ceilDiv(m, GemmKernels.BM);
             WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), tilesY * batch, 16, 16);
             FloatArray bias = e.dummyF32();
-            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64Batched, e.context(), a, b, c, bias, m, n, k, ta, tb, 0, strideA, strideB, tilesY));
+            e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), a, b, c, bias, m, n, k, ta, tb, 0, strideA, strideB, tilesY));
             return;
         }
         emitGemm(e, a, b, c, null, m, n, k, ta, tb, 0);
@@ -375,7 +375,7 @@ public final class MatMul implements Op {
             int tilesY = Emitter.ceilDiv(m, GemmKernels.BM);
             FloatArray part = e.scratch(sl * m * n);
             e.task(Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), tilesY * sl, 16, 16),
-                    (g, id) -> g.task(id, GemmKernels::gemm64SplitK, e.context(), a, b, part, m, n, k, ta, tb, ks, tilesY));
+                    (g, id) -> g.task(id, GemmKernels::gemm64pdSplitK, e.context(), a, b, part, m, n, k, ta, tb, ks, tilesY));
             int mn = m * n;
             e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::sumSplitK, e.context(), part, c, biasArg, sl, mn, n, epilogue));
             return;
@@ -383,7 +383,11 @@ public final class MatMul implements Op {
         if (tuned(e, variant, a, b, c, biasArg, m, n, k, ta, tb, epilogue)) {
             return;
         }
-        if (variant.equals("128") || (auto && m >= 1024 && n >= 1024 && k >= 64)) {
+        if (auto && big) {
+            // padded local memory and register prefetch: 1.5x the earlier 64 and 128 kernels over the
+            // reference workloads' products on an A100 (bench/results/a100, GEMM sweep)
+            tuned(e, "gemm64pd", a, b, c, biasArg, m, n, k, ta, tb, epilogue);
+        } else if (variant.equals("128")) {
             WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, 128), Emitter.ceilDiv(m, 128), 16, 16);
             e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128, e.context(), a, b, c, biasArg, m, n, k, ta, tb, epilogue));
         } else if (variant.equals("64") || (auto && big)) {
