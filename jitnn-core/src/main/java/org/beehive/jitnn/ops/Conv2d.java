@@ -72,8 +72,12 @@ public final class Conv2d implements Op {
 
     /** The padded, prefetching implicit-GEMM kernels unless {@code -Djitnn.conv=simple}. */
     static final boolean PADDED = !"simple".equals(System.getProperty("jitnn.conv"));
-    /** Winograd F(2x2, 3x3) for 3x3 stride-1 convolutions unless {@code -Djitnn.winograd=false}. */
-    static final boolean WINOGRAD = !"false".equals(System.getProperty("jitnn.winograd"));
+    /**
+     * Winograd for 3x3 stride-1 convolutions unless {@code -Djitnn.winograd=false}; {@code =2}
+     * keeps F(2x2, 3x3) everywhere, {@code =4} takes F(4x4, 3x3) wherever it has enough tiles.
+     */
+    static final String WINOGRAD_MODE = System.getProperty("jitnn.winograd", "auto");
+    static final boolean WINOGRAD = !"false".equals(WINOGRAD_MODE);
 
     /** 1x1 stride-1 convolutions as one GEMM per image unless {@code -Djitnn.conv1x1=implicit}. */
     static final boolean POINTWISE_GEMM = !"implicit".equals(System.getProperty("jitnn.conv1x1"));
@@ -144,8 +148,38 @@ public final class Conv2d implements Op {
      * transformed tiles with one batched GEMM, and transforms back into out [n, cout, oh, ow].
      * flip = 1 takes w as [cin, cout, 3, 3] rotated (the gradient of the input).
      */
+    /**
+     * Whether a Winograd convolution with an oh x ow output uses F(4x4, 3x3): 4x fewer multiplies
+     * than direct convolution (F(2x2): 2.25x), on 6x6 tiles. By default only where the output is a
+     * whole number of 4x4 tiles (no wasted rows) and there are at least WINOGRAD_MIN_TILES of them.
+     */
+    static boolean winograd4(int n, int oh, int ow) {
+        int tiles = n * Emitter.ceilDiv(oh, 4) * Emitter.ceilDiv(ow, 4);
+        return switch (WINOGRAD_MODE) {
+            case "2" -> false;
+            case "4" -> tiles >= WINOGRAD_MIN_TILES;
+            default -> oh % 4 == 0 && ow % 4 == 0 && tiles >= WINOGRAD_MIN_TILES;
+        };
+    }
+
     static void emitWinograd(Emitter e, FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow, int pad, int flip,
             int epilogue) {
+        if (winograd4(n, oh, ow)) {
+            int th = Emitter.ceilDiv(oh, 4);
+            int tw = Emitter.ceilDiv(ow, 4);
+            int tiles = n * th * tw;
+            FloatArray v = e.scratch(36 * cin * tiles);
+            FloatArray u = e.scratch(36 * cout * cin);
+            FloatArray mm = e.scratch(36 * cout * tiles);
+            e.task(Emitter.grid1D(cin * tiles), (g, id) -> g.task(id, ConvKernels::winograd4Input, e.context(), x, v, cin, h, wd, pad, th, tw, tiles));
+            e.task(Emitter.grid1D(cout * cin), (g, id) -> g.task(id, ConvKernels::winograd4Weight, e.context(), w, u, cout, cin, flip));
+            int tilesY = Emitter.ceilDiv(cout, GemmKernels.BM);
+            FloatArray none = e.dummyF32();
+            e.task(Emitter.blocks2D(Emitter.ceilDiv(tiles, GemmKernels.BN), tilesY * 36, 16, 16),
+                    (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), u, v, mm, none, cout, tiles, cin, 0, 0, 0, cout * cin, cin * tiles, tilesY));
+            e.task(Emitter.grid1D(cout * tiles), (g, id) -> g.task(id, ConvKernels::winograd4Output, e.context(), mm, out, bias, cout, oh, ow, th, tw, tiles, epilogue));
+            return;
+        }
         int th = Emitter.ceilDiv(oh, 2);
         int tw = Emitter.ceilDiv(ow, 2);
         int tiles = n * th * tw;

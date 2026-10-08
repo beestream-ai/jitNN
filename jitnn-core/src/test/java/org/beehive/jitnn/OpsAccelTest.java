@@ -66,6 +66,13 @@ class OpsAccelTest {
             F.conv2d(x, Tensor.uniform(37, -0.1f, 0.1f, 40, 24, 3, 3), null, 1, 1, 1, 1).mul(Tensor.uniform(38, -1, 1, 4, 40, 17, 15)).sum().backward();
             return x.grad();
         }, 1e-5, 2e-5);
+        // Winograd F(4x4, 3x3): outputs a whole number of 4x4 tiles
+        same("conv 3x3 4x24x32x28 F(4x4) + bias + ReLU", () -> F.conv2dRelu(Tensor.uniform(62, -1, 1, 4, 24, 32, 28), Tensor.uniform(63, -0.1f, 0.1f, 40, 24, 3, 3), Tensor.uniform(64, -1, 1, 40), 1, 1, 1, 1), 1e-5, 2e-5);
+        same("conv 3x3 F(4x4) input gradient", () -> {
+            Tensor x = Tensor.uniform(65, -1, 1, 4, 24, 32, 28).requiresGrad(true);
+            F.conv2d(x, Tensor.uniform(66, -0.1f, 0.1f, 40, 24, 3, 3), null, 1, 1, 1, 1).mul(Tensor.uniform(67, -1, 1, 4, 40, 32, 28)).sum().backward();
+            return x.grad();
+        }, 1e-5, 2e-5);
         same("conv 3x3 filter gradient, sliced tiles", () -> {
             Tensor w = Tensor.uniform(46, -0.1f, 0.1f, 40, 24, 3, 3).requiresGrad(true);
             F.conv2d(Tensor.uniform(47, -1, 1, 8, 24, 31, 33), w, null, 1, 1, 1, 1).mul(Tensor.uniform(48, -1, 1, 8, 40, 31, 33)).sum().backward();
