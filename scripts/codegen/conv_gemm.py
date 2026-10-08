@@ -8,6 +8,10 @@ thread strided by 16, BK = 16. Prints three Java methods:
   conv2dBackwardData dx[n, ci, ih, iw]   GEMM over (n, ih, iw) x ci, K = (co, kh, kw), gathering dy
   conv2dBackwardWeight dw[co, ci, kh, kw] GEMM over co x (ci, kh, kw), K = (n, oh, ow), split-K partials
 
+Each kernel also comes as a "Pd" variant: local-memory rows padded by one float (no bank
+conflicts on the tile stores) and the next k tile loaded into registers while the current one is
+multiplied.
+
 Groups are folded into the x grid dimension (groupIdx = g * tilesN + column tile); split-K chunks
 into the y dimension (groupIdy = s * tilesM + row tile).
 """
@@ -16,12 +20,18 @@ BK = 16
 T = 256
 
 
-def body(name, sig, prologue, kloop, a_fast_m, a_load, b_fast_n, b_load, store):
+def body(name, sig, prologue, kloop, a_fast_m, a_load, b_fast_n, b_load, store, pd=False):
+    """pd: local-memory rows one float longer than the tile (no bank conflicts when consecutive
+    threads store consecutive k), and the next k tile is loaded into registers while the current
+    one is multiplied (as scripts/codegen/gemm.py pad dbuf)."""
+    SA = BM + (1 if pd else 0)
+    SB = BN + (1 if pd else 0)
+    QA, QB = BM * BK // T, BN * BK // T
     o = []
     w = o.append
     w(f"    public static void {name}(KernelContext kc, {sig}) {{")
-    w(f"        float[] as = kc.allocateFloatLocalArray({BK * BM});")
-    w(f"        float[] bs = kc.allocateFloatLocalArray({BK * BN});")
+    w(f"        float[] as = kc.allocateFloatLocalArray({BK * SA});")
+    w(f"        float[] bs = kc.allocateFloatLocalArray({BK * SB});")
     w("        int tx = kc.localIdx;")
     w("        int ty = kc.localIdy;")
     w("        int tid = ty * 16 + tx;")
@@ -30,43 +40,95 @@ def body(name, sig, prologue, kloop, a_fast_m, a_load, b_fast_n, b_load, store):
     for i in range(4):
         for j in range(4):
             w(f"        float c{i}_{j} = 0.0f;")
-    w(f"        for (int k0 = {kloop[0]}; k0 < {kloop[1]}; k0 += {BK}) {{")
-    w(f"            for (int q = 0; q < {BM * BK // T}; q++) {{")
-    w(f"                int idx = tid + {T} * q;")
-    if a_fast_m:
-        w(f"                int kk = idx / {BM};")
-        w(f"                int mm = idx - kk * {BM};")
+
+    def a_index(ind):
+        if a_fast_m:
+            w(f"{ind}int kk = idx / {BM};")
+            w(f"{ind}int mm = idx - kk * {BM};")
+        else:
+            w(f"{ind}int mm = idx / {BK};")
+            w(f"{ind}int kk = idx - mm * {BK};")
+
+    def b_index(ind):
+        if b_fast_n:
+            w(f"{ind}int kb = idx / {BN};")
+            w(f"{ind}int nn = idx - kb * {BN};")
+        else:
+            w(f"{ind}int nn = idx / {BK};")
+            w(f"{ind}int kb = idx - nn * {BK};")
+
+    def a_elem(ind, idx, k0, dst):
+        w(f"{ind}int idx = {idx};")
+        a_index(ind)
+        w(f"{ind}int gm = row0 + mm;")
+        w(f"{ind}int gk = {k0} + kk;")
+        w(f"{ind}float va = 0.0f;")
+        for line in a_load:
+            w(ind + line)
+        w(f"{ind}{dst} = va;")
+
+    def b_elem(ind, idx, k0, dst):
+        w(f"{ind}int idx = {idx};")
+        b_index(ind)
+        w(f"{ind}int gn = col0 + nn;")
+        w(f"{ind}int gkb = {k0} + kb;")
+        w(f"{ind}float vb = 0.0f;")
+        for line in b_load:
+            w(ind + line)
+        w(f"{ind}{dst} = vb;")
+
+    if pd:
+        for q in range(QA):
+            w(f"        float ra{q} = 0.0f;")
+        for q in range(QB):
+            w(f"        float rb{q} = 0.0f;")
+        w(f"        int kFirst = {kloop[0]};")
+        w(f"        int tiles = ({kloop[1]} - kFirst + {BK - 1}) / {BK};")
+
+        def prefetch(ind, k0):
+            for q in range(QA):
+                w(f"{ind}{{")
+                a_elem(ind + "    ", f"tid + {T * q}", k0, f"ra{q}")
+                w(f"{ind}}}")
+            for q in range(QB):
+                w(f"{ind}{{")
+                b_elem(ind + "    ", f"tid + {T * q}", k0, f"rb{q}")
+                w(f"{ind}}}")
+        w("        if (tiles > 0) {")
+        prefetch("            ", "kFirst")
+        w("        }")
+        w("        for (int tile = 0; tile < tiles; tile++) {")
+        for q in range(QA):
+            w("            {")
+            w(f"                int idx = tid + {T * q};")
+            a_index("                ")
+            w(f"                as[kk * {SA} + mm] = ra{q};")
+            w("            }")
+        for q in range(QB):
+            w("            {")
+            w(f"                int idx = tid + {T * q};")
+            b_index("                ")
+            w(f"                bs[kb * {SB} + nn] = rb{q};")
+            w("            }")
+        w("            kc.localBarrier();")
+        w("            if (tile + 1 < tiles) {")
+        w(f"                int k0 = kFirst + (tile + 1) * {BK};")
+        prefetch("                ", "k0")
+        w("            }")
     else:
-        w(f"                int mm = idx / {BK};")
-        w(f"                int kk = idx - mm * {BK};")
-    w("                int gm = row0 + mm;")
-    w("                int gk = k0 + kk;")
-    w("                float va = 0.0f;")
-    for line in a_load:
-        w("                " + line)
-    w(f"                as[kk * {BM} + mm] = va;")
-    w("            }")
-    w(f"            for (int q = 0; q < {BN * BK // T}; q++) {{")
-    w(f"                int idx = tid + {T} * q;")
-    if b_fast_n:
-        w(f"                int kb = idx / {BN};")
-        w(f"                int nn = idx - kb * {BN};")
-    else:
-        w(f"                int nn = idx / {BK};")
-        w(f"                int kb = idx - nn * {BK};")
-    w("                int gn = col0 + nn;")
-    w("                int gkb = k0 + kb;")
-    w("                float vb = 0.0f;")
-    for line in b_load:
-        w("                " + line)
-    w(f"                bs[kb * {BN} + nn] = vb;")
-    w("            }")
-    w("            kc.localBarrier();")
+        w(f"        for (int k0 = {kloop[0]}; k0 < {kloop[1]}; k0 += {BK}) {{")
+        w(f"            for (int q = 0; q < {QA}; q++) {{")
+        a_elem("                ", f"tid + {T} * q", "k0", f"as[kk * {SA} + mm]")
+        w("            }")
+        w(f"            for (int q = 0; q < {QB}; q++) {{")
+        b_elem("                ", f"tid + {T} * q", "k0", f"bs[kb * {SB} + nn]")
+        w("            }")
+        w("            kc.localBarrier();")
     w(f"            for (int p = 0; p < {BK}; p++) {{")
     for i in range(4):
-        w(f"                float a{i} = as[p * {BM} + ty + {16 * i}];")
+        w(f"                float a{i} = as[p * {SA} + ty + {16 * i}];")
     for j in range(4):
-        w(f"                float b{j} = bs[p * {BN} + tx + {16 * j}];")
+        w(f"                float b{j} = bs[p * {SB} + tx + {16 * j}];")
     for i in range(4):
         for j in range(4):
             w(f"                c{i}_{j} += a{i} * b{j};")
@@ -80,9 +142,14 @@ def body(name, sig, prologue, kloop, a_fast_m, a_load, b_fast_n, b_load, store):
     return "\n".join(o)
 
 
+def both(name, *spec):
+    """The kernel as before, and its padded, prefetching variant named name + "Pd"."""
+    return body(name, *spec), body(name + "Pd", *spec, pd=True)
+
+
 # ---------------------------------------------------------------- forward
 store_args = "out, bias, cin, cout, oh, ow, groups, m, g, epilogue"
-fwd = body(
+fwd, fwd_pd = both(
     "conv2dForward",
     "FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int cin, int h, int wd, int cout, int oh, int ow, int ks, int stride, int pad, int dil, int groups, int m, int epilogue, int tilesN",
     [
@@ -123,7 +190,7 @@ fwd = body(
 
 # ---------------------------------------------------------------- forward, split-K
 store_args = "part, cout, oh, ow, groups, m, g, s"
-fwd_split = body(
+fwd_split, fwd_split_pd = both(
     "conv2dForwardSplitK",
     "FloatArray x, FloatArray w, FloatArray part, int cin, int h, int wd, int cout, int oh, int ow, int ks, int stride, int pad, int dil, int groups, int m, int tilesN, int tilesM, int chunk",
     [
@@ -167,7 +234,7 @@ fwd_split = body(
 
 # ---------------------------------------------------------------- backward data
 store_args = "dx, cin, h, wd, groups, m, g"
-bwd_data = body(
+bwd_data, bwd_data_pd = both(
     "conv2dBackwardData",
     "FloatArray dy, FloatArray w, FloatArray dx, int cin, int h, int wd, int cout, int oh, int ow, int ks, int stride, int pad, int dil, int groups, int m, int tilesN",
     [
@@ -215,7 +282,7 @@ bwd_data = body(
 
 # ---------------------------------------------------------------- backward weight (split-K)
 store_args = "partial, cout, groups, g, s, kgOut, cogOut"
-bwd_weight = body(
+bwd_weight, bwd_weight_pd = both(
     "conv2dBackwardWeight",
     "FloatArray dy, FloatArray x, FloatArray partial, int cin, int h, int wd, int cout, int oh, int ow, int ks, int stride, int pad, int dil, int groups, int positions, int tilesN, int tilesM, int chunk",
     [
@@ -342,3 +409,11 @@ print(bwd_data)
 print()
 print(bwd_weight)
 print(helpers)
+print("    // Padded local tiles and register prefetch of the next k tile; generated by scripts/codegen/conv_gemm.py.")
+print(fwd_pd)
+print()
+print(fwd_split_pd)
+print()
+print(bwd_data_pd)
+print()
+print(bwd_weight_pd)

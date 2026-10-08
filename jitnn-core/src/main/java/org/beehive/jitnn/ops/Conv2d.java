@@ -70,6 +70,9 @@ public final class Conv2d implements Op {
         return a[GROUPS] == a[CIN] && a[CIN] == a[COUT];
     }
 
+    /** The padded, prefetching implicit-GEMM kernels unless {@code -Djitnn.conv=simple}. */
+    static final boolean PADDED = !"simple".equals(System.getProperty("jitnn.conv"));
+
     @Override
     public String name() {
         return "conv2d";
@@ -101,13 +104,25 @@ public final class Conv2d implements Op {
             int total = m * cout;
             FloatArray part = e.scratch(sl * total);
             e.task(Emitter.blocks2D(tilesN * gr, tilesM * sl, 16, 16),
-                    (g, id) -> g.task(id, ConvKernels::conv2dForwardSplitK, e.context(), x, w, part, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, tilesN, tilesM, chunk));
+                    (g, id) -> {
+                        if (PADDED) {
+                            g.task(id, ConvKernels::conv2dForwardSplitKPd, e.context(), x, w, part, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, tilesN, tilesM, chunk);
+                        } else {
+                            g.task(id, ConvKernels::conv2dForwardSplitK, e.context(), x, w, part, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, tilesN, tilesM, chunk);
+                        }
+                    });
             int plane = oh * ow;
             e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ConvKernels::sumSplitK, e.context(), part, out, bias, sl, total, cout, plane, epilogue));
             return;
         }
         e.task(Emitter.blocks2D(tilesN * gr, tilesM, 16, 16),
-                (g, id) -> g.task(id, ConvKernels::conv2dForward, e.context(), x, w, out, bias, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, epilogue, tilesN));
+                (g, id) -> {
+                        if (PADDED) {
+                            g.task(id, ConvKernels::conv2dForwardPd, e.context(), x, w, out, bias, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, epilogue, tilesN);
+                        } else {
+                            g.task(id, ConvKernels::conv2dForward, e.context(), x, w, out, bias, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, epilogue, tilesN);
+                        }
+                    });
     }
 
     @Override
@@ -195,7 +210,13 @@ public final class Conv2d implements Op {
             int m = a[N] * h * wd;
             int tilesN = Emitter.ceilDiv(cin / gr, 64);
             e.task(Emitter.blocks2D(tilesN * gr, Emitter.ceilDiv(m, 64), 16, 16),
-                    (g, id) -> g.task(id, ConvKernels::conv2dBackwardData, e.context(), dy, w, dx, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, tilesN));
+                    (g, id) -> {
+                        if (PADDED) {
+                            g.task(id, ConvKernels::conv2dBackwardDataPd, e.context(), dy, w, dx, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, tilesN);
+                        } else {
+                            g.task(id, ConvKernels::conv2dBackwardData, e.context(), dy, w, dx, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, m, tilesN);
+                        }
+                    });
         }
 
         @Override
@@ -277,7 +298,13 @@ public final class Conv2d implements Op {
             int sp = Emitter.ceilDiv(p, chunk);
             FloatArray partial = sp > 1 ? e.scratch(weights * sp) : dw;
             e.task(Emitter.blocks2D(tilesN * gr, tilesM * sp, 16, 16),
-                    (g, id) -> g.task(id, ConvKernels::conv2dBackwardWeight, e.context(), dy, x, partial, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, p, tilesN, tilesM, chunk));
+                    (g, id) -> {
+                        if (PADDED) {
+                            g.task(id, ConvKernels::conv2dBackwardWeightPd, e.context(), dy, x, partial, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, p, tilesN, tilesM, chunk);
+                        } else {
+                            g.task(id, ConvKernels::conv2dBackwardWeight, e.context(), dy, x, partial, cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, p, tilesN, tilesM, chunk);
+                        }
+                    });
             if (sp > 1) {
                 e.task(Emitter.grid1D(weights), (g, id) -> g.task(id, ReduceKernels::reduceThread, e.context(), partial, dw, 1, sp, weights, ReduceKernels.SUM, 1.0f));
             }
