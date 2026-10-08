@@ -75,9 +75,16 @@ public final class Conv2d implements Op {
     /** Winograd F(2x2, 3x3) for 3x3 stride-1 convolutions unless {@code -Djitnn.winograd=false}. */
     static final boolean WINOGRAD = !"false".equals(System.getProperty("jitnn.winograd"));
 
-    /** Whether a convolution of these attributes takes the Winograd path. */
-    static boolean winograd(int[] a) {
-        return WINOGRAD && a[K] == 3 && a[STRIDE] == 1 && a[DIL] == 1 && a[GROUPS] == 1 && a[CIN] >= 16 && a[COUT] >= 16 && a[PAD] <= 2;
+    /** Fewest 2x2 output tiles for the Winograd path: below it the batched GEMM leaves the GPU idle. */
+    static final int WINOGRAD_MIN_TILES = 128;
+
+    /**
+     * Whether a convolution of these attributes takes the Winograd path, producing an oh x ow
+     * output per image (the input size for the gradient of the input).
+     */
+    static boolean winograd(int[] a, int oh, int ow) {
+        return WINOGRAD && a[K] == 3 && a[STRIDE] == 1 && a[DIL] == 1 && a[GROUPS] == 1 && a[CIN] >= 16 && a[COUT] >= 16 && a[PAD] <= 2
+                && a[N] * Emitter.ceilDiv(oh, 2) * Emitter.ceilDiv(ow, 2) >= WINOGRAD_MIN_TILES;
     }
 
     /**
@@ -121,7 +128,7 @@ public final class Conv2d implements Op {
             e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ConvKernels::depthwiseForward, e.context(), x, w, out, bias, cout, h, wd, oh, ow, k, st, pd, dl, total, epilogue));
             return;
         }
-        if (winograd(a)) {
+        if (winograd(a, oh, ow)) {
             emitWinograd(e, x, w, out, bias, a[N], cin, h, wd, cout, oh, ow, pd, 0, epilogue);
             return;
         }
@@ -240,7 +247,7 @@ public final class Conv2d implements Op {
                 e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ConvKernels::depthwiseBackwardData, e.context(), dy, w, dx, cin, h, wd, oh, ow, k, st, pd, dl, total));
                 return;
             }
-            if (winograd(a)) {
+            if (winograd(a, h, wd)) {
                 // the input gradient is the 3x3 convolution of dy with the flipped, transposed filter
                 emitWinograd(e, dy, w, dx, e.dummyF32(), a[N], cout, oh, ow, cin, h, wd, 2 - pd, 1, 0);
                 return;

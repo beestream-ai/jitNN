@@ -60,10 +60,10 @@ class OpsAccelTest {
         same("split-K conv 1x512x7x7 3x3 + bias + ReLU", () -> F.conv2dRelu(Tensor.uniform(28, -1, 1, 1, 512, 7, 7), Tensor.uniform(29, -0.02f, 0.02f, 512, 512, 3, 3), Tensor.uniform(30, -1, 1, 512), 1, 1, 1, 1), 1e-5, 2e-5);
         same("split-K grouped conv", () -> F.conv2d(Tensor.uniform(31, -1, 1, 2, 256, 5, 5), Tensor.uniform(32, -0.05f, 0.05f, 128, 64, 3, 3), null, 1, 1, 1, 4), 1e-5, 2e-5);
         // Winograd: odd output sizes, padding 0, and the input gradient through the flipped filter
-        same("conv 3x3 2x24x13x15 pad 0 + bias", () -> F.conv2d(Tensor.uniform(33, -1, 1, 2, 24, 13, 15), Tensor.uniform(34, -0.1f, 0.1f, 40, 24, 3, 3), Tensor.uniform(35, -1, 1, 40), 1, 0, 1, 1), 1e-5, 2e-5);
+        same("conv 3x3 4x24x21x23 pad 0 + bias", () -> F.conv2d(Tensor.uniform(33, -1, 1, 4, 24, 21, 23), Tensor.uniform(34, -0.1f, 0.1f, 40, 24, 3, 3), Tensor.uniform(35, -1, 1, 40), 1, 0, 1, 1), 1e-5, 2e-5);
         same("conv 3x3 input gradient", () -> {
-            Tensor x = Tensor.uniform(36, -1, 1, 2, 24, 11, 9).requiresGrad(true);
-            F.conv2d(x, Tensor.uniform(37, -0.1f, 0.1f, 40, 24, 3, 3), null, 1, 1, 1, 1).mul(Tensor.uniform(38, -1, 1, 2, 40, 11, 9)).sum().backward();
+            Tensor x = Tensor.uniform(36, -1, 1, 4, 24, 17, 15).requiresGrad(true);
+            F.conv2d(x, Tensor.uniform(37, -0.1f, 0.1f, 40, 24, 3, 3), null, 1, 1, 1, 1).mul(Tensor.uniform(38, -1, 1, 4, 40, 17, 15)).sum().backward();
             return x.grad();
         }, 1e-5, 2e-5);
         same("conv 8x256x14x14 1x1 stride 2", () -> F.conv2d(Tensor.uniform(20, -1, 1, 8, 256, 14, 14), Tensor.uniform(21, -0.05f, 0.05f, 512, 256, 1, 1), null, 2, 0, 1, 1), 1e-5, 2e-5);
