@@ -108,6 +108,24 @@ class OpsAccelTest {
         same("conv 8x256x14x14 1x1 stride 2", () -> F.conv2d(Tensor.uniform(20, -1, 1, 8, 256, 14, 14), Tensor.uniform(21, -0.05f, 0.05f, 512, 256, 1, 1), null, 2, 0, 1, 1), 1e-5, 2e-5);
     }
 
+    /** Attention at head dimensions 33 to 64 (the tiled forward): masks, causal, T != S, both layouts, the packed projection. */
+    @Test
+    void attentionHead64() {
+        float[] pad = new float[2 * 150];
+        for (int i = 0; i < pad.length; i++) {
+            pad[i] = i % 150 >= (i < 150 ? 130 : 110) ? -1e9f : 0.0f;
+        }
+        Tensor keyMask = Tensor.of(pad, 2, 1, 1, 150);
+        same("sdpa d64 T100 S150 + key mask", () -> F.scaledDotProductAttention(Tensor.uniform(70, -1, 1, 2, 3, 100, 64), Tensor.uniform(71, -1, 1, 2, 3, 150, 64),
+                Tensor.uniform(72, -1, 1, 2, 3, 150, 64), keyMask, false, -1.0f), 1e-5, 2e-5);
+        same("sdpa d64 T130 causal", () -> F.scaledDotProductAttention(Tensor.uniform(73, -1, 1, 2, 2, 130, 64), Tensor.uniform(74, -1, 1, 2, 2, 130, 64),
+                Tensor.uniform(75, -1, 1, 2, 2, 130, 64), null, true, -1.0f), 1e-5, 2e-5);
+        same("sdpa BTHD d48 T70 causal", () -> F.scaledDotProductAttentionBTHD(Tensor.uniform(76, -1, 1, 2, 70, 4, 48), Tensor.uniform(77, -1, 1, 2, 70, 4, 48),
+                Tensor.uniform(78, -1, 1, 2, 70, 4, 48), null, true, -1.0f), 1e-5, 2e-5);
+        same("multi-head attention, packed, d64 T90 causal", () -> F.multiHeadAttention(Tensor.uniform(79, -1, 1, 2, 90, 192), Tensor.uniform(80, -0.1f, 0.1f, 576, 192),
+                Tensor.uniform(81, -0.1f, 0.1f, 576), Tensor.uniform(82, -0.1f, 0.1f, 192, 192), null, 3, null, true), 1e-5, 2e-5);
+    }
+
     /** Q8_0 (GGUF blocks): device against the host reference, and the quantisation error against FP32. */
     @Test
     void q8() {

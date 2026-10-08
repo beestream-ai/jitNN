@@ -9,6 +9,7 @@ import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.FlashKernels128;
 import org.beehive.jitnn.kernels.FlashKernels32;
 import org.beehive.jitnn.kernels.FlashKernels64;
+import org.beehive.jitnn.kernels.FlashTiled64;
 
 import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
@@ -34,6 +35,8 @@ public final class FlashAttention implements Op {
     public static final int BTHD = 2;
     /** Largest head dimension of the fused kernels. */
     public static final int MAX_HEAD = FlashKernels128.D;
+    /** The tiled forward ({@link FlashTiled64}) for head dimensions 33 to 64 unless {@code -Djitnn.flash=simple}. */
+    static final boolean TILED = !"simple".equals(System.getProperty("jitnn.flash"));
 
     static final FlashAttention OP = new FlashAttention();
     static final Backward BACKWARD = new Backward();
@@ -181,6 +184,9 @@ public final class FlashAttention implements Op {
         WorkerGrid g0 = grid(z, t, d);
         if (d <= FlashKernels32.D) {
             e.task(g0, (g, id) -> g.task(id, FlashKernels32::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
+        } else if (d <= FlashKernels64.D && TILED) {
+            WorkerGrid tiled = Emitter.blocks2D(z * Emitter.ceilDiv(t, FlashTiled64.BQ), 1, 16, 16);
+            e.task(tiled, (g, id) -> g.task(id, FlashTiled64::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
         } else if (d <= FlashKernels64.D) {
             e.task(g0, (g, id) -> g.task(id, FlashKernels64::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
         } else {
