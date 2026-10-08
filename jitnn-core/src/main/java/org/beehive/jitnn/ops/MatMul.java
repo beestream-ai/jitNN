@@ -375,7 +375,7 @@ public final class MatMul implements Op {
             int tilesY = Emitter.ceilDiv(m, GemmKernels.BM);
             FloatArray part = e.scratch(sl * m * n);
             e.task(Emitter.blocks2D(Emitter.ceilDiv(n, GemmKernels.BN), tilesY * sl, 16, 16),
-                    (g, id) -> g.task(id, GemmKernels::gemm64pdSplitK, e.context(), a, b, part, m, n, k, ta, tb, ks, tilesY));
+                    (g, id) -> g.task(id, GemmKernels::gemm64SplitK, e.context(), a, b, part, m, n, k, ta, tb, ks, tilesY));
             int mn = m * n;
             e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::sumSplitK, e.context(), part, c, biasArg, sl, mn, n, epilogue));
             return;
