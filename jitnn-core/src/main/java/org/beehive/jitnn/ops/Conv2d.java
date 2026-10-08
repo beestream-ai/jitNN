@@ -72,6 +72,35 @@ public final class Conv2d implements Op {
 
     /** The padded, prefetching implicit-GEMM kernels unless {@code -Djitnn.conv=simple}. */
     static final boolean PADDED = !"simple".equals(System.getProperty("jitnn.conv"));
+    /** Winograd F(2x2, 3x3) for 3x3 stride-1 convolutions unless {@code -Djitnn.winograd=false}. */
+    static final boolean WINOGRAD = !"false".equals(System.getProperty("jitnn.winograd"));
+
+    /** Whether a convolution of these attributes takes the Winograd path. */
+    static boolean winograd(int[] a) {
+        return WINOGRAD && a[K] == 3 && a[STRIDE] == 1 && a[DIL] == 1 && a[GROUPS] == 1 && a[CIN] >= 16 && a[COUT] >= 16 && a[PAD] <= 2;
+    }
+
+    /**
+     * Winograd F(2x2, 3x3): transforms the input x [n, cin, h, wd] and the filter, multiplies the 16
+     * transformed tiles with one batched GEMM, and transforms back into out [n, cout, oh, ow].
+     * flip = 1 takes w as [cin, cout, 3, 3] rotated (the gradient of the input).
+     */
+    static void emitWinograd(Emitter e, FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow, int pad, int flip,
+            int epilogue) {
+        int th = Emitter.ceilDiv(oh, 2);
+        int tw = Emitter.ceilDiv(ow, 2);
+        int tiles = n * th * tw;
+        FloatArray v = e.scratch(16 * cin * tiles);
+        FloatArray u = e.scratch(16 * cout * cin);
+        FloatArray mm = e.scratch(16 * cout * tiles);
+        e.task(Emitter.grid1D(cin * tiles), (g, id) -> g.task(id, ConvKernels::winogradInput, e.context(), x, v, cin, h, wd, pad, th, tw, tiles));
+        e.task(Emitter.grid1D(cout * cin), (g, id) -> g.task(id, ConvKernels::winogradWeight, e.context(), w, u, cout, cin, flip));
+        int tilesY = Emitter.ceilDiv(cout, GemmKernels.BM);
+        FloatArray none = e.dummyF32();
+        e.task(Emitter.blocks2D(Emitter.ceilDiv(tiles, GemmKernels.BN), tilesY * 16, 16, 16),
+                (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), u, v, mm, none, cout, tiles, cin, 0, 0, 0, cout * cin, cin * tiles, tilesY));
+        e.task(Emitter.grid1D(cout * tiles), (g, id) -> g.task(id, ConvKernels::winogradOutput, e.context(), mm, out, bias, cout, oh, ow, th, tw, tiles, epilogue));
+    }
 
     @Override
     public String name() {
@@ -90,6 +119,10 @@ public final class Conv2d implements Op {
         if (depthwise(a)) {
             int total = a[N] * cout * oh * ow;
             e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ConvKernels::depthwiseForward, e.context(), x, w, out, bias, cout, h, wd, oh, ow, k, st, pd, dl, total, epilogue));
+            return;
+        }
+        if (winograd(a)) {
+            emitWinograd(e, x, w, out, bias, a[N], cin, h, wd, cout, oh, ow, pd, 0, epilogue);
             return;
         }
         int m = a[N] * oh * ow;
@@ -205,6 +238,11 @@ public final class Conv2d implements Op {
             if (depthwise(a)) {
                 int total = a[N] * cin * h * wd;
                 e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ConvKernels::depthwiseBackwardData, e.context(), dy, w, dx, cin, h, wd, oh, ow, k, st, pd, dl, total));
+                return;
+            }
+            if (winograd(a)) {
+                // the input gradient is the 3x3 convolution of dy with the flipped, transposed filter
+                emitWinograd(e, dy, w, dx, e.dummyF32(), a[N], cout, oh, ow, cin, h, wd, 2 - pd, 1, 0);
                 return;
             }
             int m = a[N] * h * wd;
