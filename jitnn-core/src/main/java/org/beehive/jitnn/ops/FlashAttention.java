@@ -35,7 +35,7 @@ public final class FlashAttention implements Op {
     public static final int BTHD = 2;
     /** Largest head dimension of the fused kernels. */
     public static final int MAX_HEAD = FlashKernels128.D;
-    /** The tiled forward ({@link FlashTiled64}) for head dimensions 33 to 64 unless {@code -Djitnn.flash=simple}. */
+    /** The tiled kernels ({@link FlashTiled64}) for head dimensions 33 to 64 unless {@code -Djitnn.flash=simple}. */
     static final boolean TILED = !"simple".equals(System.getProperty("jitnn.flash"));
 
     static final FlashAttention OP = new FlashAttention();
@@ -348,6 +348,11 @@ public final class FlashAttention implements Op {
             if (d <= FlashKernels32.D) {
                 e.task(qGrid, (g, id) -> g.task(id, FlashKernels32::backwardQ, e.context(), q, k, v, mask, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
                 e.task(kGrid, (g, id) -> g.task(id, FlashKernels32::backwardKV, e.context(), q, k, v, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));
+            } else if (d <= FlashKernels64.D && TILED) {
+                WorkerGrid tq = Emitter.blocks2D(z * Emitter.ceilDiv(t, 32), 1, 16, 16);
+                WorkerGrid tk = Emitter.blocks2D(z * Emitter.ceilDiv(s, 32), 1, 16, 16);
+                e.task(tq, (g, id) -> g.task(id, FlashTiled64::backwardQ, e.context(), q, k, v, mask, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
+                e.task(tk, (g, id) -> g.task(id, FlashTiled64::backwardKV, e.context(), q, k, v, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));
             } else if (d <= FlashKernels64.D) {
                 e.task(qGrid, (g, id) -> g.task(id, FlashKernels64::backwardQ, e.context(), q, k, v, mask, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
                 e.task(kGrid, (g, id) -> g.task(id, FlashKernels64::backwardKV, e.context(), q, k, v, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));

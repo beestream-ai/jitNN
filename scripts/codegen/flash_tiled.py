@@ -1,11 +1,16 @@
-"""Generates FlashTiled64, jitNN's tiled FlashAttention-2 forward for head dimensions up to 64
-(TornadoVM needs the register tiles as scalars). Prints the Java class.
+"""Generates FlashTiled64, jitNN's tiled FlashAttention-2 forward and backward for head dimensions
+up to 64 (TornadoVM needs the register tiles as scalars). Prints the Java class.
 
 A work-group of 16x16 threads owns BQ = 64 query rows, staged once in local memory; keys and
 values stream through in tiles of BK = 32. Per tile: S = Q K^T in 4x2 register blocks (rows
 ty + 16 i, keys tx + 16 j), the online softmax with 4 threads per row, then O += P V in 4x4
 register blocks (rows ty + 16 i, columns tx + 16 j). Operands are addressed through the same meta
 strides as FlashKernels64.
+
+The backward is two kernels over tiles of 32: backwardKV owns 32 keys and streams the queries and
+dO through (dV += P^T dO, dK += scale dS^T Q in 2x4 register blocks), backwardQ owns 32 queries
+and streams the keys and values through (dQ += scale dS K), with P = exp(scale q.k + mask - lse)
+and dS = P (dO.v - delta).
 """
 BQ, BK, D = 64, 32, 64
 QP, KP, SP = D + 1, D + 1, BK + 1
@@ -198,6 +203,204 @@ w(f"        if ((tid < {BQ}) & (q0 + tid < t)) {{")
 w("            float l = lrow[tid];")
 w("            lse.set(z * t + q0 + tid, l > 0.0f ? mrow[tid] + TornadoMath.log(l) : MASKED);")
 w("        }")
+w("    }")
+
+TB = 32  # keys (backwardKV) or queries (backwardQ) per work-group, and the streamed tile
+TP = D + 1
+PP = TB + 1
+
+
+def prologue(name, sig, blocks_of):
+    w(f"    public static void {name}(KernelContext kc, {sig}) {{")
+    w(f"        float[] as = kc.allocateFloatLocalArray({TB * TP});")
+    w(f"        float[] bs = kc.allocateFloatLocalArray({TB * TP});")
+    w(f"        float[] xs = kc.allocateFloatLocalArray({TB * TP});")
+    w(f"        float[] ys = kc.allocateFloatLocalArray({TB * TP});")
+    w(f"        float[] ps = kc.allocateFloatLocalArray({TB * PP});")
+    w(f"        float[] gs = kc.allocateFloatLocalArray({TB * PP});")
+    w(f"        float[] ls = kc.allocateFloatLocalArray({TB});")
+    w(f"        float[] dl = kc.allocateFloatLocalArray({TB});")
+    w("        int tx = kc.localIdx;")
+    w("        int ty = kc.localIdy;")
+    w("        int tid = ty * 16 + tx;")
+    w(f"        int blocks = ({blocks_of} + {TB - 1}) / {TB};")
+    w("        int z = kc.groupIdx / blocks;")
+    w(f"        int r0 = (kc.groupIdx - z * blocks) * {TB};")
+    w("        int heads = meta.get(0);")
+    w("        int b = z / heads;")
+    w("        int hh = z - b * heads;")
+    for nm, m in (("q", 5), ("k", 9), ("v", 13), ("o", 17)):
+        w(f"        int {nm}Base = meta.get({m}) + b * meta.get({m + 1}) + hh * meta.get({m + 2});")
+        w(f"        int {nm}Str = meta.get({m + 3});")
+    w("        int mBase = b * meta.get(1) + hh * meta.get(2);")
+    w("        int mi = meta.get(3);")
+    w("        int mj = meta.get(4);")
+
+
+def load2(dst1, src1, base1, str1, dst2, src2, base2, str2, first, limit, ind):
+    w(f"{ind}for (int e = tid; e < {TB * D}; e += 256) {{")
+    w(f"{ind}    int r = e / {D};")
+    w(f"{ind}    int c = e - r * {D};")
+    w(f"{ind}    int x = {first} + r;")
+    w(f"{ind}    float u = 0.0f;")
+    w(f"{ind}    float y = 0.0f;")
+    w(f"{ind}    if ((x < {limit}) & (c < d)) {{")
+    w(f"{ind}        u = {src1}.get({base1} + x * {str1} + c);")
+    w(f"{ind}        y = {src2}.get({base2} + x * {str2} + c);")
+    w(f"{ind}    }}")
+    w(f"{ind}    {dst1}[r * {TP} + c] = u;")
+    w(f"{ind}    {dst2}[r * {TP} + c] = y;")
+    w(f"{ind}}}")
+
+
+def scores(rowsArr, colsArr, rows2, cols2, kvRowsAreKeys, ind):
+    """2x2 blocks of S (rowsArr . colsArr) and dP (rows2 . cols2) for rows ty + 16 a, columns tx + 16 b,
+    then P and dS into ps and gs (row-major by the work-group's own rows)."""
+    for a in range(2):
+        for bb in range(2):
+            w(f"{ind}float s{a}{bb} = 0.0f;")
+            w(f"{ind}float g{a}{bb} = 0.0f;")
+    w(f"{ind}for (int c = 0; c < {D}; c++) {{")
+    for a in range(2):
+        w(f"{ind}    float a{a} = {rowsArr}[(ty + {16 * a}) * {TP} + c];")
+        w(f"{ind}    float a2{a} = {rows2}[(ty + {16 * a}) * {TP} + c];")
+    for bb in range(2):
+        w(f"{ind}    float b{bb} = {colsArr}[(tx + {16 * bb}) * {TP} + c];")
+        w(f"{ind}    float b2{bb} = {cols2}[(tx + {16 * bb}) * {TP} + c];")
+    for a in range(2):
+        for bb in range(2):
+            w(f"{ind}    s{a}{bb} += a{a} * b{bb};")
+            w(f"{ind}    g{a}{bb} += a2{a} * b2{bb};")
+    w(f"{ind}}}")
+    for a in range(2):
+        for bb in range(2):
+            w(f"{ind}{{")
+            if kvRowsAreKeys:
+                w(f"{ind}    int kj = r0 + ty + {16 * a};")
+                w(f"{ind}    int qx = tx + {16 * bb};")
+                w(f"{ind}    int qi = i0 + qx;")
+            else:
+                w(f"{ind}    int qx = ty + {16 * a};")
+                w(f"{ind}    int qi = r0 + qx;")
+                w(f"{ind}    int kj = j0 + tx + {16 * bb};")
+            w(f"{ind}    float p = 0.0f;")
+            w(f"{ind}    float ds = 0.0f;")
+            w(f"{ind}    float li = ls[qx];")
+            w(f"{ind}    if ((kj < s) & (qi < t) & ((causal == 0) | (kj <= qi)) & (li > MASKED)) {{")
+            w(f"{ind}        float sv = s{a}{bb} * scale;")
+            w(f"{ind}        if (hasMask != 0) {{")
+            w(f"{ind}            sv += mask.get(mBase + qi * mi + kj * mj);")
+            w(f"{ind}        }}")
+            w(f"{ind}        p = TornadoMath.exp(sv - li);")
+            w(f"{ind}        ds = p * (g{a}{bb} - dl[qx]);")
+            w(f"{ind}    }}")
+            w(f"{ind}    ps[(ty + {16 * a}) * {PP} + tx + {16 * bb}] = p;")
+            w(f"{ind}    gs[(ty + {16 * a}) * {PP} + tx + {16 * bb}] = ds;")
+            w(f"{ind}}}")
+
+
+# ---------------------------------------------------------------- dK, dV
+w("")
+w(f"    /** dK and dV: Z * ceil(S / {TB}) work-groups of 16x16 threads, each owning {TB} keys. */")
+prologue("backwardKV", "FloatArray q, FloatArray k, FloatArray v, FloatArray mask, FloatArray dout, FloatArray lse, FloatArray delta,\n            FloatArray dk, FloatArray dv, int t, int s, int d, float scale, int causal, int hasMask, IntArray meta", "s")
+w("        // as = K, bs = V (the work-group's keys); xs = Q, ys = dO (streamed)")
+load2("as", "k", "kBase", "kStr", "bs", "v", "vBase", "vStr", "r0", "s", "        ")
+for a in range(2):
+    for c in range(4):
+        w(f"        float dk{a}{c} = 0.0f;")
+        w(f"        float dv{a}{c} = 0.0f;")
+w("        int iStart = 0;")
+w("        if (causal != 0) {")
+w("            iStart = r0;")
+w("        }")
+w(f"        for (int i0 = iStart; i0 < t; i0 += {TB}) {{")
+load2("xs", "q", "qBase", "qStr", "ys", "dout", "oBase", "oStr", "i0", "t", "            ")
+w(f"            if (tid < {TB}) {{")
+w("                float li = MASKED;")
+w("                float di = 0.0f;")
+w("                if (i0 + tid < t) {")
+w("                    li = lse.get(z * t + i0 + tid);")
+w("                    di = delta.get(z * t + i0 + tid);")
+w("                }")
+w("                ls[tid] = li;")
+w("                dl[tid] = di;")
+w("            }")
+w("            kc.localBarrier();")
+scores("as", "xs", "bs", "ys", True, "            ")
+w("            kc.localBarrier();")
+w(f"            for (int ii = 0; ii < {TB}; ii++) {{")
+for a in range(2):
+    w(f"                float p{a} = ps[(ty + {16 * a}) * {PP} + ii];")
+    w(f"                float g{a} = gs[(ty + {16 * a}) * {PP} + ii];")
+for c in range(4):
+    w(f"                float o{c} = ys[ii * {TP} + tx + {16 * c}];")
+    w(f"                float q{c} = xs[ii * {TP} + tx + {16 * c}];")
+for a in range(2):
+    for c in range(4):
+        w(f"                dv{a}{c} += p{a} * o{c};")
+        w(f"                dk{a}{c} += g{a} * q{c};")
+w("            }")
+w("            kc.localBarrier();")
+w("        }")
+for a in range(2):
+    w(f"        if (r0 + ty + {16 * a} < s) {{")
+    w(f"            int j = r0 + ty + {16 * a};")
+    for c in range(4):
+        w(f"            if (tx + {16 * c} < d) {{")
+        w(f"                dk.set(kBase + j * kStr + tx + {16 * c}, dk{a}{c} * scale);")
+        w(f"                dv.set(vBase + j * vStr + tx + {16 * c}, dv{a}{c});")
+        w("            }")
+    w("        }")
+w("    }")
+
+# ---------------------------------------------------------------- dQ
+w("")
+w(f"    /** dQ: Z * ceil(T / {TB}) work-groups of 16x16 threads, each owning {TB} queries. */")
+prologue("backwardQ", "FloatArray q, FloatArray k, FloatArray v, FloatArray mask, FloatArray dout, FloatArray lse, FloatArray delta,\n            FloatArray dq, int t, int s, int d, float scale, int causal, int hasMask, IntArray meta", "t")
+w("        // as = Q, bs = dO (the work-group's queries); xs = K, ys = V (streamed)")
+load2("as", "q", "qBase", "qStr", "bs", "dout", "oBase", "oStr", "r0", "t", "        ")
+w(f"        if (tid < {TB}) {{")
+w("            float li = MASKED;")
+w("            float di = 0.0f;")
+w("            if (r0 + tid < t) {")
+w("                li = lse.get(z * t + r0 + tid);")
+w("                di = delta.get(z * t + r0 + tid);")
+w("            }")
+w("            ls[tid] = li;")
+w("            dl[tid] = di;")
+w("        }")
+for a in range(2):
+    for c in range(4):
+        w(f"        float dq{a}{c} = 0.0f;")
+w("        int kEnd = s;")
+w("        if (causal != 0) {")
+w(f"            int last = r0 + {TB};")
+w("            kEnd = last < s ? last : s;")
+w("        }")
+w(f"        for (int j0 = 0; j0 < kEnd; j0 += {TB}) {{")
+load2("xs", "k", "kBase", "kStr", "ys", "v", "vBase", "vStr", "j0", "s", "            ")
+w("            kc.localBarrier();")
+scores("as", "xs", "bs", "ys", False, "            ")
+w("            kc.localBarrier();")
+w(f"            for (int jj = 0; jj < {TB}; jj++) {{")
+for a in range(2):
+    w(f"                float g{a} = gs[(ty + {16 * a}) * {PP} + jj];")
+for c in range(4):
+    w(f"                float k{c} = xs[jj * {TP} + tx + {16 * c}];")
+for a in range(2):
+    for c in range(4):
+        w(f"                dq{a}{c} += g{a} * k{c};")
+w("            }")
+w("            kc.localBarrier();")
+w("        }")
+for a in range(2):
+    w(f"        if (r0 + ty + {16 * a} < t) {{")
+    w(f"            int i = r0 + ty + {16 * a};")
+    for c in range(4):
+        w(f"            if (tx + {16 * c} < d) {{")
+        w(f"                dq.set(qBase + i * qStr + tx + {16 * c}, dq{a}{c} * scale);")
+        w("            }")
+    w("        }")
 w("    }")
 w("}")
 print("\n".join(o))

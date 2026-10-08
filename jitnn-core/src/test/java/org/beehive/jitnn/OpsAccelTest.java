@@ -108,7 +108,7 @@ class OpsAccelTest {
         same("conv 8x256x14x14 1x1 stride 2", () -> F.conv2d(Tensor.uniform(20, -1, 1, 8, 256, 14, 14), Tensor.uniform(21, -0.05f, 0.05f, 512, 256, 1, 1), null, 2, 0, 1, 1), 1e-5, 2e-5);
     }
 
-    /** Attention at head dimensions 33 to 64 (the tiled forward): masks, causal, T != S, both layouts, the packed projection. */
+    /** Attention at head dimensions 33 to 64 (the tiled kernels): masks, causal, T != S, both layouts, the packed projection, gradients. */
     @Test
     void attentionHead64() {
         float[] pad = new float[2 * 150];
@@ -124,6 +124,27 @@ class OpsAccelTest {
                 Tensor.uniform(78, -1, 1, 2, 70, 4, 48), null, true, -1.0f), 1e-5, 2e-5);
         same("multi-head attention, packed, d64 T90 causal", () -> F.multiHeadAttention(Tensor.uniform(79, -1, 1, 2, 90, 192), Tensor.uniform(80, -0.1f, 0.1f, 576, 192),
                 Tensor.uniform(81, -0.1f, 0.1f, 576), Tensor.uniform(82, -0.1f, 0.1f, 192, 192), null, 3, null, true), 1e-5, 2e-5);
+        // the backward: dq, dk, dv concatenated
+        same("sdpa d64 T100 S150 + key mask, gradients", () -> {
+            Tensor q = Tensor.uniform(83, -1, 1, 2, 3, 100, 64).requiresGrad(true);
+            Tensor k = Tensor.uniform(84, -1, 1, 2, 3, 150, 64).requiresGrad(true);
+            Tensor v = Tensor.uniform(85, -1, 1, 2, 3, 150, 64).requiresGrad(true);
+            F.scaledDotProductAttention(q, k, v, keyMask, false, -1.0f).mul(Tensor.uniform(86, -1, 1, 2, 3, 100, 64)).sum().backward();
+            return Tensor.cat(0, q.grad().reshape(q.numel()), k.grad().reshape(k.numel()), v.grad().reshape(v.numel()));
+        }, 1e-4, 1e-4);
+        same("sdpa d64 T130 causal, gradients", () -> {
+            Tensor q = Tensor.uniform(87, -1, 1, 2, 2, 130, 64).requiresGrad(true);
+            Tensor k = Tensor.uniform(88, -1, 1, 2, 2, 130, 64).requiresGrad(true);
+            Tensor v = Tensor.uniform(89, -1, 1, 2, 2, 130, 64).requiresGrad(true);
+            F.scaledDotProductAttention(q, k, v, null, true, -1.0f).mul(Tensor.uniform(90, -1, 1, 2, 2, 130, 64)).sum().backward();
+            return Tensor.cat(0, q.grad().reshape(q.numel()), k.grad().reshape(k.numel()), v.grad().reshape(v.numel()));
+        }, 1e-4, 1e-4);
+        same("multi-head attention, packed, d64 T90 causal, input gradient", () -> {
+            Tensor x = Tensor.uniform(91, -1, 1, 2, 90, 192).requiresGrad(true);
+            F.multiHeadAttention(x, Tensor.uniform(92, -0.1f, 0.1f, 576, 192), Tensor.uniform(93, -0.1f, 0.1f, 576), Tensor.uniform(94, -0.1f, 0.1f, 192, 192), null, 3, null, true)
+                    .mul(Tensor.uniform(95, -1, 1, 2, 90, 192)).sum().backward();
+            return x.grad();
+        }, 1e-4, 1e-4);
     }
 
     /** Q8_0 (GGUF blocks): device against the host reference, and the quantisation error against FP32. */
