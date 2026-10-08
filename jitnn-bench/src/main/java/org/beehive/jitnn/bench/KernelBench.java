@@ -29,7 +29,8 @@ import org.beehive.jitnn.engine.Node;
  * without the profiler the run measures host-to-host times only, free of the profiler's cost. Properties:
  * {@code jitnn.kbench.out} (file, appended), {@code jitnn.kbench.workloads} and
  * {@code jitnn.kbench.families} (comma-separated filters), {@code jitnn.kbench.from} (skip the first
- * n calls, to resume a run), {@code jitnn.kbench.label} (free text
+ * n calls, to resume a run), {@code jitnn.kbench.only} (comma-separated call indices, 1-based in
+ * capture order), {@code jitnn.kbench.label} (free text
  * recorded with every line, e.g. the commits).
  */
 public final class KernelBench {
@@ -216,14 +217,21 @@ public final class KernelBench {
                 PrintWriter w = new PrintWriter(Files.newBufferedWriter(out, StandardOpenOption.CREATE, StandardOpenOption.APPEND))) {
             int i = 0;
             int from = Integer.getInteger("jitnn.kbench.from", 0);
+            String only = System.getProperty("jitnn.kbench.only", "");
+            java.util.Set<Integer> picked = new java.util.HashSet<>();
+            for (String x : only.split(",")) {
+                if (!x.isBlank()) {
+                    picked.add(Integer.parseInt(x.trim()));
+                }
+            }
             for (OpCase c : cases) {
                 i++;
-                if (i <= from || !c.replayable()) {
+                if (i <= from || !c.replayable() || (!picked.isEmpty() && !picked.contains(i))) {
                     continue;
                 }
                 try {
                     Result r = time(c, clocks);
-                    w.println(json(c, r, device, label));
+                    w.println(json(c, r, device, label).replaceFirst("\\{", "{\"index\":" + i + ","));
                     w.flush();
                     written++;
                     System.out.printf(Locale.ROOT, "[kbench] %4d/%d %-22s %10.2f us  %s%n", i, cases.size(), c.op.name(), r.device().median(), r.accepted() ? "" : "NOT ACCEPTED");
