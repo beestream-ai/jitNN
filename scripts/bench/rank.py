@@ -26,12 +26,17 @@ def main(prof_path, wall_path, runs_glob, top=25):
     prof = {r["workload"]: r for r in jsonl(prof_path)}
     wall = {r["workload"]: r for r in jsonl(wall_path)}
     calls = defaultdict(list)
+    order = {}
     for r in jsonl(runs_glob):
-        calls[json.dumps([r["op"], r["iattr"], r["fattr"], r["in"], r["out"]])].append(r)
+        k = json.dumps([r["op"], r["iattr"], r["fattr"], r["in"], r["out"]])
+        order.setdefault(k, len(order) + 1)
+        calls[k].append(r)
     replay = defaultdict(float)
     rows = []
     for k, rs in calls.items():
         r = dict(rs[0])
+        # results without an index field list the calls in capture order
+        r.setdefault("index", order[k])
         r["device_us"] = statistics.median(x["device_us"] for x in rs)
         rows.append(r)
         for w, n in r["uses"].items():
