@@ -89,6 +89,32 @@ public final class Conv2d implements Op {
                 && a[N] * Emitter.ceilDiv(a[COUT], GemmKernels.BM) * Emitter.ceilDiv(plane, GemmKernels.BN) >= 128;
     }
 
+    /**
+     * Winograd F(2x2, 3x3) filter gradient: dw = G^T (sum over tiles of (A dy A^T) (B^T x B)) G. The
+     * tiles are cut into slices that one batched GEMM handles as separate products (more work-groups
+     * when the channel counts are small); the last transform sums the slices in order.
+     */
+    static void emitWinogradWeight(Emitter e, FloatArray dy, FloatArray x, FloatArray dw, int n, int cin, int h, int wd, int cout, int oh, int ow, int pad) {
+        int th = Emitter.ceilDiv(oh, 2);
+        int tw = Emitter.ceilDiv(ow, 2);
+        int tiles = n * th * tw;
+        int blocks = 16 * Emitter.ceilDiv(cout, GemmKernels.BM) * Emitter.ceilDiv(cin, GemmKernels.BN);
+        int slices = Math.max(1, Math.min(Emitter.ceilDiv(512, blocks), tiles / 256));
+        int chunk = Emitter.ceilDiv(Emitter.ceilDiv(tiles, slices), 16) * 16;
+        int span = slices * chunk;
+        FloatArray v = e.scratch(16 * cin * span);
+        FloatArray d = e.scratch(16 * cout * span);
+        FloatArray du = e.scratch(16 * slices * cout * cin);
+        e.task(Emitter.grid1D(cin * span), (g, id) -> g.task(id, ConvKernels::winogradInput, e.context(), x, v, cin, h, wd, pad, th, tw, tiles, slices, chunk));
+        e.task(Emitter.grid1D(cout * span), (g, id) -> g.task(id, ConvKernels::winogradGradOut, e.context(), dy, d, cout, oh, ow, th, tw, tiles, slices, chunk));
+        // du[z] = d[z] [cout, chunk] v[z]^T [chunk, cin] for z = (e, slice)
+        int tilesY = Emitter.ceilDiv(cout, GemmKernels.BM);
+        FloatArray none = e.dummyF32();
+        e.task(Emitter.blocks2D(Emitter.ceilDiv(cin, GemmKernels.BN), tilesY * 16 * slices, 16, 16),
+                (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), d, v, du, none, cout, cin, chunk, 0, 1, 0, cout * chunk, cin * chunk, tilesY));
+        e.task(Emitter.grid1D(cout * cin), (g, id) -> g.task(id, ConvKernels::winogradGradWeight, e.context(), du, dw, cout, cin, slices));
+    }
+
     /** Fewest 2x2 output tiles for the Winograd path: below it the batched GEMM leaves the GPU idle. */
     static final int WINOGRAD_MIN_TILES = 128;
 
@@ -114,7 +140,7 @@ public final class Conv2d implements Op {
         FloatArray v = e.scratch(16 * cin * tiles);
         FloatArray u = e.scratch(16 * cout * cin);
         FloatArray mm = e.scratch(16 * cout * tiles);
-        e.task(Emitter.grid1D(cin * tiles), (g, id) -> g.task(id, ConvKernels::winogradInput, e.context(), x, v, cin, h, wd, pad, th, tw, tiles));
+        e.task(Emitter.grid1D(cin * tiles), (g, id) -> g.task(id, ConvKernels::winogradInput, e.context(), x, v, cin, h, wd, pad, th, tw, tiles, 1, tiles));
         e.task(Emitter.grid1D(cout * cin), (g, id) -> g.task(id, ConvKernels::winogradWeight, e.context(), w, u, cout, cin, flip));
         int tilesY = Emitter.ceilDiv(cout, GemmKernels.BM);
         FloatArray none = e.dummyF32();
@@ -354,6 +380,10 @@ public final class Conv2d implements Op {
                 if (sp > 1) {
                     e.task(Emitter.grid1D(weights), (g, id) -> g.task(id, ReduceKernels::reduceThread, e.context(), partial, dw, 1, sp, weights, ReduceKernels.SUM, 1.0f));
                 }
+                return;
+            }
+            if (winograd(a, oh, ow)) {
+                emitWinogradWeight(e, dy, x, dw, a[N], cin, h, wd, cout, oh, ow, pd);
                 return;
             }
             int cog = cout / gr;
