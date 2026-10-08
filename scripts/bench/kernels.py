@@ -3,6 +3,7 @@
 which launches the vendor kernels (cuBLAS, cuDNN, flash/memory-efficient SDPA). TF32 off for FP32.
 
 Covered: matmul, linear, conv2d and its two gradients, flash attention forward and backward,
+LSTM and GRU recurrences forward and backward (cuDNN layers, which also project their input),
 softmax, row norms (as LayerNorm), batch norm, cross entropy, embedding, element-wise unary and
 binary (as neg and add, which move the same bytes). Other operators get no baseline; their
 efficiency against the bandwidth and compute ceilings still applies.
@@ -88,6 +89,18 @@ def build(r):
         o = F.scaled_dot_product_attention(q, kk, v, is_causal=bool(causal))
         go = torch.rand_like(o)
         return lambda: torch.autograd.grad(o, (q, kk, v), go, retain_graph=True)
+    if op in ("lstm", "gru", "lstm_bwd", "gru_bwd"):
+        # jitNN's op is the recurrence only (input gates precomputed by a GEMM); cuDNN's layer also
+        # projects its input, so this baseline does a little more work than the jitNN call
+        t, b, h = a[:3]
+        cell = torch.nn.LSTM(h, h) if op.startswith("lstm") else torch.nn.GRU(h, h)
+        cell = cell.to(DEV)
+        x = torch.rand(t, b, h, device=DEV, requires_grad=op.endswith("_bwd"))
+        if not op.endswith("_bwd"):
+            return lambda: cell(x)
+        y = cell(x)[0]
+        gy = torch.rand_like(y)
+        return lambda: torch.autograd.grad(y, [x] + list(cell.parameters()), gy, retain_graph=True)
     if op == "softmax":
         x = tensor(ins[0])
         return lambda: torch.softmax(x, -1)
