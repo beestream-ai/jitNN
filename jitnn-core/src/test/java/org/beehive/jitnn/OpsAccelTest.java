@@ -66,6 +66,8 @@ class OpsAccelTest {
             F.conv2d(x, Tensor.uniform(37, -0.1f, 0.1f, 40, 24, 3, 3), null, 1, 1, 1, 1).mul(Tensor.uniform(38, -1, 1, 4, 40, 17, 15)).sum().backward();
             return x.grad();
         }, 1e-5, 2e-5);
+        same("conv 8x64x24x24 1x1 + bias + ReLU", () -> F.conv2dRelu(Tensor.uniform(39, -1, 1, 8, 64, 24, 24), Tensor.uniform(40, -0.1f, 0.1f, 96, 64, 1, 1), Tensor.uniform(43, -1, 1, 96), 1, 0, 1, 1), 1e-5, 2e-5);
+        same("conv 8x64x24x24 1x1", () -> F.conv2d(Tensor.uniform(44, -1, 1, 8, 64, 24, 24), Tensor.uniform(45, -0.1f, 0.1f, 96, 64, 1, 1), null, 1, 0, 1, 1), 1e-5, 2e-5);
         same("conv 8x256x14x14 1x1 stride 2", () -> F.conv2d(Tensor.uniform(20, -1, 1, 8, 256, 14, 14), Tensor.uniform(21, -0.05f, 0.05f, 512, 256, 1, 1), null, 2, 0, 1, 1), 1e-5, 2e-5);
     }
 

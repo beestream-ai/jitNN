@@ -1972,6 +1972,8 @@ public final class GemmKernels {
     public static final int RELU = 2;
     /** Epilogue flag: exact GELU, x * Phi(x), after the bias. */
     public static final int GELU = 4;
+    /** Epilogue bit of the batched kernels: add {@code bias[row]} (a 1x1 convolution's channel bias). */
+    public static final int ROW_BIAS = 8;
 
     /**
      * Writes one output with the fused epilogue. TornadoVM specialises scalar arguments, so the
@@ -1999,6 +2001,9 @@ public final class GemmKernels {
             float r = v;
             if ((epilogue & BIAS) != 0) {
                 r = r + bias.get(col);
+            }
+            if ((epilogue & ROW_BIAS) != 0) {
+                r = r + bias.get(row);
             }
             if ((epilogue & RELU) != 0) {
                 r = r > 0.0f ? r : 0.0f;

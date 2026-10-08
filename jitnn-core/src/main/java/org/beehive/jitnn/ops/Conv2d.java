@@ -75,6 +75,20 @@ public final class Conv2d implements Op {
     /** Winograd F(2x2, 3x3) for 3x3 stride-1 convolutions unless {@code -Djitnn.winograd=false}. */
     static final boolean WINOGRAD = !"false".equals(System.getProperty("jitnn.winograd"));
 
+    /** 1x1 stride-1 convolutions as one GEMM per image unless {@code -Djitnn.conv1x1=implicit}. */
+    static final boolean POINTWISE_GEMM = !"implicit".equals(System.getProperty("jitnn.conv1x1"));
+
+    /**
+     * Whether a convolution is a pointwise one that runs as a batched GEMM: 1x1, stride 1, no
+     * padding, one group, with at least 128 64x64 output tiles over the batch (fewer leave the GPU
+     * idle, and the implicit GEMM's split-K handles them).
+     */
+    static boolean pointwise(int[] a) {
+        int plane = a[OH] * a[OW];
+        return POINTWISE_GEMM && a[K] == 1 && a[STRIDE] == 1 && a[PAD] == 0 && a[GROUPS] == 1
+                && a[N] * Emitter.ceilDiv(a[COUT], GemmKernels.BM) * Emitter.ceilDiv(plane, GemmKernels.BN) >= 128;
+    }
+
     /** Fewest 2x2 output tiles for the Winograd path: below it the batched GEMM leaves the GPU idle. */
     static final int WINOGRAD_MIN_TILES = 128;
 
@@ -126,6 +140,15 @@ public final class Conv2d implements Op {
         if (depthwise(a)) {
             int total = a[N] * cout * oh * ow;
             e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ConvKernels::depthwiseForward, e.context(), x, w, out, bias, cout, h, wd, oh, ow, k, st, pd, dl, total, epilogue));
+            return;
+        }
+        if (pointwise(a)) {
+            // out[n] = W [cout, cin] x[n] [cin, OH OW], written straight into NCHW
+            int plane = oh * ow;
+            int tilesY = Emitter.ceilDiv(cout, GemmKernels.BM);
+            int ep = (a[BIAS] != 0 ? GemmKernels.ROW_BIAS : 0) | (a[RELU] != 0 ? GemmKernels.RELU : 0);
+            e.task(Emitter.blocks2D(Emitter.ceilDiv(plane, GemmKernels.BN), tilesY * a[N], 16, 16),
+                    (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), w, x, out, bias, cout, plane, cin, 0, 0, ep, 0, cin * h * wd, tilesY));
             return;
         }
         if (winograd(a, oh, ow)) {
