@@ -83,14 +83,15 @@ public final class Conv2d implements Op {
 
     /**
      * Whether a convolution is a pointwise one that runs as a batched GEMM: 1x1, stride 1, no
-     * padding, one group, with at least POINTWISE_MIN_PLANE positions per image (smaller planes
-     * leave the 64-wide GEMM tiles partly empty, where the implicit GEMM packs the whole batch) and
+     * padding, one group, with at least POINTWISE_MIN_PLANE positions per image or a multiple of
+     * the 64-wide tile (other small planes leave the GEMM tiles partly empty, where the implicit GEMM
+     * packs the whole batch) and
      * at least 128 64x64 output tiles over the batch (fewer leave the GPU idle, and the implicit
      * GEMM's split-K handles them).
      */
     static boolean pointwise(int[] a) {
         int plane = a[OH] * a[OW];
-        return POINTWISE_GEMM && a[K] == 1 && a[STRIDE] == 1 && a[PAD] == 0 && a[GROUPS] == 1 && plane >= POINTWISE_MIN_PLANE
+        return POINTWISE_GEMM && a[K] == 1 && a[STRIDE] == 1 && a[PAD] == 0 && a[GROUPS] == 1 && (plane >= POINTWISE_MIN_PLANE || plane % GemmKernels.BN == 0)
                 && a[N] * Emitter.ceilDiv(a[COUT], GemmKernels.BM) * Emitter.ceilDiv(plane, GemmKernels.BN) >= 128;
     }
 
