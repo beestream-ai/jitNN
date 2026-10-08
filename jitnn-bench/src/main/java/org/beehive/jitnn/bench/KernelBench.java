@@ -28,7 +28,8 @@ import org.beehive.jitnn.engine.Node;
  * <p>Device times need {@code -Djitnn.profile=true} (and on CUDA {@code -Djitnn.cudaGraph=false});
  * without the profiler the run measures host-to-host times only, free of the profiler's cost. Properties:
  * {@code jitnn.kbench.out} (file, appended), {@code jitnn.kbench.workloads} and
- * {@code jitnn.kbench.families} (comma-separated filters), {@code jitnn.kbench.label} (free text
+ * {@code jitnn.kbench.families} (comma-separated filters), {@code jitnn.kbench.from} (skip the first
+ * n calls, to resume a run), {@code jitnn.kbench.label} (free text
  * recorded with every line, e.g. the commits).
  */
 public final class KernelBench {
@@ -214,9 +215,10 @@ public final class KernelBench {
         try (ClockMonitor clocks = new ClockMonitor(System.getProperty("jitnn.kbench.gpu", "0"));
                 PrintWriter w = new PrintWriter(Files.newBufferedWriter(out, StandardOpenOption.CREATE, StandardOpenOption.APPEND))) {
             int i = 0;
+            int from = Integer.getInteger("jitnn.kbench.from", 0);
             for (OpCase c : cases) {
                 i++;
-                if (!c.replayable()) {
+                if (i <= from || !c.replayable()) {
                     continue;
                 }
                 try {

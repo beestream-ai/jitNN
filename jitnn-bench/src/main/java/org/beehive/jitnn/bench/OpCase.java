@@ -12,9 +12,10 @@ import org.beehive.jitnn.engine.Op;
 
 /**
  * One distinct operator call of the workloads: the operator, its attributes and its input and
- * output shapes and types. It replays the call on fresh inputs (random FP32 in [-1, 1), zero
- * integers and quantised blocks), the same each time, so every call after the first replays one
- * compiled plan.
+ * output shapes and types. It replays the call on fresh inputs, the same each time, so every call
+ * after the first replays one compiled plan: random FP32 in [-1, 1); INT32 inputs with their
+ * captured values when those were known on the host (sequence lengths, indices made from
+ * constants), else zeros; zero quantised blocks.
  */
 final class OpCase {
 
@@ -26,6 +27,8 @@ final class OpCase {
     final int[][] outShapes;
     final DType[] outTypes;
     final String key;
+    /** The values of INT32 inputs that were known on the host when captured (lengths, indices from constants), else null. */
+    final int[][] intValues;
     /** How often each workload runs this call per step. */
     final Map<String, Integer> uses = new LinkedHashMap<>();
     private Tensor[] inputs;
@@ -39,6 +42,18 @@ final class OpCase {
         for (int i = 0; i < n.inputs.length; i++) {
             inShapes[i] = n.inputs[i].shape().dims();
             inTypes[i] = n.inputs[i].dtype();
+        }
+        intValues = new int[n.inputs.length][];
+        for (int i = 0; i < n.inputs.length; i++) {
+            Tensor t = n.inputs[i];
+            if (t.dtype() == DType.I32 && t.storage().isHostValid()) {
+                uk.ac.manchester.tornado.api.types.arrays.IntArray a = (uk.ac.manchester.tornado.api.types.arrays.IntArray) t.storage().host();
+                int[] v = new int[t.numel()];
+                for (int k = 0; k < v.length; k++) {
+                    v[k] = a.get(k);
+                }
+                intValues[i] = v;
+            }
         }
         outShapes = new int[n.outputs.length][];
         outTypes = new DType[n.outputs.length];
@@ -83,7 +98,7 @@ final class OpCase {
         if (inputs == null) {
             inputs = new Tensor[inShapes.length];
             for (int i = 0; i < inputs.length; i++) {
-                inputs[i] = input(inShapes[i], inTypes[i], 17 + i);
+                inputs[i] = intValues[i] != null ? Tensor.of(intValues[i], inShapes[i]) : input(inShapes[i], inTypes[i], 17 + i);
             }
         }
         Tensor[] outs = new Tensor[outShapes.length];
