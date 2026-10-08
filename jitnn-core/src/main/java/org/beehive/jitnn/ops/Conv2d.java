@@ -78,14 +78,19 @@ public final class Conv2d implements Op {
     /** 1x1 stride-1 convolutions as one GEMM per image unless {@code -Djitnn.conv1x1=implicit}. */
     static final boolean POINTWISE_GEMM = !"implicit".equals(System.getProperty("jitnn.conv1x1"));
 
+    /** Fewest output positions per image for a pointwise convolution to run as one GEMM per image. */
+    static final int POINTWISE_MIN_PLANE = 256;
+
     /**
      * Whether a convolution is a pointwise one that runs as a batched GEMM: 1x1, stride 1, no
-     * padding, one group, with at least 128 64x64 output tiles over the batch (fewer leave the GPU
-     * idle, and the implicit GEMM's split-K handles them).
+     * padding, one group, with at least POINTWISE_MIN_PLANE positions per image (smaller planes
+     * leave the 64-wide GEMM tiles partly empty, where the implicit GEMM packs the whole batch) and
+     * at least 128 64x64 output tiles over the batch (fewer leave the GPU idle, and the implicit
+     * GEMM's split-K handles them).
      */
     static boolean pointwise(int[] a) {
         int plane = a[OH] * a[OW];
-        return POINTWISE_GEMM && a[K] == 1 && a[STRIDE] == 1 && a[PAD] == 0 && a[GROUPS] == 1
+        return POINTWISE_GEMM && a[K] == 1 && a[STRIDE] == 1 && a[PAD] == 0 && a[GROUPS] == 1 && plane >= POINTWISE_MIN_PLANE
                 && a[N] * Emitter.ceilDiv(a[COUT], GemmKernels.BM) * Emitter.ceilDiv(plane, GemmKernels.BN) >= 128;
     }
 
