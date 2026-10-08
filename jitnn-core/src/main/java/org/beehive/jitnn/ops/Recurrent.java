@@ -116,6 +116,12 @@ public final class Recurrent {
         return Emitter.blocks1D(groups, RnnKernels.STEP_ROWS * RnnKernels.STEP_UNITS);
     }
 
+    /** Work-groups of the split recurrent product of the backward steps. */
+    private static WorkerGrid backProduct(int[] a) {
+        int groups = RnnKernels.BACK_SPLIT * Emitter.ceilDiv(a[B], RnnKernels.STEP_ROWS) * Emitter.ceilDiv(a[H], RnnKernels.BACK_UNITS);
+        return Emitter.blocks1D(groups, RnnKernels.STEP_ROWS * RnnKernels.STEP_UNITS);
+    }
+
     /** The previous hidden states [h0, y_0 .. y_{T-2}] as [T B, H], for dW_hh. */
     private static Tensor previous(Tensor h0, Tensor y, int[] a) {
         Tensor first = h0.reshape(1, a[B], a[H]);
@@ -275,6 +281,20 @@ public final class Recurrent {
             FloatArray dc = e.scratch(a[T] * a[B] * a[H]);
             IntArray len = e.i32(n.in(5));
             int steps = a[T], b = a[B], h = a[H];
+            if (TILED) {
+                FloatArray part = e.scratch(RnnKernels.BACK_SPLIT * b * h);
+                int gw = 4 * h;
+                for (int t = steps - 1; t >= 0; t--) {
+                    int step = t;
+                    if (t < steps - 1) {
+                        e.task(backProduct(a), (g, id) -> g.task(id, RnnKernels::backProduct, e.context(), dGates, whh, part, step, b, h, gw));
+                    }
+                    e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmBackCell, e.context(), dy, part, gates, cs, c0, dGates, dc, len, step, steps, b, h));
+                }
+                e.task(backProduct(a), (g, id) -> g.task(id, RnnKernels::backProduct, e.context(), dGates, whh, part, -1, b, h, gw));
+                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmInitialCell, e.context(), part, gates, dc, dh0, dc0, b, h));
+                return;
+            }
             for (int t = steps - 1; t >= 0; t--) {
                 int step = t;
                 e.task(cells(a), (g, id) -> g.task(id, RnnKernels::lstmBackward, e.context(), dy, whh, gates, cs, c0, dGates, dc, len, step, steps, b, h));
@@ -445,6 +465,20 @@ public final class Recurrent {
             FloatArray dhs = e.scratch(a[T] * a[B] * a[H]);
             IntArray len = e.i32(n.in(6));
             int steps = a[T], b = a[B], h = a[H];
+            if (TILED) {
+                FloatArray part = e.scratch(RnnKernels.BACK_SPLIT * b * h);
+                int gw = 3 * h;
+                for (int t = steps - 1; t >= 0; t--) {
+                    int step = t;
+                    if (t < steps - 1) {
+                        e.task(backProduct(a), (g, id) -> g.task(id, RnnKernels::backProduct, e.context(), dHg, whh, part, step, b, h, gw));
+                    }
+                    e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruBackCell, e.context(), dy, part, y, h0, gates, hn, dXg, dHg, dhs, len, step, steps, b, h));
+                }
+                e.task(backProduct(a), (g, id) -> g.task(id, RnnKernels::backProduct, e.context(), dHg, whh, part, -1, b, h, gw));
+                e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruInitialCell, e.context(), part, gates, dhs, dh0, b, h));
+                return;
+            }
             for (int t = steps - 1; t >= 0; t--) {
                 int step = t;
                 e.task(cells(a), (g, id) -> g.task(id, RnnKernels::gruBackward, e.context(), dy, whh, y, h0, gates, hn, dXg, dHg, dhs, len, step, steps, b, h));
