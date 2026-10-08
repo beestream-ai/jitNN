@@ -12,6 +12,10 @@ usage: python gemm.py <name> <BM> <BN> <BK> <TM> <TN> [batched] [f16|bf16]
   grid (groupIdy = z * tilesY + row tile), and a reduction sums the partials (GemmKernels.sumSplitK).
   f16, bf16: A and B in half precision (HalfFloatArray, or bfloat16 bits in a ShortArray),
   converted to FP32 as they are staged in local memory; accumulation and C stay FP32.
+  pad: local-memory rows one float longer than the tile (BM + 1, BN + 1), so the tile stores,
+  where consecutive threads write consecutive k, fall in different banks.
+  dbuf: the next k tile is loaded into registers while the current one is multiplied, then stored
+  to local memory after it, so global loads overlap the arithmetic.
 """
 import sys
 
@@ -20,6 +24,8 @@ FLAGS = sys.argv[7:]
 BATCHED = "batched" in FLAGS
 SPLITK = "splitk" in FLAGS
 assert not (BATCHED and SPLITK)
+PAD = 1 if "pad" in FLAGS else 0
+DBUF = "dbuf" in FLAGS
 IN = "f16" if "f16" in FLAGS else ("bf16" if "bf16" in FLAGS else "f32")
 ARR = {"f32": "FloatArray", "f16": "HalfFloatArray", "bf16": "ShortArray"}[IN]
 
@@ -35,6 +41,7 @@ LX, LY = BN // TN, BM // TM
 T = LX * LY
 assert (BM * BK) % T == 0 and (BN * BK) % T == 0
 QA, QB = BM * BK // T, BN * BK // T
+SA, SB = BM + PAD, BN + PAD
 
 o = []
 w = o.append
@@ -54,8 +61,8 @@ else:
     w(f"     * computes a {BM}x{BN} block of C, each thread {TM}x{TN} outputs. Launch {LX}x{LY} groups of threads over")
     w(f"     * ceil(N/{BN}) x ceil(M/{BM}) groups. {{@code epilogue}}: see {{@link #store}}. */")
     w(f"    public static void {name}(KernelContext kc, {ARR} a, {ARR} b, FloatArray c, FloatArray bias, int m, int n, int k, int transA, int transB, int epilogue) {{")
-w(f"        float[] as = kc.allocateFloatLocalArray({BK * BM});")
-w(f"        float[] bs = kc.allocateFloatLocalArray({BK * BN});")
+w(f"        float[] as = kc.allocateFloatLocalArray({BK * SA});")
+w(f"        float[] bs = kc.allocateFloatLocalArray({BK * SB});")
 w("        int tx = kc.localIdx;")
 w("        int ty = kc.localIdy;")
 w(f"        int tid = ty * {LX} + tx;")
@@ -79,57 +86,155 @@ for i in range(TM):
         w(f"        float c{i}_{j} = 0.0f;")
 if SPLITK:
     w(f"        int tiles = (kEnd - kBegin + {BK - 1}) / {BK};")
-    w("        for (int t = 0; t < tiles; t++) {")
-    w(f"            int k0 = kBegin + t * {BK};")
 else:
     w(f"        int tiles = (k + {BK - 1}) / {BK};")
-    w("        for (int t = 0; t < tiles; t++) {")
-    w(f"            int k0 = t * {BK};")
 KLIM = "kEnd" if SPLITK else "k"
-w(f"            for (int q = 0; q < {QA}; q++) {{")
-w(f"                int idx = tid + {T} * q;")
-w("                int mm;")
-w("                int kk;")
-w("                if (transA == 0) {")
-w(f"                    mm = idx / {BK};")
-w(f"                    kk = idx - mm * {BK};")
-w("                } else {")
-w(f"                    kk = idx / {BM};")
-w(f"                    mm = idx - kk * {BM};")
-w("                }")
-w("                int gr = row0 + mm;")
-w("                int gk = k0 + kk;")
-w("                float va = 0.0f;")
-w(f"                if ((gr < m) & (gk < {KLIM})) {{")
-w(f"                    va = transA == 0 ? {load('a', OA + 'gr * k + gk')} : {load('a', OA + 'gk * m + gr')};")
-w("                }")
-w(f"                as[kk * {BM} + mm] = va;")
-w("            }")
-w(f"            for (int q = 0; q < {QB}; q++) {{")
-w(f"                int idx = tid + {T} * q;")
-w("                int nn;")
-w("                int kb;")
-w("                if (transB == 0) {")
-w(f"                    kb = idx / {BN};")
-w(f"                    nn = idx - kb * {BN};")
-w("                } else {")
-w(f"                    nn = idx / {BK};")
-w(f"                    kb = idx - nn * {BK};")
-w("                }")
-w("                int gc = col0 + nn;")
-w("                int gkb = k0 + kb;")
-w("                float vb = 0.0f;")
-w(f"                if ((gkb < {KLIM}) & (gc < n)) {{")
-w(f"                    vb = transB == 0 ? {load('b', OB + 'gkb * n + gc')} : {load('b', OB + 'gc * k + gkb')};")
-w("                }")
-w(f"                bs[kb * {BN} + nn] = vb;")
-w("            }")
+
+
+def tile_loads_loop(k0, ind):
+    """Loads the tile at k0 straight into local memory, one loop per operand."""
+    w(f"{ind}for (int q = 0; q < {QA}; q++) {{")
+    w(f"{ind}    int idx = tid + {T} * q;")
+    w(f"{ind}    int mm;")
+    w(f"{ind}    int kk;")
+    w(f"{ind}    if (transA == 0) {{")
+    w(f"{ind}        mm = idx / {BK};")
+    w(f"{ind}        kk = idx - mm * {BK};")
+    w(f"{ind}    }} else {{")
+    w(f"{ind}        kk = idx / {BM};")
+    w(f"{ind}        mm = idx - kk * {BM};")
+    w(f"{ind}    }}")
+    w(f"{ind}    int gr = row0 + mm;")
+    w(f"{ind}    int gk = {k0} + kk;")
+    w(f"{ind}    float va = 0.0f;")
+    w(f"{ind}    if ((gr < m) & (gk < {KLIM})) {{")
+    w(f"{ind}        va = transA == 0 ? {load('a', OA + 'gr * k + gk')} : {load('a', OA + 'gk * m + gr')};")
+    w(f"{ind}    }}")
+    w(f"{ind}    as[kk * {SA} + mm] = va;")
+    w(f"{ind}}}")
+    w(f"{ind}for (int q = 0; q < {QB}; q++) {{")
+    w(f"{ind}    int idx = tid + {T} * q;")
+    w(f"{ind}    int nn;")
+    w(f"{ind}    int kb;")
+    w(f"{ind}    if (transB == 0) {{")
+    w(f"{ind}        kb = idx / {BN};")
+    w(f"{ind}        nn = idx - kb * {BN};")
+    w(f"{ind}    }} else {{")
+    w(f"{ind}        nn = idx / {BK};")
+    w(f"{ind}        kb = idx - nn * {BK};")
+    w(f"{ind}    }}")
+    w(f"{ind}    int gc = col0 + nn;")
+    w(f"{ind}    int gkb = {k0} + kb;")
+    w(f"{ind}    float vb = 0.0f;")
+    w(f"{ind}    if ((gkb < {KLIM}) & (gc < n)) {{")
+    w(f"{ind}        vb = transB == 0 ? {load('b', OB + 'gkb * n + gc')} : {load('b', OB + 'gc * k + gkb')};")
+    w(f"{ind}    }}")
+    w(f"{ind}    bs[kb * {SB} + nn] = vb;")
+    w(f"{ind}}}")
+
+
+def tile_loads(dst, k0, ind):
+    """Loads the A and B elements of the tile at k0 into the prefetch registers (unrolled)."""
+    for q in range(QA):
+        w(f"{ind}{{")
+        w(f"{ind}    int idx = tid + {T * q};")
+        w(f"{ind}    int mm;")
+        w(f"{ind}    int kk;")
+        w(f"{ind}    if (transA == 0) {{")
+        w(f"{ind}        mm = idx / {BK};")
+        w(f"{ind}        kk = idx - mm * {BK};")
+        w(f"{ind}    }} else {{")
+        w(f"{ind}        kk = idx / {BM};")
+        w(f"{ind}        mm = idx - kk * {BM};")
+        w(f"{ind}    }}")
+        w(f"{ind}    int gr = row0 + mm;")
+        w(f"{ind}    int gk = {k0} + kk;")
+        w(f"{ind}    float va = 0.0f;")
+        w(f"{ind}    if ((gr < m) & (gk < {KLIM})) {{")
+        w(f"{ind}        va = transA == 0 ? {load('a', OA + 'gr * k + gk')} : {load('a', OA + 'gk * m + gr')};")
+        w(f"{ind}    }}")
+        w(f"{ind}    {'as[kk * ' + str(SA) + ' + mm]' if dst is None else 'ra' + str(q)} = va;")
+        w(f"{ind}}}")
+    for q in range(QB):
+        w(f"{ind}{{")
+        w(f"{ind}    int idx = tid + {T * q};")
+        w(f"{ind}    int nn;")
+        w(f"{ind}    int kb;")
+        w(f"{ind}    if (transB == 0) {{")
+        w(f"{ind}        kb = idx / {BN};")
+        w(f"{ind}        nn = idx - kb * {BN};")
+        w(f"{ind}    }} else {{")
+        w(f"{ind}        nn = idx / {BK};")
+        w(f"{ind}        kb = idx - nn * {BK};")
+        w(f"{ind}    }}")
+        w(f"{ind}    int gc = col0 + nn;")
+        w(f"{ind}    int gkb = {k0} + kb;")
+        w(f"{ind}    float vb = 0.0f;")
+        w(f"{ind}    if ((gkb < {KLIM}) & (gc < n)) {{")
+        w(f"{ind}        vb = transB == 0 ? {load('b', OB + 'gkb * n + gc')} : {load('b', OB + 'gc * k + gkb')};")
+        w(f"{ind}    }}")
+        w(f"{ind}    {'bs[kb * ' + str(SB) + ' + nn]' if dst is None else 'rb' + str(q)} = vb;")
+        w(f"{ind}}}")
+
+
+def store_registers(ind):
+    """Stores the prefetched registers of tile k0 into local memory (same index mapping as the loads)."""
+    for q in range(QA):
+        w(f"{ind}{{")
+        w(f"{ind}    int idx = tid + {T * q};")
+        w(f"{ind}    int mm;")
+        w(f"{ind}    int kk;")
+        w(f"{ind}    if (transA == 0) {{")
+        w(f"{ind}        mm = idx / {BK};")
+        w(f"{ind}        kk = idx - mm * {BK};")
+        w(f"{ind}    }} else {{")
+        w(f"{ind}        kk = idx / {BM};")
+        w(f"{ind}        mm = idx - kk * {BM};")
+        w(f"{ind}    }}")
+        w(f"{ind}    as[kk * {SA} + mm] = ra{q};")
+        w(f"{ind}}}")
+    for q in range(QB):
+        w(f"{ind}{{")
+        w(f"{ind}    int idx = tid + {T * q};")
+        w(f"{ind}    int nn;")
+        w(f"{ind}    int kb;")
+        w(f"{ind}    if (transB == 0) {{")
+        w(f"{ind}        kb = idx / {BN};")
+        w(f"{ind}        nn = idx - kb * {BN};")
+        w(f"{ind}    }} else {{")
+        w(f"{ind}        nn = idx / {BK};")
+        w(f"{ind}        kb = idx - nn * {BK};")
+        w(f"{ind}    }}")
+        w(f"{ind}    bs[kb * {SB} + nn] = rb{q};")
+        w(f"{ind}}}")
+
+
+if DBUF:
+    for q in range(QA):
+        w(f"        float ra{q} = 0.0f;")
+    for q in range(QB):
+        w(f"        float rb{q} = 0.0f;")
+    # registers hold tile 0 before the loop; each iteration stores tile t, then prefetches t + 1
+    w("        int kStart = " + ("kBegin" if SPLITK else "0") + ";")
+    w("        if (tiles > 0) {")
+    tile_loads("reg", "kStart", "            ")
+    w("        }")
+    w("        for (int t = 0; t < tiles; t++) {")
+    store_registers("            ")
+    w("            kc.localBarrier();")
+    w("            if (t + 1 < tiles) {")
+    tile_loads("reg", f"kStart + (t + 1) * {BK}", "                ")
+    w("            }")
+else:
+    w("        for (int t = 0; t < tiles; t++) {")
+    w(f"            int k0 = {'kBegin + ' if SPLITK else ''}t * {BK};")
+    tile_loads_loop("k0", "            ")
 w("            kc.localBarrier();")
 w(f"            for (int p = 0; p < {BK}; p++) {{")
 for i in range(TM):
-    w(f"                float a{i} = as[p * {BM} + ty + {LY * i}];")
+    w(f"                float a{i} = as[p * {SA} + ty + {LY * i}];")
 for j in range(TN):
-    w(f"                float b{j} = bs[p * {BN} + tx + {LX * j}];")
+    w(f"                float b{j} = bs[p * {SB} + tx + {LX * j}];")
 for i in range(TM):
     for j in range(TN):
         w(f"                c{i}_{j} += a{i} * b{j};")

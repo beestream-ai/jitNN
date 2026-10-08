@@ -380,6 +380,9 @@ public final class MatMul implements Op {
             e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::sumSplitK, e.context(), part, c, biasArg, sl, mn, n, epilogue));
             return;
         }
+        if (tuned(e, variant, a, b, c, biasArg, m, n, k, ta, tb, epilogue)) {
+            return;
+        }
         if (variant.equals("128") || (auto && m >= 1024 && n >= 1024 && k >= 64)) {
             WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, 128), Emitter.ceilDiv(m, 128), 16, 16);
             e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128, e.context(), a, b, c, biasArg, m, n, k, ta, tb, epilogue));
@@ -389,6 +392,46 @@ public final class MatMul implements Op {
         } else {
             e.task(Emitter.grid2D(n, m, GemmKernels.TILE), (g, id) -> g.task(id, GemmKernels::gemm, e.context(), a, b, c, biasArg, m, n, k, ta, tb, epilogue));
         }
+    }
+
+    /**
+     * The FP32 GEMM variants that pad local memory and prefetch the next tile (scripts/codegen/gemm.py
+     * pad, dbuf), chosen by name with {@code -Djitnn.gemm=}: returns false for any other name.
+     */
+    static boolean tuned(Emitter e, String variant, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        int bm;
+        int bn;
+        switch (variant) {
+            case "gemm64p", "gemm64pd" -> {
+                bm = 64;
+                bn = 64;
+            }
+            case "gemm128p", "gemm128pd" -> {
+                bm = 128;
+                bn = 128;
+            }
+            case "gemm128x64pd" -> {
+                bm = 128;
+                bn = 64;
+            }
+            case "gemm64x128pd" -> {
+                bm = 64;
+                bn = 128;
+            }
+            default -> {
+                return false;
+            }
+        }
+        WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, bn), Emitter.ceilDiv(m, bm), 16, 16);
+        switch (variant) {
+            case "gemm64p" -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64p, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue));
+            case "gemm64pd" -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64pd, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue));
+            case "gemm128p" -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128p, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue));
+            case "gemm128pd" -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128pd, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue));
+            case "gemm128x64pd" -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128x64pd, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue));
+            default -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64x128pd, e.context(), a, b, c, bias, m, n, k, ta, tb, epilogue));
+        }
+        return true;
     }
 
     @Override
