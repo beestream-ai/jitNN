@@ -152,8 +152,9 @@ public final class RowNorm implements Op {
             FloatArray rstd = e.f32(n.in(4));
             FloatArray dx = e.f32(n.out(0));
             FloatArray dw = e.f32(n.out(1));
-            if (WARP && e.isCuda()) {
-                // dx: a warp per row; dw, db: 16-row partials, then both sums in one launch
+            if (WARP && e.isCuda() && rows >= 1024 && cols <= 768) {
+                // dx: a warp per row (where it wins, as in the forward); dw, db: 16-row partials,
+                // then both sums in one launch
                 int chunks = Emitter.ceilDiv(rows, NormKernels.PARAM_ROWS);
                 FloatArray partW = e.scratch(chunks * cols);
                 FloatArray partB = e.scratch(chunks * cols);

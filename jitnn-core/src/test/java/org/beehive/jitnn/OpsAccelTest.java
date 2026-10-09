@@ -156,11 +156,11 @@ class OpsAccelTest {
         same("layer norm 1100x768", () -> F.layerNorm(Tensor.uniform(103, -2, 2, 1100, 768), Tensor.uniform(104, 0.5f, 1.5f, 768), Tensor.uniform(105, -1, 1, 768), 1e-5f), 1e-5, 2e-5);
         same("rms norm 300x1000", () -> F.rmsNorm(Tensor.uniform(106, -2, 2, 300, 1000), Tensor.uniform(107, 0.5f, 1.5f, 1000), 1e-6f), 1e-5, 2e-5);
         for (boolean bias : new boolean[] { true, false }) {
-            same("layer norm 1000x768 gradients, bias " + bias, () -> {
-                Tensor x = Tensor.uniform(108, -2, 2, 1000, 768).requiresGrad(true);
+            same("layer norm 1100x768 gradients, bias " + bias, () -> {
+                Tensor x = Tensor.uniform(108, -2, 2, 1100, 768).requiresGrad(true);
                 Tensor w = Tensor.uniform(109, 0.5f, 1.5f, 768).requiresGrad(true);
                 Tensor b = bias ? Tensor.uniform(110, -1, 1, 768).requiresGrad(true) : null;
-                F.layerNorm(x, w, b, 1e-5f).mul(Tensor.uniform(111, -1, 1, 1000, 768)).sum().backward();
+                F.layerNorm(x, w, b, 1e-5f).mul(Tensor.uniform(111, -1, 1, 1100, 768)).sum().backward();
                 Tensor g = Tensor.cat(0, x.grad().reshape(x.numel()), w.grad());
                 return bias ? Tensor.cat(0, g, b.grad()) : g;
             }, 1e-4, 1e-4);

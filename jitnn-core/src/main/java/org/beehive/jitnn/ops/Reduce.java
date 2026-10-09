@@ -100,20 +100,6 @@ public final class Reduce implements Op {
                 e.task(Emitter.grid1D(outputs), (g, id) -> g.task(id, ReduceKernels::reduceThread, e.context(), x, out, outer, len, inner, op, scale));
             }
         } else {
-            if (COLUMN_GROUPS && len >= 64) {
-                // Strided axis by work-groups of 32 columns x 8 row lanes, split along the axis
-                // so that about 16 groups per SM have work; then the parts summed in order.
-                int tiles = Emitter.ceilDiv(outputs, ReduceKernels.COL_TILE);
-                int parts = Math.max(1, Math.min(Emitter.ceilDiv(1728, tiles), len / 64));
-                int chunk = Emitter.ceilDiv(len, parts);
-                int sl = Emitter.ceilDiv(len, chunk);
-                FloatArray partial = sl > 1 ? e.scratch(outputs * sl) : null;
-                if (sl > 1) {
-                    e.task(Emitter.blocks1D(sl * tiles, 256), (g, id) -> g.task(id, ReduceKernels::reduceColumnsGroup, e.context(), x, partial, outer, len, inner, sl, chunk, op));
-                    e.task(Emitter.grid1D(outputs), (g, id) -> g.task(id, ReduceKernels::reduceThread, e.context(), partial, out, 1, sl, outputs, op, scale));
-                    return;
-                }
-            }
             // Strided axis: a thread per output column (coalesced), split along the axis when
             // there are too few columns to fill the device.
             int parts = splitParts(outputs, len, 64, 256);
@@ -127,9 +113,6 @@ public final class Reduce implements Op {
             }
         }
     }
-
-    /** Work-group column reductions ({@link ReduceKernels#reduceColumnsGroup}) unless {@code -Djitnn.reduceCols=thread}. */
-    static final boolean COLUMN_GROUPS = !"thread".equals(System.getProperty("jitnn.reduceCols"));
 
     /**
      * How many chunks to split each output's axis into so that about 2^16 threads have work:
