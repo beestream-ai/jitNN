@@ -153,7 +153,7 @@ class OpsAccelTest {
         same("sum over axis 0 of 2048x768", () -> Tensor.uniform(100, -1, 1, 2048, 768).sum(0, false), 1e-5, 1e-4);
         same("mean over axis 1 of 4x300x50", () -> Tensor.uniform(101, -1, 1, 4, 300, 50).mean(1, false), 1e-5, 2e-5);
         same("max over axis 0 of 500x70", () -> Tensor.uniform(102, -1, 1, 500, 70).max(0, false), 0, 0);
-        same("layer norm 1000x768", () -> F.layerNorm(Tensor.uniform(103, -2, 2, 1000, 768), Tensor.uniform(104, 0.5f, 1.5f, 768), Tensor.uniform(105, -1, 1, 768), 1e-5f), 1e-5, 2e-5);
+        same("layer norm 1100x768", () -> F.layerNorm(Tensor.uniform(103, -2, 2, 1100, 768), Tensor.uniform(104, 0.5f, 1.5f, 768), Tensor.uniform(105, -1, 1, 768), 1e-5f), 1e-5, 2e-5);
         same("rms norm 300x1000", () -> F.rmsNorm(Tensor.uniform(106, -2, 2, 300, 1000), Tensor.uniform(107, 0.5f, 1.5f, 1000), 1e-6f), 1e-5, 2e-5);
         for (boolean bias : new boolean[] { true, false }) {
             same("layer norm 1000x768 gradients, bias " + bias, () -> {
