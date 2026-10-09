@@ -4,6 +4,7 @@ import org.beehive.jitnn.DType;
 import org.beehive.jitnn.Shape;
 import org.beehive.jitnn.Tensor;
 import org.beehive.jitnn.engine.Emitter;
+import org.beehive.jitnn.engine.Tuning;
 import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.GemmKernels;
@@ -354,6 +355,13 @@ public final class MatMul implements Op {
      */
     static void emitGemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         String variant = System.getProperty("jitnn.gemm", "auto");
+        if (variant.equals("auto") && !e.isMetal()) {
+            // the device's tuning table, measured offline per shape class (Tuning); "auto" keeps the rules below
+            String tuned = Tuning.gemm(m, n, k, ta, tb);
+            if (tuned != null) {
+                variant = tuned;
+            }
+        }
         boolean auto = variant.equals("auto");
         boolean big = (long) m * n >= 64L * 64 && k >= 16;
         if ((variant.equals("simdgroup") || (auto && big)) && e.isMetal() && m % 8 == 0 && n % 8 == 0) {

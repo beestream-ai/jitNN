@@ -47,6 +47,23 @@ final class Devices {
         });
     }
 
+    private static final java.util.Map<String, String> NAMES = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The name of the device plans run on, as the driver reports it (e.g. "NVIDIA A100 80GB PCIe"). */
+    static String name() {
+        return NAMES.computeIfAbsent(key(), k -> {
+            String spec = CURRENT.get();
+            TornadoDevice d;
+            if (spec.isEmpty()) {
+                d = TornadoExecutionPlan.DEFAULT_DEVICE;
+            } else {
+                String[] parts = spec.split(":");
+                d = TornadoExecutionPlan.getDevice(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+            }
+            return d.getPhysicalDevice().getDeviceName();
+        });
+    }
+
     /**
      * Pins a task graph to the device before its tasks are added.
      *

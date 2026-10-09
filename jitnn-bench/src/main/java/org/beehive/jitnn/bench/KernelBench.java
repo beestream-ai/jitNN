@@ -211,7 +211,7 @@ public final class KernelBench {
         String device = System.getProperty("jitnn.device", "default");
         Map<String, List<Node>> captured = Workloads.capture(System.getProperty("jitnn.kbench.workloads", ""));
         List<OpCase> cases = cases(captured, System.getProperty("jitnn.kbench.families", ""));
-        System.out.printf("[kbench] %d workloads, %d distinct calls%n", captured.size(), cases.size());
+        System.out.printf("[kbench] %d workloads, %d distinct calls; tuning table %s%n", captured.size(), cases.size(), org.beehive.jitnn.engine.Tuning.fileName());
         int written = 0;
         try (ClockMonitor clocks = new ClockMonitor(System.getProperty("jitnn.kbench.gpu", "0"));
                 PrintWriter w = new PrintWriter(Files.newBufferedWriter(out, StandardOpenOption.CREATE, StandardOpenOption.APPEND))) {
