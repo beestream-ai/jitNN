@@ -102,9 +102,9 @@ public final class Reduce implements Op {
         } else {
             if (COLUMN_GROUPS && len >= 64) {
                 // Strided axis by work-groups of 32 columns x 8 row lanes, split along the axis
-                // so that about 4 groups per SM have work; then the parts summed in order.
+                // so that about 16 groups per SM have work; then the parts summed in order.
                 int tiles = Emitter.ceilDiv(outputs, ReduceKernels.COL_TILE);
-                int parts = Math.max(1, Math.min(Emitter.ceilDiv(432, tiles), len / 64));
+                int parts = Math.max(1, Math.min(Emitter.ceilDiv(1728, tiles), len / 64));
                 int chunk = Emitter.ceilDiv(len, parts);
                 int sl = Emitter.ceilDiv(len, chunk);
                 FloatArray partial = sl > 1 ? e.scratch(outputs * sl) : null;

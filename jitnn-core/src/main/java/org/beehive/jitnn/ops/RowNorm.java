@@ -65,7 +65,9 @@ public final class RowNorm implements Op {
         FloatArray y = e.f32(n.out(0));
         FloatArray mean = e.f32(n.out(1));
         FloatArray rstd = e.f32(n.out(2));
-        if (WARP && e.isCuda()) {
+        // the warp forward wins with many rows of moderate width (A100: 2048-4096 x 768); with few
+        // rows (128) or wide ones (1024 x 1024) a work-group per row is faster
+        if (WARP && e.isCuda() && rows >= 1024 && cols <= 768) {
             WorkerGrid grid = Emitter.blocks1D(Emitter.ceilDiv(rows, NormKernels.WARP_ROWS), 32 * NormKernels.WARP_ROWS);
             e.task(grid, (g, id) -> g.task(id, NormKernels::rowNormForwardWarp, e.context(), x, w, b, y, mean, rstd, rows, cols, eps, mode, hasBias));
             return;
