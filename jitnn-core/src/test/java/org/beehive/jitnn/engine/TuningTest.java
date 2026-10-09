@@ -14,6 +14,7 @@ class TuningTest {
         assertEquals("m11n10k12t01", Tuning.gemmClass(2048, 768, 3072, 0, 1));
         assertEquals("m11n10k12t01", Tuning.gemmClass(1100, 1000, 2100, 0, 1));
         assertEquals("m0n0k0t10", Tuning.gemmClass(1, 1, 1, 1, 0));
+        assertEquals("768x768x1024t10", Tuning.gemmShape(768, 768, 1024, 1, 0));
     }
 
     @Test

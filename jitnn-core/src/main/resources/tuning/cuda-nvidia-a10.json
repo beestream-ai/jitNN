@@ -45,6 +45,7 @@
   "m7n9k5t01": "gemm64pd",
   "m8n10k10t00": "gemm64pd",
   "m8n10k10t01": "gemm64pd",
-  "m8n10k4t00": "gemm64pd"
+  "m8n10k4t00": "gemm64pd",
+  "768x768x1024t10": "gemm64x128pd"
  }
 }

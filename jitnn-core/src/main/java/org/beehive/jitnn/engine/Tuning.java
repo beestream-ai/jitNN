@@ -21,8 +21,10 @@ import java.util.regex.Pattern;
  * {@code tuning/cuda-nvidia-a100-80gb-pcie.json}, or the file named by {@code -Djitnn.tuning=};
  * {@code -Djitnn.tuning=off} ignores tables. Its {@code "gemm"} object maps a shape class to a
  * variant name of {@code MatMul}: the class is {@code m<a>n<b>k<c>t<ta><tb>} with a, b, c the
- * ceiling log2 of M, N and K, so shapes of similar size share an entry. Shape classes without an
- * entry keep the built-in choice, as do all shapes when no table exists for the device.
+ * ceiling log2 of M, N and K, so shapes of similar size share an entry. An exact shape
+ * {@code <m>x<n>x<k>t<ta><tb>} overrides its class where the class's variant was measured slower
+ * for it. Shapes without an entry keep the built-in choice, as do all shapes when no table
+ * exists for the device.
  */
 public final class Tuning {
 
@@ -33,9 +35,16 @@ public final class Tuning {
     private Tuning() {
     }
 
-    /** The table's GEMM variant for this shape on the current device, or null. */
+    /** The table's GEMM variant for this shape on the current device (its exact entry, else its class's), or null. */
     public static String gemm(int m, int n, int k, int ta, int tb) {
-        return table("gemm").get(gemmClass(m, n, k, ta, tb));
+        Map<String, String> t = table("gemm");
+        String exact = t.get(gemmShape(m, n, k, ta, tb));
+        return exact != null ? exact : t.get(gemmClass(m, n, k, ta, tb));
+    }
+
+    /** The exact-shape key of a GEMM, for the entries that override their class. */
+    public static String gemmShape(int m, int n, int k, int ta, int tb) {
+        return m + "x" + n + "x" + k + "t" + ta + tb;
     }
 
     /** The shape class of a GEMM: ceiling log2 of M, N and K, and the transposes. */
