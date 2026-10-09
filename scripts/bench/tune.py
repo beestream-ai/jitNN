@@ -2,7 +2,8 @@
 sweep: one kernel benchmark file per variant, <dir>/<variant>.jsonl, the same calls in each, with
 "auto" the built-in choice. Calls are grouped by shape class (Tuning.gemmClass: ceiling log2 of M,
 N and K, and the transposes); a class gets an entry only when one variant beats auto's total for
-the class by more than the margin, so every entry is a measured win. A call that the class's
+the class by more than the margin, so every entry is a measured win, and only for classes of at
+least 0.1 ms per step (below that, timing noise picks the winner). A call that the class's
 variant makes slower than auto by more than the margin gets an exact-shape entry with its own best
 variant.
 
@@ -15,6 +16,9 @@ import math
 import os
 import sys
 from collections import defaultdict
+
+
+MIN_CLASS_US = 100.0
 
 
 def log2(x):
@@ -66,7 +70,9 @@ def main(d, device, margin=0.03):
     for c, t in sorted(totals.items()):
         best = min(t, key=t.get)
         before += t["auto"]
-        if best != "auto" and t[best] < t["auto"] * (1 - margin):
+        # classes under MIN_CLASS_US per step are a few microseconds per call, where timing noise
+        # decides the winner: they keep the built-in choice
+        if best != "auto" and t["auto"] >= MIN_CLASS_US and t[best] < t["auto"] * (1 - margin):
             table[c] = best
             after += t[best]
         else:

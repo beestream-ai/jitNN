@@ -16,7 +16,6 @@
   "m10n12k10t10": "gemm128pd",
   "m10n12k11t10": "gemm128pd",
   "m10n15k10t01": "gemm128pd",
-  "m10n9k7t10": "gemm128x64pd",
   "m11n10k10t00": "gemm64x128pd",
   "m11n10k10t01": "gemm64x128pd",
   "m11n10k12t00": "gemm64x128pd",
@@ -39,13 +38,9 @@
   "m12n9k8t00": "gemm128pd",
   "m15n10k10t10": "gemm128pd",
   "m16n10k11t10": "gemm128pd",
-  "m4n11k6t10": "gemm64pd",
-  "m6n9k4t00": "gemm128pd",
   "m7n12k10t01": "gemm64pd",
-  "m7n9k5t01": "gemm64pd",
   "m8n10k10t00": "gemm64pd",
   "m8n10k10t01": "gemm64pd",
-  "m8n10k4t00": "gemm64pd",
   "768x768x1024t10": "gemm64x128pd"
  }
 }

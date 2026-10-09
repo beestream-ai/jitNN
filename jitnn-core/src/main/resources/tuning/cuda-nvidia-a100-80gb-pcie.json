@@ -17,9 +17,7 @@
   "m12n7k11t00": "gemm64pd",
   "m15n10k10t10": "gemm128pd",
   "m16n10k11t10": "gemm128pd",
-  "m4n11k6t10": "gemm64pd",
   "m7n12k10t01": "gemm64pd",
-  "m8n10k10t00": "gemm64pd",
   "m8n10k10t01": "gemm64pd"
  }
 }
