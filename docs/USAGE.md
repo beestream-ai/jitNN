@@ -420,7 +420,10 @@ Tensor[] mm = MIN_MAX.applyAll(null, null, x);
 `apply(iattr, fattr, inputs...)` passes integer and float attributes, which the launcher reads from
 `n.iattr` and `n.fattr`. Compiled plans are cached by operator name and attributes, so names are
 global: building a second operator with a name already in use throws. Without a reference the
-operator runs only on a device; without a gradient, `backward()` through it throws.
+operator runs only on a device; without a gradient, `backward()` through it throws. TornadoVM
+names the generated kernel after the Java method, so a kernel method must not be named like a
+CUDA or OpenCL built-in (`exp`, `hypot`, `max`, ...) or a C++ keyword (`not`, `and`, ...);
+`unary` and `binary` reject such names.
 
 ## Printing the kernels
 

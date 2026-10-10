@@ -20,7 +20,7 @@ final class CustomOpFixtures {
         }
     }
 
-    public static void hypot(KernelContext kc, FloatArray a, FloatArray b, FloatArray y, int n) {
+    public static void hypotenuse(KernelContext kc, FloatArray a, FloatArray b, FloatArray y, int n) {
         int i = kc.globalIdx;
         if (i < n) {
             float p = a.get(i);
@@ -53,11 +53,19 @@ final class CustomOpFixtures {
         }
     }
 
+    /** Named like a CUDA built-in: rejected. */
+    public static void exp(KernelContext kc, FloatArray x, FloatArray y, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            y.set(i, TornadoMath.exp(x.get(i)));
+        }
+    }
+
     // d/dx x s(x) = y + s(x) (1 - y)
     static final CustomOp SWISH = CustomOp.unary("test.swish", CustomOpFixtures::swish, v -> v / (1 + Math.exp(-v)))
             .withGradient((x, y, gy) -> gy.mul(y.add(x.sigmoid().mul(y.neg().add(1)))));
 
-    static final CustomOp HYPOT = CustomOp.binary("test.hypot", CustomOpFixtures::hypot, Math::hypot)
+    static final CustomOp HYPOT = CustomOp.binary("test.hypot", CustomOpFixtures::hypotenuse, Math::hypot)
             .withGradient((a, b, y, gy) -> new Tensor[] { gy.mul(a.div(y)), gy.mul(b.div(y)) });
 
     static final CustomOp MIN_MAX = CustomOp.builder("test.minMax")

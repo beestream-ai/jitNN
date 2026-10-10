@@ -60,6 +60,8 @@ class CustomOpTest {
         assertThrows(IllegalArgumentException.class, () -> HYPOT.apply(Tensor.zeros(2), Tensor.zeros(3)));
         assertThrows(IllegalArgumentException.class, () -> SWISH.apply(Tensor.of(new int[] { 1 }, 1)));
         assertThrows(IllegalStateException.class, () -> CustomOp.builder("test.incomplete").inputs(DType.F32).build());
+        Exception reserved = assertThrows(IllegalArgumentException.class, () -> CustomOp.unary("test.exp", CustomOpFixtures::exp, Math::exp));
+        assertTrue(reserved.getMessage().contains("rename"), reserved.getMessage());
         CustomOp noHost = CustomOp.unary("test.deviceOnly", CustomOpFixtures::swish, null);
         Exception e = assertThrows(UnsupportedOperationException.class, () -> Engine.with(Backend.REFERENCE, () -> noHost.apply(Tensor.zeros(2)).toFloatArray()));
         assertTrue(e.getMessage().contains("no host reference"));

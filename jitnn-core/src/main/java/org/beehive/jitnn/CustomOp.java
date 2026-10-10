@@ -45,7 +45,9 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
  * {@code KernelContext} first and bound-check their thread index; they never use {@code @Parallel}.
  *
  * <p>Names are global: compiled plans are cached by the operators' names and attributes, so two
- * operators cannot share a name.
+ * operators cannot share a name. Kernel methods must not be named like a CUDA or OpenCL built-in
+ * ({@code exp}, {@code hypot}, {@code max}, ...) or a C++ keyword ({@code not}, {@code and}, ...):
+ * the generated kernel takes the method's name.
  */
 public final class CustomOp {
 
@@ -87,6 +89,33 @@ public final class CustomOp {
 
     private static final Map<String, CustomOp> NAMES = new ConcurrentHashMap<>();
 
+    /**
+     * Names a kernel method cannot have: TornadoVM names the generated kernel after the Java
+     * method, and these clash with CUDA or OpenCL built-in functions or C++ keywords.
+     */
+    private static final java.util.Set<String> RESERVED = java.util.Set.of("sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+            "exp", "exp2", "exp10", "expm1", "log", "log2", "log10", "log1p", "pow", "sqrt", "rsqrt", "cbrt", "hypot", "floor", "ceil", "round", "rint", "trunc", "fabs", "abs",
+            "fmin", "fmax", "min", "max", "fmod", "remainder", "erf", "erfc", "lgamma", "tgamma", "fma", "copysign", "signbit", "isnan", "isinf", "isfinite", "ldexp", "frexp",
+            "modf", "nan", "sincos", "norm", "clamp", "mix", "step", "smoothstep", "dot", "cross", "length", "distance", "normalize", "select", "sign", "degrees", "radians",
+            "not", "and", "or", "xor", "bitand", "bitor", "compl", "not_eq", "and_eq", "or_eq", "xor_eq", "new", "delete", "this", "class", "template", "typename", "namespace",
+            "operator", "friend", "virtual", "default", "register", "signed", "unsigned", "union", "struct", "auto", "inline", "restrict", "kernel", "global", "local", "constant");
+
+    /** Fails early when a kernel's method name clashes with a device built-in (see {@link #RESERVED}). */
+    static void checkKernelName(java.io.Serializable kernel) {
+        String method;
+        try {
+            java.lang.reflect.Method replace = kernel.getClass().getDeclaredMethod("writeReplace");
+            replace.setAccessible(true);
+            method = ((java.lang.invoke.SerializedLambda) replace.invoke(kernel)).getImplMethodName();
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return;
+        }
+        if (RESERVED.contains(method)) {
+            throw new IllegalArgumentException("kernel method " + method + " has the name of a CUDA or OpenCL built-in or a C++ keyword, which the generated kernel cannot "
+                    + "take: rename the method");
+        }
+    }
+
     private final String name;
     private final List<OutputShape> shapes;
     private final List<DType> dtypes;
@@ -117,6 +146,7 @@ public final class CustomOp {
      * one value on the host.
      */
     public static CustomOp unary(String name, Task4<KernelContext, FloatArray, FloatArray, Integer> kernel, DoubleUnaryOperator reference) {
+        checkKernelName(kernel);
         return builder(name).inputs(DType.F32).output((in, a) -> in[0].shape(), DType.F32).launch((e, n) -> {
             FloatArray x = e.f32(n.in(0));
             FloatArray y = e.f32(n.out(0));
@@ -136,6 +166,7 @@ public final class CustomOp {
      * {@code kernel(kc, a, b, y, n)} on a 1-D grid of at least n threads.
      */
     public static CustomOp binary(String name, Task5<KernelContext, FloatArray, FloatArray, FloatArray, Integer> kernel, DoubleBinaryOperator reference) {
+        checkKernelName(kernel);
         return builder(name).inputs(DType.F32, DType.F32).output((in, a) -> {
             if (!in[0].shape().equals(in[1].shape())) {
                 throw new IllegalArgumentException(name + ": operands must have the same shape, got " + in[0].shape() + " and " + in[1].shape());
