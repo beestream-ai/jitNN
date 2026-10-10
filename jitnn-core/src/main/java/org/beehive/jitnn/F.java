@@ -817,6 +817,63 @@ public final class F {
     }
 
     /** Per-channel (x - mean) / std of images [N, C, H, W] (torchvision's normalize). */
+    /** x / max(||x||_p, eps) along {@code axis}, p = 1 or 2 (torch.nn.functional.normalize; ONNX LpNormalization with eps 0). */
+    public static Tensor lpNormalize(Tensor x, int p, int axis, float eps) {
+        Tensor norm = x.norm(p, axis, true);
+        return x.div(eps > 0 ? norm.maximum(Tensor.scalar(eps)) : norm);
+    }
+
+    /**
+     * Moves blocks of channels into space: x [N, C, H, W] to [N, C / b^2, H b, W b]. Mode "DCR"
+     * (depth, column, row; ONNX's default) or "CRD" (column, row, depth: torch pixel_shuffle).
+     */
+    public static Tensor depthToSpace(Tensor x, int block, String mode) {
+        if (x.rank() != 4) {
+            throw new IllegalArgumentException("depthToSpace: needs [N, C, H, W], got " + x.shape());
+        }
+        int n = x.dim(0), c = x.dim(1), h = x.dim(2), w = x.dim(3), b = block;
+        if (c % (b * b) != 0) {
+            throw new IllegalArgumentException("depthToSpace: " + c + " channels are not a multiple of " + b * b);
+        }
+        int co = c / (b * b);
+        Tensor t = switch (mode) {
+            case "DCR" -> x.reshape(n, b, b, co, h, w).permute(0, 3, 4, 1, 5, 2);
+            case "CRD" -> x.reshape(n, co, b, b, h, w).permute(0, 1, 4, 2, 5, 3);
+            default -> throw new IllegalArgumentException("depthToSpace: mode must be DCR or CRD, got " + mode);
+        };
+        return t.reshape(n, co, h * b, w * b);
+    }
+
+    /** Moves blocks of space into channels: x [N, C, H, W] to [N, C b^2, H / b, W / b] (ONNX SpaceToDepth; inverse of DCR depthToSpace). */
+    public static Tensor spaceToDepth(Tensor x, int block) {
+        if (x.rank() != 4) {
+            throw new IllegalArgumentException("spaceToDepth: needs [N, C, H, W], got " + x.shape());
+        }
+        int n = x.dim(0), c = x.dim(1), h = x.dim(2), w = x.dim(3), b = block;
+        if (h % b != 0 || w % b != 0) {
+            throw new IllegalArgumentException("spaceToDepth: " + h + "x" + w + " is not a multiple of " + b);
+        }
+        return x.reshape(n, c, h / b, b, w / b, b).permute(0, 3, 5, 1, 2, 4).reshape(n, c * b * b, h / b, w / b);
+    }
+
+    /** Slices of data picked by INT32 index rows indices [..., k] (ONNX GatherND, batch_dims 0); differentiable in data. */
+    public static Tensor gatherND(Tensor data, Tensor indices) {
+        return org.beehive.jitnn.ops.NdIndexing.gatherND(data, indices);
+    }
+
+    /**
+     * A copy of data with the update slices written ("none"), added ("add") or multiplied ("mul")
+     * at the INT32 index rows indices [..., k] (ONNX ScatterND); differentiable for none and add.
+     */
+    public static Tensor scatterND(Tensor data, Tensor indices, Tensor updates, String reduction) {
+        return org.beehive.jitnn.ops.NdIndexing.scatterND(data, indices, updates, reduction);
+    }
+
+    /** Folds columns back into an image, summing overlaps (torch fold, ONNX Col2Im); see {@link org.beehive.jitnn.ops.Spatial#fold}. */
+    public static Tensor fold(Tensor cols, int[] outputSize, int[] kernel, int[] stride, int[] pad, int[] dil) {
+        return org.beehive.jitnn.ops.Spatial.fold(cols, outputSize, kernel, stride, pad, dil);
+    }
+
     public static Tensor normalizeImage(Tensor x, float[] mean, float[] std) {
         int c = x.dim(1);
         if (mean.length != c || std.length != c) {

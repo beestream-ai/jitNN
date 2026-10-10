@@ -140,6 +140,13 @@ public final class Emitter {
         return use(a);
     }
 
+    /** An INT32 device work buffer owned by the compiled plan. */
+    public uk.ac.manchester.tornado.api.types.arrays.IntArray scratchI32(int numel) {
+        uk.ac.manchester.tornado.api.types.arrays.IntArray a = new uk.ac.manchester.tornado.api.types.arrays.IntArray(Math.max(numel, 1));
+        scratch.add(a);
+        return use(a);
+    }
+
     /** True when the plan runs on Metal (simdgroup matrix kernels are available). */
     public boolean isMetal() {
         return Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.METAL;

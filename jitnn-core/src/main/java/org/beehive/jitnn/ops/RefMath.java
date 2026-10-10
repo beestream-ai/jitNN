@@ -73,6 +73,8 @@ final class RefMath {
             case ElementwiseKernels.MINIMUM -> Double.isNaN(x) || Double.isNaN(y) ? Double.NaN : Math.min(x, y);
             case ElementwiseKernels.FMAX -> Double.isNaN(x) ? y : (Double.isNaN(y) ? x : Math.max(x, y));
             case ElementwiseKernels.FMIN -> Double.isNaN(x) ? y : (Double.isNaN(y) ? x : Math.min(x, y));
+            case ElementwiseKernels.REMAINDER -> x - Math.floor(x / y) * y;
+            case ElementwiseKernels.FMOD -> x - (x / y < 0 ? Math.ceil(x / y) : Math.floor(x / y)) * y;
             default -> x;
         };
     }

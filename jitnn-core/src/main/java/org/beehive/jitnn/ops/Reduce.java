@@ -11,18 +11,20 @@ import org.beehive.jitnn.kernels.ReduceKernels;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
-/** Sum, mean, max and min along one axis, and argmax. */
+/** Sum, mean, max, min and product along one axis, and argmax and argmin. */
 public final class Reduce implements Op {
 
     public enum Kind {
         SUM,
         MEAN,
         MAX,
-        MIN
+        MIN,
+        PROD
     }
 
     static final Reduce OP = new Reduce();
-    static final ArgMax ARGMAX = new ArgMax();
+    static final ArgMax ARGMAX = new ArgMax(false);
+    static final ArgMax ARGMIN = new ArgMax(true);
 
     // iattr = [kernel op, outer, len, inner, isMean]
     private Reduce() {
@@ -41,6 +43,7 @@ public final class Reduce implements Op {
             case SUM, MEAN -> ReduceKernels.SUM;
             case MAX -> ReduceKernels.MAX;
             case MIN -> ReduceKernels.MIN;
+            case PROD -> ReduceKernels.PROD;
         };
         float scale = kind == Kind.MEAN ? 1.0f / geo[1] : 1.0f;
         Tensor out = Tensor.result(s.reduce(a, keepDim), DType.F32);
@@ -49,11 +52,19 @@ public final class Reduce implements Op {
     }
 
     public static Tensor argmax(Tensor x, int axis) {
+        return arg(ARGMAX, x, axis);
+    }
+
+    public static Tensor argmin(Tensor x, int axis) {
+        return arg(ARGMIN, x, axis);
+    }
+
+    private static Tensor arg(ArgMax op, Tensor x, int axis) {
         Checks.f32(x);
         int a = x.shape().axis(axis);
         int[] geo = geometry(x.shape(), a);
         Tensor out = Tensor.result(x.shape().reduce(a, false), DType.I32);
-        Tensor.record(ARGMAX, new Tensor[] { x }, new Tensor[] { out }, geo, null, true);
+        Tensor.record(op, new Tensor[] { x }, new Tensor[] { out }, geo, null, true);
         return out;
     }
 
@@ -138,10 +149,10 @@ public final class Reduce implements Op {
         int inner = n.iattr[3];
         for (int oi = 0; oi < outer; oi++) {
             for (int j = 0; j < inner; j++) {
-                double acc = op == ReduceKernels.MAX ? Double.NEGATIVE_INFINITY : op == ReduceKernels.MIN ? Double.POSITIVE_INFINITY : 0;
+                double acc = op == ReduceKernels.MAX ? Double.NEGATIVE_INFINITY : op == ReduceKernels.MIN ? Double.POSITIVE_INFINITY : op == ReduceKernels.PROD ? 1 : 0;
                 for (int k = 0; k < len; k++) {
                     double v = x.get((oi * len + k) * inner + j);
-                    acc = op == ReduceKernels.MAX ? Math.max(acc, v) : op == ReduceKernels.MIN ? Math.min(acc, v) : acc + v;
+                    acc = op == ReduceKernels.MAX ? Math.max(acc, v) : op == ReduceKernels.MIN ? Math.min(acc, v) : op == ReduceKernels.PROD ? acc * v : acc + v;
                 }
                 o.set(oi * inner + j, (float) (op == ReduceKernels.SUM ? acc * n.fattr[0] : acc));
             }
@@ -157,17 +168,28 @@ public final class Reduce implements Op {
         if (n.iattr[0] == ReduceKernels.SUM) {
             return new Tensor[] { n.iattr[4] == 1 ? g.mul(n.fattr[0]) : g };
         }
+        if (n.iattr[0] == ReduceKernels.PROD) {
+            // d prod / d x_k = prod / x_k (inputs that are exactly zero are not special-cased)
+            Tensor prod = n.out(0).reshape(keep.dims()).expand(x.shape());
+            return new Tensor[] { g.mul(prod).div(x) };
+        }
         // max/min: the gradient goes to every element equal to the extremum.
         Tensor extremum = n.out(0).reshape(keep.dims()).expand(x.shape());
         return new Tensor[] { g.mul(x.eq(extremum)) };
     }
 
-    /** Argmax along an axis; iattr = [outer, len, inner]. */
+    /** Argmax (or argmin) along an axis: the first index of the extremum; iattr = [outer, len, inner]. */
     static final class ArgMax implements Op {
+
+        private final boolean min;
+
+        ArgMax(boolean min) {
+            this.min = min;
+        }
 
         @Override
         public String name() {
-            return "argmax";
+            return min ? "argmin" : "argmax";
         }
 
         @Override
@@ -177,7 +199,11 @@ public final class Reduce implements Op {
             int outer = n.iattr[0];
             int len = n.iattr[1];
             int inner = n.iattr[2];
-            e.task(Emitter.grid1D(outer * inner), (g, id) -> g.task(id, ReduceKernels::argmaxThread, e.context(), x, out, outer, len, inner));
+            if (min) {
+                e.task(Emitter.grid1D(outer * inner), (g, id) -> g.task(id, ReduceKernels::argminThread, e.context(), x, out, outer, len, inner));
+            } else {
+                e.task(Emitter.grid1D(outer * inner), (g, id) -> g.task(id, ReduceKernels::argmaxThread, e.context(), x, out, outer, len, inner));
+            }
         }
 
         @Override
@@ -191,7 +217,9 @@ public final class Reduce implements Op {
                 for (int j = 0; j < inner; j++) {
                     int best = 0;
                     for (int k = 1; k < len; k++) {
-                        if (x.get((oi * len + k) * inner + j) > x.get((oi * len + best) * inner + j)) {
+                        float v = x.get((oi * len + k) * inner + j);
+                        float b = x.get((oi * len + best) * inner + j);
+                        if (min ? v < b : v > b) {
                             best = k;
                         }
                     }

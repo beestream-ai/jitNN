@@ -62,7 +62,9 @@ public final class Binary implements Op {
         MAXIMUM(ElementwiseKernels.MAXIMUM),
         MINIMUM(ElementwiseKernels.MINIMUM),
         FMAX(ElementwiseKernels.FMAX),
-        FMIN(ElementwiseKernels.FMIN);
+        FMIN(ElementwiseKernels.FMIN),
+        REMAINDER(ElementwiseKernels.REMAINDER),
+        FMOD(ElementwiseKernels.FMOD);
 
         final int code;
 
@@ -238,6 +240,9 @@ public final class Binary implements Op {
                 Tensor r = a.square().add(b.square());
                 yield new Tensor[] { ga ? gy.mul(b).div(r).sumTo(sa) : null, gb ? gy.mul(a).div(r).neg().sumTo(sb) : null };
             }
+            // d/da = 1; d/db = -floor(a / b) (remainder) or -trunc(a / b) (fmod)
+            case REMAINDER -> new Tensor[] { ga ? gy.sumTo(sa) : null, gb ? gy.mul(a.div(b).floor()).neg().sumTo(sb) : null };
+            case FMOD -> new Tensor[] { ga ? gy.sumTo(sa) : null, gb ? gy.mul(a.div(b).abs().floor().mul(a.div(b).sign())).neg().sumTo(sb) : null };
             case GT, LT, GE, EQ, NE, LE, LOGICAL_AND, LOGICAL_OR, LOGICAL_XOR -> new Tensor[] { null, null };
             case ADD_RELU -> {
                 Tensor g = apply(Kind.RELU_GRAD, n.out(0), gy);

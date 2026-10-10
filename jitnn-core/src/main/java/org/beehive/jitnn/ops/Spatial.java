@@ -76,6 +76,42 @@ public final class Spatial {
         return cols;
     }
 
+    /**
+     * Folds columns [N, C * prod(kernel), prod(out)] back into x [N, C, ...outputSize], summing
+     * overlapping windows: PyTorch's fold, ONNX's Col2Im, the inverse of {@link #unfold} with the
+     * same kernel, stride, padding and dilation.
+     */
+    public static Tensor fold(Tensor cols, int[] outputSize, int[] kernel, int[] stride, int[] pad, int[] dil) {
+        Checks.f32(cols);
+        Checks.rank(cols, 3);
+        int r = outputSize.length;
+        if (r < 1 || r > 3 || kernel.length != r || stride.length != r || pad.length != r || dil.length != r) {
+            throw new IllegalArgumentException("fold: one output size/kernel/stride/padding/dilation per spatial axis (1 to 3)");
+        }
+        int[] in = axes3(outputSize, 1);
+        int[] k = axes3(kernel, 1);
+        int[] s = axes3(stride, 1);
+        int[] p = axes3(pad, 0);
+        int[] d = axes3(dil, 1);
+        int[] o = new int[3];
+        for (int a = 0; a < 3; a++) {
+            o[a] = (in[a] + 2 * p[a] - d[a] * (k[a] - 1) - 1) / s[a] + 1;
+        }
+        int window = k[0] * k[1] * k[2];
+        if (cols.dim(1) % window != 0 || cols.dim(2) != o[0] * o[1] * o[2]) {
+            throw new IllegalArgumentException("fold: columns " + cols.shape() + " do not match the kernel and output size");
+        }
+        int c = cols.dim(1) / window;
+        int[] meta = { c, in[0], in[1], in[2], k[0], k[1], k[2], s[0], s[1], s[2], p[0], p[1], p[2], d[0], d[1], d[2], o[0], o[1], o[2] };
+        int[] dims = new int[2 + r];
+        dims[0] = cols.dim(0);
+        dims[1] = c;
+        System.arraycopy(outputSize, 0, dims, 2, r);
+        Tensor x = Tensor.result(Shape.of(dims), DType.F32);
+        Tensor.record(FOLD, new Tensor[] { cols }, new Tensor[] { x }, meta, null, true);
+        return x;
+    }
+
     static final class Unfold implements Op {
 
         @Override
@@ -124,8 +160,15 @@ public final class Spatial {
         }
     }
 
-    /** Gradient of unfold: inputs [dCols], output dx; iattr as {@link Unfold}. */
+    /** Fold (col2im), also the gradient of unfold: inputs [cols], output x; iattr as {@link Unfold}. */
     static final class Fold implements Op {
+
+        @Override
+        public Tensor[] backward(Node n, Tensor gy) {
+            Tensor gc = Tensor.result(n.in(0).shape(), DType.F32);
+            Tensor.record(UNFOLD, new Tensor[] { gy }, new Tensor[] { gc }, n.iattr.clone(), null, true);
+            return new Tensor[] { gc };
+        }
 
         @Override
         public String name() {

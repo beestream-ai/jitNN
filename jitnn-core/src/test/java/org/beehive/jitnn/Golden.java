@@ -54,10 +54,17 @@ public final class Golden {
         return cases;
     }
 
+    /** The goldens of goldens.py, then those of goldens_ops2.py (golden/ops2). */
     private static List<Case> load() throws IOException {
+        List<Case> all = new ArrayList<>(load("/golden/"));
+        all.addAll(load("/golden/ops2/"));
+        return all;
+    }
+
+    private static List<Case> load(String dir) throws IOException {
         byte[] data;
         String manifest;
-        try (InputStream d = Golden.class.getResourceAsStream("/golden/data.bin"); InputStream m = Golden.class.getResourceAsStream("/golden/manifest.txt")) {
+        try (InputStream d = Golden.class.getResourceAsStream(dir + "data.bin"); InputStream m = Golden.class.getResourceAsStream(dir + "manifest.txt")) {
             data = d.readAllBytes();
             manifest = new String(m.readAllBytes(), StandardCharsets.UTF_8);
         }
@@ -358,6 +365,27 @@ public final class Golden {
             case "minimum_nan" -> in[0].minimumNaN(in[1]);
             case "fmax" -> in[0].fmax(in[1]);
             case "fmin" -> in[0].fmin(in[1]);
+            case "remainder" -> in[0].remainder(in[1]);
+            case "fmod" -> in[0].fmod(in[1]);
+            case "prod" -> in[0].prod(c.iattr(0), c.iattr(1) != 0);
+            case "argmin" -> in[0].argmin(c.iattr(0));
+            case "norm" -> in[0].norm(c.iattr(0), c.iattr(1), c.iattr(2) != 0);
+            case "lp_normalize" -> F.lpNormalize(in[0], c.iattr(0), c.iattr(1), c.fattr(2));
+            case "depth_to_space" -> F.depthToSpace(in[0], c.iattr(0), c.iattr(1) == 0 ? "DCR" : "CRD");
+            case "space_to_depth" -> F.spaceToDepth(in[0], c.iattr(0));
+            case "tile" -> in[0].tile(ints(c, 0));
+            case "fold" -> F.fold(in[0], new int[] { c.iattr(0), c.iattr(1) }, new int[] { c.iattr(2), c.iattr(3) }, new int[] { c.iattr(4), c.iattr(5) }, new int[] { c.iattr(6), c.iattr(7) },
+                    new int[] { c.iattr(8), c.iattr(9) });
+            case "eye_like" -> Tensor.eyeLike(in[0], c.iattr(0));
+            case "arange" -> Tensor.arange(c.fattr(0), c.fattr(1), c.fattr(2));
+            case "bitwise_and" -> in[0].bitwiseAnd(in[1]);
+            case "bitwise_or" -> in[0].bitwiseOr(in[1]);
+            case "bitwise_xor" -> in[0].bitwiseXor(in[1]);
+            case "bitwise_not" -> in[0].bitwiseNot();
+            case "shift_left" -> in[0].shiftLeft(in[1]);
+            case "shift_right" -> in[0].shiftRight(in[1]);
+            case "gather_nd" -> F.gatherND(in[0], in[1]);
+            case "scatter_nd" -> F.scatterND(in[0], in[1], in[2], new String[] { "none", "add", "mul" }[c.iattr(0)]);
             default -> throw new IllegalArgumentException("unknown golden op " + c.op());
         };
     }
@@ -439,7 +467,7 @@ public final class Golden {
     /** Tolerance class: exact-ish element-wise ops vs accumulating ones (reductions, GEMM, softmax). */
     public static double[] tolerance(Case c, boolean gradient) {
         boolean accumulates = switch (c.op()) {
-            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag", "rnn_lstm", "rnn_gru", "triplet_margin", "contrastive", "cosine_embedding", "margin_ranking", "ctc", "sparsemax", "lu_factor", "solve_triangular", "solve", "inv", "det", "slogdet", "cholesky", "qr", "eigh", "svd", "fft", "ifft", "rfft", "irfft", "fft2", "rfft2", "stft", "istft", "spmm", "gcn", "negative_sampling", "glove_loss", "fp8_linear", "fp8_scaled_mm", "gguf_linear", "gguf_dequant" -> true;
+            case "sum", "mean", "sum_all", "mean_all", "matmul", "softmax", "log_softmax", "cross_entropy", "linear", "linear_relu", "linear_nobias", "conv2d", "conv2d_nobias", "batch_norm", "global_avg_pool", "avg_pool2d", "embedding", "layer_norm", "layer_norm_nobias", "rms_norm", "sdpa", "sdpa_mask", "mha", "mha_mask", "sdpa_bthd", "sdpa_bthd_mask", "matmul_half", "linear_half", "mse", "mse_sum", "bce", "bce_logits", "gaussian_kl", "conv_transpose2d", "conv_transpose2d_nobias", "upsample", "interpolate", "lstm", "gru", "prelu", "l1", "huber", "smooth_l1", "nll_mean", "hinge", "squared_hinge", "cosine_similarity", "cosine_proximity", "poisson_log", "poisson", "msle", "mape", "group_norm", "instance_norm", "lrn", "weight_norm", "conv1d", "conv3d", "avg_pool1d", "avg_pool3d", "adaptive_avg", "cumsum", "cumprod", "index_select", "scatter_add", "embedding_bag", "rnn_lstm", "rnn_gru", "triplet_margin", "contrastive", "cosine_embedding", "margin_ranking", "ctc", "sparsemax", "lu_factor", "solve_triangular", "solve", "inv", "det", "slogdet", "cholesky", "qr", "eigh", "svd", "fft", "ifft", "rfft", "irfft", "fft2", "rfft2", "stft", "istft", "spmm", "gcn", "negative_sampling", "glove_loss", "fp8_linear", "fp8_scaled_mm", "gguf_linear", "gguf_dequant", "prod", "norm", "lp_normalize", "fold", "scatter_nd" -> true;
             default -> false;
         };
         double rtol = accumulates ? 1e-4 : 2e-6;

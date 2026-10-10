@@ -96,6 +96,10 @@ public final class ElementwiseKernels {
     public static final int FMAX = 46;
     /** min(x, y) ignoring a NaN operand (torch.fmin). */
     public static final int FMIN = 47;
+    /** x - floor(x / y) y, the sign of y (torch.remainder, Python's %). */
+    public static final int REMAINDER = 48;
+    /** x - trunc(x / y) y, the sign of x (torch.fmod, C's fmod). */
+    public static final int FMOD = 49;
 
     // Unary op codes: out = f(x; alpha, beta).
     public static final int NEG = 0;
@@ -314,6 +318,12 @@ public final class ElementwiseKernels {
             r = nx ? y : (ny ? x : (x > y ? x : y));
         } else if (op == FMIN) {
             r = nx ? y : (ny ? x : (x < y ? x : y));
+        } else if (op == REMAINDER) {
+            r = x - TornadoMath.floor(x / y) * y;
+        } else if (op == FMOD) {
+            float q = x / y;
+            float t = q < 0.0f ? TornadoMath.ceil(q) : TornadoMath.floor(q);
+            r = x - t * y;
         } else {
             r = x;
         }

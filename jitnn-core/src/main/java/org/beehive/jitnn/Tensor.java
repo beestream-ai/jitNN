@@ -69,6 +69,39 @@ public final class Tensor {
         return new Tensor(s, Storage.ofHost(a, DType.F32, false));
     }
 
+    /** The n x m matrix with ones on diagonal k (0 main, positive above, negative below), zeros elsewhere. */
+    public static Tensor eye(int n, int m, int k) {
+        float[] v = new float[n * m];
+        for (int i = 0; i < n; i++) {
+            int j = i + k;
+            if (j >= 0 && j < m) {
+                v[i * m + j] = 1.0f;
+            }
+        }
+        return of(v, n, m);
+    }
+
+    /** {@link #eye} with the shape of the rank-2 tensor {@code like} (ONNX EyeLike). */
+    public static Tensor eyeLike(Tensor like, int k) {
+        if (like.rank() != 2) {
+            throw new IllegalArgumentException("eyeLike: needs a rank-2 tensor, got " + like.shape());
+        }
+        return eye(like.dim(0), like.dim(1), k);
+    }
+
+    /** start, start + step, ... below end (above end for a negative step): torch.arange, ONNX Range. */
+    public static Tensor arange(float start, float end, float step) {
+        if (step == 0) {
+            throw new IllegalArgumentException("arange: step must not be 0");
+        }
+        int n = Math.max(0, (int) Math.ceil((end - start) / step));
+        float[] v = new float[n];
+        for (int i = 0; i < n; i++) {
+            v[i] = start + i * step;
+        }
+        return of(v, n);
+    }
+
     public static Tensor zeros(int... dims) {
         return full(0.0f, dims);
     }
@@ -595,6 +628,46 @@ public final class Tensor {
         return Binary.apply(Binary.Kind.ATAN2, this, o);
     }
 
+    /** Bitwise and of INT32 tensors, with broadcasting. */
+    public Tensor bitwiseAnd(Tensor o) {
+        return org.beehive.jitnn.ops.Bitwise.apply(org.beehive.jitnn.ops.Bitwise.Kind.AND, this, o);
+    }
+
+    /** Bitwise or of INT32 tensors, with broadcasting. */
+    public Tensor bitwiseOr(Tensor o) {
+        return org.beehive.jitnn.ops.Bitwise.apply(org.beehive.jitnn.ops.Bitwise.Kind.OR, this, o);
+    }
+
+    /** Bitwise exclusive or of INT32 tensors, with broadcasting. */
+    public Tensor bitwiseXor(Tensor o) {
+        return org.beehive.jitnn.ops.Bitwise.apply(org.beehive.jitnn.ops.Bitwise.Kind.XOR, this, o);
+    }
+
+    /** Bitwise complement of an INT32 tensor. */
+    public Tensor bitwiseNot() {
+        return org.beehive.jitnn.ops.Bitwise.not(this);
+    }
+
+    /** this << o for INT32 tensors, with broadcasting. */
+    public Tensor shiftLeft(Tensor o) {
+        return org.beehive.jitnn.ops.Bitwise.apply(org.beehive.jitnn.ops.Bitwise.Kind.SHIFT_LEFT, this, o);
+    }
+
+    /** this >> o (arithmetic: the sign is kept) for INT32 tensors, with broadcasting. */
+    public Tensor shiftRight(Tensor o) {
+        return org.beehive.jitnn.ops.Bitwise.apply(org.beehive.jitnn.ops.Bitwise.Kind.SHIFT_RIGHT, this, o);
+    }
+
+    /** this - floor(this / o) o, with broadcasting: the remainder with the sign of the divisor (torch.remainder). */
+    public Tensor remainder(Tensor o) {
+        return Binary.apply(Binary.Kind.REMAINDER, this, o);
+    }
+
+    /** this - trunc(this / o) o, with broadcasting: the remainder with the sign of the dividend (torch.fmod). */
+    public Tensor fmod(Tensor o) {
+        return Binary.apply(Binary.Kind.FMOD, this, o);
+    }
+
     /** 1 where this != o, else 0, with broadcasting. */
     public Tensor ne(Tensor o) {
         return Binary.apply(Binary.Kind.NE, this, o);
@@ -796,6 +869,30 @@ public final class Tensor {
         return Reduce.argmax(this, axis);
     }
 
+    /** INT32 index of the first minimum along {@code axis}. */
+    public Tensor argmin(int axis) {
+        return Reduce.argmin(this, axis);
+    }
+
+    /** Product along {@code axis}. */
+    public Tensor prod(int axis, boolean keepDim) {
+        return Reduce.apply(Reduce.Kind.PROD, this, axis, keepDim);
+    }
+
+    /** Product of all elements. */
+    public Tensor prod() {
+        return reshape(numel()).prod(0, false);
+    }
+
+    /** The p-norm (p = 1 or 2) along {@code axis}: sum |x| or sqrt(sum x^2). */
+    public Tensor norm(int p, int axis, boolean keepDim) {
+        return switch (p) {
+            case 1 -> abs().sum(axis, keepDim);
+            case 2 -> square().sum(axis, keepDim).sqrt();
+            default -> throw new IllegalArgumentException("norm: p must be 1 or 2, got " + p);
+        };
+    }
+
     /** Sums broadcast dimensions away so the result has {@code target} shape (gradient of broadcasting). */
     public Tensor sumTo(Shape target) {
         if (shape.equals(target)) {
@@ -815,6 +912,33 @@ public final class Tensor {
     }
 
     /** Broadcast copy to {@code target} shape. */
+    /**
+     * This tensor repeated {@code reps[i]} times along each axis (torch.Tensor.repeat, numpy.tile,
+     * ONNX Tile); reps longer than the rank adds leading axes.
+     */
+    public Tensor tile(int... reps) {
+        int r = Math.max(rank(), reps.length);
+        int[] d = new int[r];
+        int[] rp = new int[r];
+        int[] own = shape().dims();
+        for (int i = 0; i < r; i++) {
+            d[i] = i < r - own.length ? 1 : own[i - (r - own.length)];
+            rp[i] = i < r - reps.length ? 1 : reps[i - (r - reps.length)];
+        }
+        // [d0, d1, ...] -> [1, d0, 1, d1, ...] expanded to [r0, d0, r1, d1, ...] -> [r0 d0, r1 d1, ...]
+        int[] split = new int[2 * r];
+        int[] big = new int[2 * r];
+        int[] out = new int[r];
+        for (int i = 0; i < r; i++) {
+            split[2 * i] = 1;
+            split[2 * i + 1] = d[i];
+            big[2 * i] = rp[i];
+            big[2 * i + 1] = d[i];
+            out[i] = rp[i] * d[i];
+        }
+        return reshape(split).expand(Shape.of(big)).reshape(out);
+    }
+
     public Tensor expand(Shape target) {
         if (shape.equals(target)) {
             return this;

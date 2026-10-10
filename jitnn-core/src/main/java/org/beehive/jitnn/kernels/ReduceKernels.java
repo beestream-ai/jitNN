@@ -20,6 +20,7 @@ public final class ReduceKernels {
     public static final int SUM = 0;
     public static final int MAX = 1;
     public static final int MIN = 2;
+    public static final int PROD = 3;
 
     /** Must equal {@code Emitter.LOCAL}. */
     private static final int GROUP = 256;
@@ -33,6 +34,8 @@ public final class ReduceKernels {
             r = Float.NEGATIVE_INFINITY;
         } else if (op == MIN) {
             r = Float.POSITIVE_INFINITY;
+        } else if (op == PROD) {
+            r = 1.0f;
         } else {
             r = 0.0f;
         }
@@ -45,6 +48,8 @@ public final class ReduceKernels {
             r = v > acc ? v : acc;
         } else if (op == MIN) {
             r = v < acc ? v : acc;
+        } else if (op == PROD) {
+            r = acc * v;
         } else {
             r = acc + v;
         }
@@ -144,6 +149,26 @@ public final class ReduceKernels {
     }
 
     /** Index of the first maximum along the axis, one thread per output. */
+    /** Index of the first minimum along the axis, one thread per output. */
+    public static void argminThread(KernelContext kc, FloatArray x, IntArray out, int outer, int len, int inner) {
+        int i = kc.globalIdx;
+        if (i < outer * inner) {
+            int o = i / inner;
+            int j = i - o * inner;
+            int base = o * len * inner + j;
+            float best = x.get(base);
+            int bestK = 0;
+            for (int k = 1; k < len; k++) {
+                float v = x.get(base + k * inner);
+                if (v < best) {
+                    best = v;
+                    bestK = k;
+                }
+            }
+            out.set(i, bestK);
+        }
+    }
+
     public static void argmaxThread(KernelContext kc, FloatArray x, IntArray out, int outer, int len, int inner) {
         int i = kc.globalIdx;
         if (i < outer * inner) {
