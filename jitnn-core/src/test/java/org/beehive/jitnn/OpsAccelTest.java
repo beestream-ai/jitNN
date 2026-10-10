@@ -180,9 +180,9 @@ class OpsAccelTest {
         for (int rows : new int[] { 512, 300 }) {
             same("autocast FP16 linear " + rows + "x768 -> 1024 + bias + ReLU, twice", () -> Grad.inference(() -> {
                 try (Grad.Scope ignored = Autocast.enable(DType.F16)) {
-                    // a persistent weight, as a model's: its FP16 cast is cached and reused by the second trace
+                    // persistent parameters, as a model's: the FP16 cast of the weight is cached and reused by the second trace
                     Tensor w = Tensor.persistent(Tensor.uniform(120, -0.05f, 0.05f, 1024, 768));
-                    Tensor b = Tensor.uniform(121, -1, 1, 1024);
+                    Tensor b = Tensor.persistent(Tensor.uniform(121, -1, 1, 1024));
                     Tensor y1 = F.linearRelu(Tensor.uniform(122, -1, 1, rows, 768), w, b);
                     float[] first = y1.toFloatArray();
                     Tensor y2 = F.linearRelu(Tensor.uniform(123, -1, 1, rows, 768), w, b);
