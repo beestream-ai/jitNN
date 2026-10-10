@@ -103,7 +103,7 @@ public final class Bitwise implements Op {
             IntArray x = e.i32(n.in(0));
             IntArray out = e.i32(n.out(0));
             int count = n.out(0).numel();
-            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, BitwiseKernels::not, e.context(), x, out, count));
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, BitwiseKernels::complement, e.context(), x, out, count));
         }
 
         @Override

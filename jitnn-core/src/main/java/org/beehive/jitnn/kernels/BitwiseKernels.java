@@ -52,8 +52,8 @@ public final class BitwiseKernels {
         }
     }
 
-    /** ~x. */
-    public static void not(KernelContext kc, IntArray x, IntArray out, int n) {
+    /** ~x (not named "not": an alternative token in C++, which the CUDA backend compiles). */
+    public static void complement(KernelContext kc, IntArray x, IntArray out, int n) {
         int i = kc.globalIdx;
         if (i < n) {
             out.set(i, ~x.get(i));
