@@ -48,6 +48,22 @@ final class OnnxOps {
         return in.get(k).tensor(true);
     }
 
+    /** An integer value as an INT32 tensor (host integers uploaded; device FP32 truncated). */
+    static Tensor int32(Value v) {
+        Tensor t = v.tensor(false);
+        return t.dtype() == DType.I32 ? t : t.trunc().to(DType.I32);
+    }
+
+    /** An integer bitwise operator: on the host for shape arithmetic, else on INT32 device tensors. */
+    static Handler bitwise(java.util.function.BinaryOperator<Tensor> f, java.util.function.LongBinaryOperator host) {
+        return (n, in) -> {
+            if (allHost(in)) {
+                return one(hostBinary(in.get(0), in.get(1), host));
+            }
+            return one(Value.of(f.apply(int32(in.get(0)), int32(in.get(1))), in.get(0).type));
+        };
+    }
+
     static boolean present(List<Value> in, int k) {
         return k < in.size() && in.get(k) != null;
     }
@@ -344,6 +360,7 @@ final class OnnxOps {
                 case "max" -> y.max(ax[i], keep);
                 case "min" -> y.min(ax[i], keep);
                 case "sumsq" -> y.square().sum(ax[i], keep);
+                case "prod" -> y.prod(ax[i], keep);
                 default -> throw new IllegalArgumentException(kind);
             };
         }
@@ -490,6 +507,67 @@ final class OnnxOps {
         HANDLERS.put("Or", binary(Tensor::logicalOr, (a, b) -> a != 0 || b != 0 ? 1 : 0));
         HANDLERS.put("Xor", binary(Tensor::logicalXor, (a, b) -> (a != 0) != (b != 0) ? 1 : 0));
         HANDLERS.put("Not", (n, in) -> one(t(in, 0).logicalNot()));
+        HANDLERS.put("BitwiseAnd", bitwise(Tensor::bitwiseAnd, (a, b) -> a & b));
+        HANDLERS.put("BitwiseOr", bitwise(Tensor::bitwiseOr, (a, b) -> a | b));
+        HANDLERS.put("BitwiseXor", bitwise(Tensor::bitwiseXor, (a, b) -> a ^ b));
+        HANDLERS.put("BitwiseNot", (n, in) -> {
+            Value x = in.get(0);
+            if (x.isHost()) {
+                return one(hostBinary(x, Value.scalar(0), (a, b) -> ~a));
+            }
+            return one(Value.of(int32(x).bitwiseNot(), x.type));
+        });
+        HANDLERS.put("BitShift", (n, in) -> {
+            boolean left = n.attrString("direction", "").equals("LEFT");
+            return bitwise(left ? Tensor::shiftLeft : Tensor::shiftRight, left ? (a, b) -> a << b : (a, b) -> a >> b).apply(n, in);
+        });
+        HANDLERS.put("Mod", (n, in) -> {
+            boolean fmod = n.attrInt("fmod", 0) != 0;
+            if (allHost(in)) {
+                return one(hostBinary(in.get(0), in.get(1), fmod ? (a, b) -> a % b : Math::floorMod));
+            }
+            Tensor y = fmod ? t(in, 0).fmod(t(in, 1)) : t(in, 0).remainder(t(in, 1));
+            boolean integral = in.get(0).type != OnnxModel.FLOAT && in.get(0).type != OnnxModel.FLOAT16 && in.get(0).type != OnnxModel.DOUBLE;
+            return one(integral ? Value.of(y.trunc().to(DType.I32), in.get(0).type) : Value.of(y));
+        });
+        HANDLERS.put("DepthToSpace", (n, in) -> one(F.depthToSpace(t(in, 0), (int) n.attrInt("blocksize", 1), n.attrString("mode", "DCR"))));
+        HANDLERS.put("SpaceToDepth", (n, in) -> one(F.spaceToDepth(t(in, 0), (int) n.attrInt("blocksize", 1))));
+        HANDLERS.put("EyeLike", (n, in) -> {
+            Value x = in.get(0);
+            if (x.rank() != 2) {
+                throw unsupported(n, "EyeLike of rank " + x.rank());
+            }
+            Tensor eye = Tensor.eye((int) x.dims[0], (int) x.dims[1], (int) n.attrInt("k", 0));
+            int type = (int) n.attrInt("dtype", x.type);
+            boolean integral = type != OnnxModel.FLOAT && type != OnnxModel.FLOAT16 && type != OnnxModel.DOUBLE;
+            return one(integral ? Value.of(eye.to(DType.F32).trunc().to(DType.I32), type) : Value.of(eye));
+        });
+        HANDLERS.put("LpNormalization", (n, in) -> {
+            Tensor x = t(in, 0);
+            return one(F.lpNormalize(x, (int) n.attrInt("p", 2), axis(n.attrInt("axis", -1), x.rank()), 0.0f));
+        });
+        HANDLERS.put("Col2Im", (n, in) -> {
+            Tensor cols = t(in, 0);
+            int[] image = toInts(in.get(1).longs());
+            int[] block = toInts(in.get(2).longs());
+            int r = image.length;
+            long[] pads = n.attrInts("pads", new long[2 * r]);
+            int[] pad = new int[r];
+            for (int a = 0; a < r; a++) {
+                if (pads[a] != pads[a + r]) {
+                    throw unsupported(n, "Col2Im with different begin and end padding");
+                }
+                pad[a] = (int) pads[a];
+            }
+            return one(F.fold(cols, image, block, toInts(n.attrInts("strides", ones(r))), pad, toInts(n.attrInts("dilations", ones(r)))));
+        });
+        HANDLERS.put("ScatterND", (n, in) -> {
+            String reduction = n.attrString("reduction", "none");
+            if (!(reduction.equals("none") || reduction.equals("add") || reduction.equals("mul"))) {
+                throw unsupported(n, "ScatterND with reduction " + reduction);
+            }
+            return one(F.scatterND(t(in, 0), int32(in.get(1)), t(in, 2), reduction));
+        });
         HANDLERS.put("IsNaN", unary(Tensor::isNaN));
         HANDLERS.put("IsInf", unary(Tensor::isInf));
         HANDLERS.put("Where", (n, in) -> {
@@ -680,6 +758,7 @@ final class OnnxOps {
                 return one(reduce(t(in, 0), axes, keep, r[1]));
             });
         }
+        HANDLERS.put("ReduceProd", (n, in) -> one(reduce(t(in, 0), axesFrom(n, in, 1), n.attrInt("keepdims", 1) != 0, "prod")));
         HANDLERS.put("ReduceL2", (n, in) -> one(reduce(t(in, 0), axesFrom(n, in, 1), n.attrInt("keepdims", 1) != 0, "sumsq").sqrt()));
         HANDLERS.put("ArgMax", (n, in) -> {
             Tensor x = t(in, 0);
@@ -690,7 +769,7 @@ final class OnnxOps {
         HANDLERS.put("ArgMin", (n, in) -> {
             Tensor x = t(in, 0);
             int ax = axis(n.attrInt("axis", 0), x.rank());
-            Tensor y = x.neg().argmax(ax);
+            Tensor y = x.argmin(ax);
             return one(Value.of(n.attrInt("keepdims", 1) != 0 ? y.unsqueeze(ax) : y, OnnxModel.INT64));
         });
         HANDLERS.put("CumSum", (n, in) -> {
@@ -856,12 +935,12 @@ final class OnnxOps {
         HANDLERS.put("GatherND", (n, in) -> {
             Tensor x = t(in, 0);
             Value idx = in.get(1);
-            if (n.attrInt("batch_dims", 0) != 0 || idx.dims[idx.rank() - 1] != 1) {
-                throw unsupported(n, "GatherND other than indexing the first axis");
+            if (n.attrInt("batch_dims", 0) != 0) {
+                throw unsupported(n, "GatherND with batch_dims");
             }
-            Tensor ids = idx.tensor(false);
-            if (ids.dtype() != DType.I32) {
-                ids = ids.to(DType.I32);
+            Tensor ids = int32(idx);
+            if (idx.dims[idx.rank() - 1] != 1) {
+                return one(F.gatherND(x, ids));
             }
             int[] id = ids.shape().dims();
             ids = ids.reshape(Arrays.copyOf(id, id.length - 1));
@@ -895,26 +974,7 @@ final class OnnxOps {
             }
             return one(Value.of(xt.expand(Shape.of(toInts(dims))), x.type));
         });
-        HANDLERS.put("Tile", (n, in) -> {
-            Tensor x = t(in, 0);
-            long[] reps = in.get(1).longs();
-            for (int a = 0; a < reps.length; a++) {
-                if (reps[a] == 1) {
-                    continue;
-                }
-                int[] d = x.shape().dims();
-                int[] up = new int[d.length + 1];
-                System.arraycopy(d, 0, up, 0, a);
-                up[a] = 1;
-                System.arraycopy(d, a, up, a + 1, d.length - a);
-                int[] big = up.clone();
-                big[a] = (int) reps[a];
-                int[] back = d.clone();
-                back[a] = d[a] * (int) reps[a];
-                x = x.reshape(up).expand(Shape.of(big)).reshape(back);
-            }
-            return one(x);
-        });
+        HANDLERS.put("Tile", (n, in) -> one(t(in, 0).tile(toInts(in.get(1).longs()))));
         HANDLERS.put("Cast", (n, in) -> {
             Value x = in.get(0);
             int to = (int) n.attrInt("to", OnnxModel.FLOAT);
@@ -953,12 +1013,7 @@ final class OnnxOps {
             float start = t(in, 0).toFloatArray()[0];
             float limit = t(in, 1).toFloatArray()[0];
             float delta = t(in, 2).toFloatArray()[0];
-            int count = (int) Math.max(0, Math.ceil((limit - start) / delta));
-            float[] out = new float[count];
-            for (int i = 0; i < count; i++) {
-                out[i] = start + i * delta;
-            }
-            return one(Tensor.of(out, count));
+            return one(Tensor.arange(start, limit, delta));
         });
         HANDLERS.put("ConstantOfShape", (n, in) -> {
             long[] dims = in.get(0).longs();

@@ -119,6 +119,26 @@ model("shape_chain", [N("Shape", ["x"], ["s"]), N("Gather", ["s", "i0"], ["d0"])
 model("constant_of_shape_range", [N("Shape", ["x"], ["s"]), N("ConstantOfShape", ["s"], ["c"], value=numpy_helper.from_array(np.array([0.5], np.float32))),
                                   N("Add", ["x", "c"], ["y"])], [("x", rnd(2, 3))], ["y"])
 
+# ---- operators shared with the other frameworks
+away = lambda *sh: (rng.uniform(0.5, 2.0, size=sh) * rng.choice([-1.0, 1.0], size=sh)).astype(np.float32)
+i64 = lambda lo, hi, *sh: rng.integers(lo, hi, size=sh).astype(np.int64)
+model("mod_fmod", [N("Mod", ["a", "b"], ["y"], fmod=1)], [("a", rnd(4, 6, lo=-6, hi=6)), ("b", away(4, 6))], ["y"])
+model("mod_int", [N("Mod", ["a", "b"], ["y"])], [("a", i64(-50, 50, 4, 6)), ("b", np.where(i64(1, 9, 4, 6) % 2 == 0, -1, 1) * i64(1, 9, 4, 6))], ["y"])
+model("reduce_prod", [N("ReduceProd", ["x", "ax"], ["y"], keepdims=0)], [("x", away(3, 4, 5))], ["y"], [("ax", np.array([1], np.int64))])
+model("argmin", [N("ArgMin", ["x"], ["y"], axis=1, keepdims=1)], [("x", rnd(4, 7))], ["y"])
+model("gather_nd", [N("GatherND", ["x", "i"], ["y"])], [("x", rnd(4, 5, 3))], ["y"], [("i", np.stack([i64(0, 4, 6), i64(-5, 5, 6)], axis=1))])
+model("scatter_nd_add", [N("ScatterND", ["x", "i", "u"], ["y"], reduction="add")], [("x", rnd(5, 4)), ("u", rnd(6, 4))], ["y"], [("i", i64(0, 5, 6, 1))])
+model("depth_to_space_dcr", [N("DepthToSpace", ["x"], ["y"], blocksize=2)], [("x", rnd(1, 8, 3, 2))], ["y"])
+model("depth_to_space_crd", [N("DepthToSpace", ["x"], ["y"], blocksize=2, mode="CRD")], [("x", rnd(1, 8, 3, 2))], ["y"])
+model("space_to_depth", [N("SpaceToDepth", ["x"], ["y"], blocksize=2)], [("x", rnd(1, 3, 4, 6))], ["y"])
+model("eye_like", [N("EyeLike", ["x"], ["e"], k=1), N("Add", ["x", "e"], ["y"])], [("x", rnd(3, 5))], ["y"])
+model("lp_normalization", [N("LpNormalization", ["x"], ["y"], axis=1, p=2)], [("x", rnd(4, 6))], ["y"])
+model("bitwise", [N("BitwiseAnd", ["a", "b"], ["y0"]), N("BitwiseXor", ["a", "b"], ["y1"]), N("BitwiseNot", ["a"], ["y2"])],
+      [("a", i64(-1000, 1000, 3, 4)), ("b", i64(-1000, 1000, 4))], ["y0", "y1", "y2"])
+model("bit_shift", [N("BitShift", ["a", "s"], ["y"], direction="LEFT")], [("a", i64(0, 1000, 3, 4).astype(np.uint8).astype(np.int64))], ["y"], [("s", i64(0, 4, 3, 4))])
+model("col2im", [N("Col2Im", ["x", "img", "blk"], ["y"], strides=[1, 1])], [("x", rnd(1, 2 * 2 * 2, 4 * 4))], ["y"],
+      [("img", np.array([5, 5], np.int64)), ("blk", np.array([2, 2], np.int64))])
+
 
 # ---- models exported from PyTorch
 def torch_models():
