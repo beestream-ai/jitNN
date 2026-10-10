@@ -10,7 +10,7 @@ import org.beehive.jitnn.kernels.BitwiseKernels;
 
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
-/** Bitwise and, or, xor, shifts (with broadcasting) and not, on INT32 tensors; iattr = [op] (not: none). No gradients. */
+/** Bitwise and, or, xor, shifts, integer remainders (with broadcasting) and not, on INT32 tensors; iattr = [op] (not: none). No gradients. */
 public final class Bitwise implements Op {
 
     public enum Kind {
@@ -18,7 +18,9 @@ public final class Bitwise implements Op {
         OR(BitwiseKernels.OR),
         XOR(BitwiseKernels.XOR),
         SHIFT_LEFT(BitwiseKernels.SHIFT_LEFT),
-        SHIFT_RIGHT(BitwiseKernels.SHIFT_RIGHT);
+        SHIFT_RIGHT(BitwiseKernels.SHIFT_RIGHT),
+        REMAINDER(BitwiseKernels.REMAINDER),
+        FMOD(BitwiseKernels.FMOD);
 
         final int code;
 

@@ -526,9 +526,13 @@ final class OnnxOps {
             if (allHost(in)) {
                 return one(hostBinary(in.get(0), in.get(1), fmod ? (a, b) -> a % b : Math::floorMod));
             }
-            Tensor y = fmod ? t(in, 0).fmod(t(in, 1)) : t(in, 0).remainder(t(in, 1));
             boolean integral = in.get(0).type != OnnxModel.FLOAT && in.get(0).type != OnnxModel.FLOAT16 && in.get(0).type != OnnxModel.DOUBLE;
-            return one(integral ? Value.of(y.trunc().to(DType.I32), in.get(0).type) : Value.of(y));
+            if (integral) {
+                Tensor a = int32(in.get(0));
+                Tensor b = int32(in.get(1));
+                return one(Value.of(fmod ? a.fmod(b) : a.remainder(b), in.get(0).type));
+            }
+            return one(fmod ? t(in, 0).fmod(t(in, 1)) : t(in, 0).remainder(t(in, 1)));
         });
         HANDLERS.put("DepthToSpace", (n, in) -> one(F.depthToSpace(t(in, 0), (int) n.attrInt("blocksize", 1), n.attrString("mode", "DCR"))));
         HANDLERS.put("SpaceToDepth", (n, in) -> one(F.spaceToDepth(t(in, 0), (int) n.attrInt("blocksize", 1))));

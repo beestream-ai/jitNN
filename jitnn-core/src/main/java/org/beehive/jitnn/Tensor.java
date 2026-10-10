@@ -658,13 +658,25 @@ public final class Tensor {
         return org.beehive.jitnn.ops.Bitwise.apply(org.beehive.jitnn.ops.Bitwise.Kind.SHIFT_RIGHT, this, o);
     }
 
-    /** this - floor(this / o) o, with broadcasting: the remainder with the sign of the divisor (torch.remainder). */
+    /**
+     * this - floor(this / o) o, with broadcasting: the remainder with the sign of the divisor (torch.remainder). INT32
+     * tensors give an INT32 result (0 where o is 0), with no gradient.
+     */
     public Tensor remainder(Tensor o) {
+        if (dtype() == DType.I32) {
+            return org.beehive.jitnn.ops.Bitwise.apply(org.beehive.jitnn.ops.Bitwise.Kind.REMAINDER, this, o);
+        }
         return Binary.apply(Binary.Kind.REMAINDER, this, o);
     }
 
-    /** this - trunc(this / o) o, with broadcasting: the remainder with the sign of the dividend (torch.fmod). */
+    /**
+     * this - trunc(this / o) o, with broadcasting: the remainder with the sign of the dividend (torch.fmod). INT32
+     * tensors give an INT32 result (0 where o is 0), with no gradient.
+     */
     public Tensor fmod(Tensor o) {
+        if (dtype() == DType.I32) {
+            return org.beehive.jitnn.ops.Bitwise.apply(org.beehive.jitnn.ops.Bitwise.Kind.FMOD, this, o);
+        }
         return Binary.apply(Binary.Kind.FMOD, this, o);
     }
 

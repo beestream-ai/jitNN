@@ -3,7 +3,7 @@ package org.beehive.jitnn.kernels;
 import uk.ac.manchester.tornado.api.KernelContext;
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
-/** Bitwise operations on INT32 tensors, with broadcasting through the same metadata as the binary element-wise kernels. */
+/** Bitwise operations and integer remainders on INT32 tensors, with broadcasting through the same metadata as the binary element-wise kernels. */
 public final class BitwiseKernels {
 
     public static final int AND = 0;
@@ -13,6 +13,10 @@ public final class BitwiseKernels {
     public static final int SHIFT_LEFT = 3;
     /** x >> y, arithmetic (the sign is kept), as torch.bitwise_right_shift on signed integers. */
     public static final int SHIFT_RIGHT = 4;
+    /** x - floor(x / y) y: the remainder with the sign of y (0 where y is 0). */
+    public static final int REMAINDER = 5;
+    /** x - trunc(x / y) y: the remainder with the sign of x (0 where y is 0). */
+    public static final int FMOD = 6;
 
     private BitwiseKernels() {
     }
@@ -27,8 +31,15 @@ public final class BitwiseKernels {
             r = x ^ y;
         } else if (op == SHIFT_LEFT) {
             r = x << y;
-        } else {
+        } else if (op == SHIFT_RIGHT) {
             r = x >> y;
+        } else if (y == 0) {
+            r = 0;
+        } else {
+            r = x % y;
+            if (op == REMAINDER && r != 0 && (r < 0) != (y < 0)) {
+                r += y;
+            }
         }
         return r;
     }

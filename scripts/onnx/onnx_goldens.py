@@ -135,7 +135,11 @@ model("eye_like", [N("EyeLike", ["x"], ["e"], k=1), N("Add", ["x", "e"], ["y"])]
 model("lp_normalization", [N("LpNormalization", ["x"], ["y"], axis=1, p=2)], [("x", rnd(4, 6))], ["y"])
 model("bitwise", [N("BitwiseAnd", ["a", "b"], ["y0"]), N("BitwiseXor", ["a", "b"], ["y1"]), N("BitwiseNot", ["a"], ["y2"])],
       [("a", i64(-1000, 1000, 3, 4)), ("b", i64(-1000, 1000, 4))], ["y0", "y1", "y2"])
-model("bit_shift", [N("BitShift", ["a", "s"], ["y"], direction="LEFT")], [("a", i64(0, 1000, 3, 4).astype(np.uint8).astype(np.int64))], ["y"], [("s", i64(0, 4, 3, 4))])
+# BitShift takes unsigned types only: cast to uint8, with values small enough not to wrap
+model("bit_shift", [N("Cast", ["a"], ["a8"], to=TensorProto.UINT8), N("Cast", ["s"], ["s8"], to=TensorProto.UINT8),
+                    N("BitShift", ["a8", "s8"], ["l8"], direction="LEFT"), N("BitShift", ["a8", "s8"], ["r8"], direction="RIGHT"),
+                    N("Cast", ["l8"], ["y0"], to=TensorProto.INT64), N("Cast", ["r8"], ["y1"], to=TensorProto.INT64)],
+      [("a", i64(0, 32, 3, 4))], ["y0", "y1"], [("s", i64(0, 3, 3, 4))])
 model("col2im", [N("Col2Im", ["x", "img", "blk"], ["y"], strides=[1, 1])], [("x", rnd(1, 2 * 2 * 2, 4 * 4))], ["y"],
       [("img", np.array([5, 5], np.int64)), ("blk", np.array([2, 2], np.int64))])
 
