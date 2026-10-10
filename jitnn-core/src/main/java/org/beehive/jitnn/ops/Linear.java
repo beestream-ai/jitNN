@@ -4,6 +4,7 @@ import org.beehive.jitnn.DType;
 import org.beehive.jitnn.Shape;
 import org.beehive.jitnn.Tensor;
 import org.beehive.jitnn.engine.Emitter;
+import org.beehive.jitnn.engine.Engine;
 import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.GemmKernels;
@@ -27,8 +28,18 @@ public final class Linear implements Op {
     private Linear() {
     }
 
+    /**
+     * True when this thread's device runs an FP16 Linear of these dimensions on the tensor cores
+     * with an FP32 input (MmaGemmKernels.gemmMMAStrideKA32): CUDA, whole 128 x 128 tiles.
+     */
+    public static boolean readsFp32Input(int m, int n, int k) {
+        return Engine.onCuda() && MatMul.tensorCores() && MatMul.wholeTiles(m, n, k);
+    }
+
     public static Tensor apply(Tensor x, Tensor w, Tensor b, boolean relu) {
-        HostValues.gemmOperands("linear", x, w);
+        if (!(x.dtype() == DType.F32 && w.dtype() == DType.F16)) {
+            HostValues.gemmOperands("linear", x, w);
+        }
         Checks.rank(x, 2);
         Checks.rank(w, 2);
         if (x.dim(1) != w.dim(1)) {
@@ -62,6 +73,11 @@ public final class Linear implements Op {
         int act = node.iattr[4];
         int epilogue = (node.iattr[3] != 0 ? GemmKernels.BIAS : 0) | (act == RELU ? GemmKernels.RELU : 0) | (act == GELU ? GemmKernels.GELU : 0);
         FloatArray bias = node.iattr[3] != 0 ? e.f32(node.in(2)) : null;
+        if (node.in(0).dtype() == DType.F32 && node.in(1).dtype() == DType.F16) {
+            // FP32 input and FP16 weight (Autocast): rounded to FP16 as the tensor-core kernel stages it
+            MatMul.emitGemmA32(e, e.f32(node.in(0)), node.in(1), e.f32(node.out(0)), bias != null ? bias : e.dummyF32(), m, n, k, epilogue);
+            return;
+        }
         if (HostValues.isHalf(node.in(0))) {
             MatMul.emitGemmHalf(e, node.in(0), node.in(1), e.f32(node.out(0)), bias != null ? bias : e.dummyF32(), m, n, k, 0, 1, epilogue);
             return;

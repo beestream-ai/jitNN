@@ -48,6 +48,11 @@ public final class Engine {
         return BACKEND.get();
     }
 
+    /** True when this thread's plans run through TornadoVM on a CUDA device. */
+    public static boolean onCuda() {
+        return backend() == Backend.TORNADO && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA;
+    }
+
     /** Switches this thread's backend, first running anything recorded on the old one. */
     public static void setBackend(Backend backend) {
         sync();

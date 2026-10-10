@@ -171,6 +171,25 @@ class OpsAccelTest {
         same("broadcast add [8,1,768] + [8,256,768] (general path)", () -> Tensor.uniform(118, -1, 1, 8, 1, 768).add(Tensor.uniform(119, -1, 1, 8, 256, 768)));
     }
 
+    /**
+     * FP16 autocast inference of Linear: the tensor-core kernel reading the FP32 input (whole
+     * tiles), the cast fallback (ragged rows), and the cached weight cast on a second call.
+     */
+    @Test
+    void autocastLinear() {
+        for (int rows : new int[] { 512, 300 }) {
+            same("autocast FP16 linear " + rows + "x768 -> 1024 + bias + ReLU, twice", () -> Grad.inference(() -> {
+                try (Grad.Scope ignored = Autocast.enable(DType.F16)) {
+                    Tensor w = Tensor.uniform(120, -0.05f, 0.05f, 1024, 768);
+                    Tensor b = Tensor.uniform(121, -1, 1, 1024);
+                    Tensor y1 = F.linearRelu(Tensor.uniform(122, -1, 1, rows, 768), w, b);
+                    Tensor y2 = F.linearRelu(Tensor.uniform(123, -1, 1, rows, 768), w, b);
+                    return y1.add(y2);
+                }
+            }), 2e-2, 2e-2);
+        }
+    }
+
     /** Q8_0 (GGUF blocks): device against the host reference, and the quantisation error against FP32. */
     @Test
     void q8() {

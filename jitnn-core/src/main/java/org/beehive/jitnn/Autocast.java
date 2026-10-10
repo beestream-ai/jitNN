@@ -6,6 +6,9 @@ package org.beehive.jitnn;
  * and run the half-precision GEMMs, accumulating in FP32. Their results stay FP32 (PyTorch's
  * autocast rounds them to the half type), and every other operator runs in FP32. Gradients of
  * the products are computed in the half type and flow back to the FP32 parameters through the casts.
+ * For inference, weights are cast once per weight version ({@link #weight}), and on CUDA a
+ * Linear whose shape the tensor-core kernel covers reads its FP32 input directly, rounding it to
+ * FP16 as the tiles are staged, so no separate cast runs.
  */
 public final class Autocast {
 
@@ -33,5 +36,30 @@ public final class Autocast {
     static Tensor operand(Tensor t) {
         DType d = TYPE.get();
         return d != null && t.dtype() == DType.F32 ? t.to(d) : t;
+    }
+
+    private record Cast(long version, DType type, Tensor half) {
+    }
+
+    private static final java.util.Map<Tensor, Cast> WEIGHTS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    /**
+     * A weight cast to the autocast type, kept between steps while gradients are off: cast again
+     * only when the weight's storage has changed since (its version), so inference does not
+     * re-cast every weight on every step. While gradients are recorded the cast is part of the
+     * graph, as {@link #operand}.
+     */
+    static Tensor weight(Tensor w) {
+        DType d = TYPE.get();
+        if (d == null || w.dtype() != DType.F32 || Grad.isEnabled()) {
+            return operand(w);
+        }
+        long version = w.storage().version();
+        Cast c = WEIGHTS.get(w);
+        if (c == null || c.version() != version || c.type() != d) {
+            c = new Cast(version, d, w.to(d));
+            WEIGHTS.put(w, c);
+        }
+        return c.half();
     }
 }

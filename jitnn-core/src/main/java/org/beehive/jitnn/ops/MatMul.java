@@ -247,6 +247,31 @@ public final class MatMul implements Op {
         return slices;
     }
 
+    /** Whether the tensor-core kernels are enabled ({@code -Djitnn.tensorCores=false} turns them off). */
+    static boolean tensorCores() {
+        return TENSOR_CORES;
+    }
+
+    /**
+     * C = A B^T (+ epilogue) for an FP32 A [m, k] and an FP16 B [n, k] on the tensor cores, A rounded
+     * to FP16 as it is staged; whole 128 x 128 tiles ({@link #wholeTiles}). Split along K like
+     * {@link #emitGemmHalf}.
+     */
+    static void emitGemmA32(Emitter e, FloatArray a, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int epilogue) {
+        var b = e.f16(bt);
+        int slices = mmaSlices(m, n, k);
+        int ks = k / slices;
+        WorkerGrid grid = Emitter.blocks3D(m / MmaGemmKernels.TILE, n / MmaGemmKernels.TILE, slices, MmaGemmKernels.THREADS);
+        FloatArray out = slices > 1 ? e.scratch(slices * m * n) : c;
+        e.task(grid, (g, id) -> g.task(id, MmaGemmKernels::gemmMMAStrideKA32, e.context(), a, b, out, m, n, ks, k, 1, k, 1));
+        int mn = m * n;
+        if (slices > 1) {
+            e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::sumSplitK, e.context(), out, c, bias, slices, mn, n, epilogue));
+        } else if (epilogue != 0) {
+            e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::biasActivation, e.context(), c, bias, m, n, epilogue));
+        }
+    }
+
     /** True when the 128 x 128 tensor-core kernels cover the product (whole tiles, K in steps of 16). */
     static boolean wholeTiles(int m, int n, int k) {
         return m % MmaGemmKernels.TILE == 0 && n % MmaGemmKernels.TILE == 0 && k % 16 == 0;
