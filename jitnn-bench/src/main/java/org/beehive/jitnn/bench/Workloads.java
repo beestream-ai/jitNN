@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
+import org.beehive.jitnn.Autocast;
+import org.beehive.jitnn.DType;
 import org.beehive.jitnn.F;
 import org.beehive.jitnn.Grad;
 import org.beehive.jitnn.Tensor;
@@ -76,6 +78,15 @@ public final class Workloads {
         };
     }
 
+    /** The step under autocast to FP16. */
+    static Runnable half(Runnable step) {
+        return () -> {
+            try (Grad.Scope ignored = Autocast.enable(DType.F16)) {
+                step.run();
+            }
+        };
+    }
+
     static Tensor images(int b, int c, int h, int w) {
         return Tensor.of(uniform(b * c * h * w, b + c + h), b, c, h, w);
     }
@@ -104,6 +115,12 @@ public final class Workloads {
                 return inference(m, () -> Tensor.of(tokens(s[0] * s[1], 30522), s[0], s[1]));
             }));
         }
+        // half precision (autocast to FP16), at the batch sizes the comparison with ONNX Runtime uses
+        w.add(new Workload("resnet50_infer_b32_fp16", () -> half(inference(ResNet.resnet50(3, 1000, false, 1), () -> images(32, 3, 224, 224)))));
+        w.add(new Workload("bert_infer_b32_s128_fp16", () -> {
+            Bert m = new Bert(30522, 512, 768, 12, 12, 1);
+            return half(inference(m, () -> Tensor.of(tokens(32 * 128, 30522), 32, 128)));
+        }));
         w.add(new Workload("resnet18_train_b64", () -> {
             Module m = ResNet.resnet18(3, 10, true, 1);
             SGD opt = new SGD(m.parameters(), 0.1f, 0.9f, 5e-4f, false);
