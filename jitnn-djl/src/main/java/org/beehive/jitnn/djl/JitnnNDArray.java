@@ -266,7 +266,9 @@ public final class JitnnNDArray extends NDArrayAdapter {
     }
 
     void clearGradient() {
-        tensor.zeroGrad();
+        if (!isReleased()) {
+            tensor.zeroGrad();
+        }
     }
 
     // ---------------------------------------------------------------- comparisons and logic
@@ -363,7 +365,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public boolean contentEquals(NDArray other) {
-        if (other == null || !shape.equals(other.getShape())) {
+        if (other == null || isReleased() || other.isReleased() || !shape.equals(other.getShape())) {
             return false;
         }
         return Arrays.equals(toFloatArrayAny(this), toFloatArrayAny(other));

@@ -1,8 +1,9 @@
 package org.beehive.jitnn.djl;
 
-import java.util.Collections;
-import java.util.Set;
-import java.util.WeakHashMap;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import ai.djl.Device;
@@ -30,8 +31,11 @@ public final class JitnnEngine extends Engine {
 
     private static volatile JitnnEngine instance;
 
-    /** Arrays that track gradients, so that a gradient collector can clear them. */
-    private final Set<JitnnNDArray> trainable = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+    /**
+     * Arrays that track gradients, so that a gradient collector can clear them; held weakly and by
+     * identity (DJL arrays compare by contents).
+     */
+    private final List<WeakReference<JitnnNDArray>> trainable = new ArrayList<>();
     private final AtomicLong draws = new AtomicLong();
     private volatile long seed = 42;
     private volatile Engine alternative;
@@ -136,13 +140,26 @@ public final class JitnnEngine extends Engine {
     }
 
     void track(JitnnNDArray array) {
-        trainable.add(array);
+        synchronized (trainable) {
+            for (WeakReference<JitnnNDArray> r : trainable) {
+                if (r.get() == array) {
+                    return;
+                }
+            }
+            trainable.add(new WeakReference<>(array));
+        }
     }
 
     void zeroGradients() {
         synchronized (trainable) {
-            for (JitnnNDArray a : trainable) {
-                a.clearGradient();
+            Iterator<WeakReference<JitnnNDArray>> it = trainable.iterator();
+            while (it.hasNext()) {
+                JitnnNDArray a = it.next().get();
+                if (a == null) {
+                    it.remove();
+                } else {
+                    a.clearGradient();
+                }
             }
         }
     }

@@ -66,7 +66,7 @@ class DjlEngineTest {
             NDArray ints = m.create(new int[] { 7, -7 });
             assertArrayEquals(new int[] { 3, -3 }, ints.div(2).toIntArray());
             assertArrayEquals(new int[] { 1, 1 }, ints.mod(2).toIntArray());
-            assertArrayEquals(new float[] { 2, 6 }, a.get(new NDIndex(":, {}", m.create(new int[] { 1, 2 }))).get(":, 0").toFloatArray());
+            assertArrayEquals(new float[] { 2, 5 }, a.get(new NDIndex(":, {}", m.create(new int[] { 1, 2 }))).get(":, 0").toFloatArray());
         }
     }
 

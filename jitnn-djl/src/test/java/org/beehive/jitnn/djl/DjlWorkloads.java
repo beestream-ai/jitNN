@@ -100,6 +100,8 @@ final class DjlWorkloads {
 
     static List<Float> train(SequentialBlock net, Shape input, int steps, Optimizer optimizer, Data data, Loss loss) {
         List<Float> losses = new ArrayList<>();
+        // the same initial weights on every backend
+        ai.djl.engine.Engine.getInstance().setRandomSeed(1234);
         try (Model model = Model.newInstance("net")) {
             model.setBlock(net);
             DefaultTrainingConfig config = new DefaultTrainingConfig(loss).optOptimizer(optimizer).optInitializer(new XavierInitializer(), ai.djl.nn.Parameter.Type.WEIGHT);
