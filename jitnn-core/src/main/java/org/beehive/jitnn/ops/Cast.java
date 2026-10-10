@@ -9,12 +9,14 @@ import org.beehive.jitnn.kernels.LowPrecision;
 
 import uk.ac.manchester.tornado.api.types.HalfFloat;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.ShortArray;
 
 /**
  * Conversion between FP32 and the half-precision types (round to nearest even, as PyTorch's
- * .half() and .bfloat16()); FP16 to BF16 goes through FP32. The gradient is cast back to the
+ * .half() and .bfloat16()), and between FP32 and INT32 (truncating toward zero, as a Java cast);
+ * the others go through FP32. The gradient is cast back to the
  * input's type. iattr = [from, to] (DType ordinals).
  */
 public final class Cast implements Op {
@@ -29,8 +31,13 @@ public final class Cast implements Op {
         if (from == to) {
             return x;
         }
-        if (!from.isFloat() || !to.isFloat()) {
-            throw new IllegalArgumentException("casts are between floating-point types, got " + from + " to " + to);
+        boolean integer = from == DType.I32 || to == DType.I32;
+        DType other = from == DType.I32 ? to : from;
+        if (integer && other != DType.F32 && other != DType.F16 && other != DType.BF16) {
+            throw new IllegalArgumentException("INT32 converts to and from FP32, FP16 and BF16, got " + from + " to " + to);
+        }
+        if (!integer && (!from.isFloat() || !to.isFloat())) {
+            throw new IllegalArgumentException("casts are between floating-point types and INT32, got " + from + " to " + to);
         }
         if (from != DType.F32 && to != DType.F32) {
             return apply(apply(x, DType.F32), to);
@@ -61,7 +68,15 @@ public final class Cast implements Op {
         DType from = DType.values()[n.iattr[0]];
         DType to = DType.values()[n.iattr[1]];
         int count = n.out(0).numel();
-        if (from == DType.F32 && to == DType.F16) {
+        if (to == DType.I32) {
+            FloatArray x = e.f32(n.in(0));
+            IntArray y = e.i32(n.out(0));
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, LowPrecision::f32ToI32, e.context(), x, y, count));
+        } else if (from == DType.I32) {
+            IntArray x = e.i32(n.in(0));
+            FloatArray y = e.f32(n.out(0));
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, LowPrecision::i32ToF32, e.context(), x, y, count));
+        } else if (from == DType.F32 && to == DType.F16) {
             FloatArray x = e.f32(n.in(0));
             HalfFloatArray y = e.f16(n.out(0));
             e.task(Emitter.grid1D(count), (g, id) -> g.task(id, LowPrecision::f32ToF16, e.context(), x, y, count));
@@ -89,11 +104,13 @@ public final class Cast implements Op {
         Object y = n.out(0).storage().host();
         for (int i = 0; i < count; i++) {
             float v = switch (from) {
+                case I32 -> ((IntArray) x).get(i);
                 case F16 -> ((HalfFloatArray) x).get(i).getFloat32();
                 case BF16 -> Float.intBitsToFloat(((int) ((ShortArray) x).get(i)) << 16);
                 default -> ((FloatArray) x).get(i);
             };
             switch (to) {
+                case I32 -> ((IntArray) y).set(i, (int) v);
                 case F16 -> ((HalfFloatArray) y).set(i, new HalfFloat(Float.float16ToFloat(Float.floatToFloat16(v))));
                 case BF16 -> ((ShortArray) y).set(i, bf16(v));
                 default -> ((FloatArray) y).set(i, v);
@@ -113,6 +130,9 @@ public final class Cast implements Op {
 
     @Override
     public Tensor[] backward(Node n, Tensor gy) {
+        if (n.in(0).dtype() == DType.I32 || n.out(0).dtype() == DType.I32) {
+            return new Tensor[] { null };
+        }
         return new Tensor[] { apply(gy, n.in(0).dtype()) };
     }
 }

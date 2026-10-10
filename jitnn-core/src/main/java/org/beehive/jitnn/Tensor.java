@@ -981,7 +981,10 @@ public final class Tensor {
         return permute(order);
     }
 
-    /** This tensor converted to {@code dtype} (FP32, FP16 or BF16; round to nearest even); differentiable. */
+    /**
+     * This tensor converted to {@code dtype}: between FP32, FP16 and BF16 (round to nearest even;
+     * differentiable), or between FP32 and INT32 (truncating toward zero; no gradient).
+     */
     public Tensor to(DType dtype) {
         return Cast.apply(this, dtype);
     }

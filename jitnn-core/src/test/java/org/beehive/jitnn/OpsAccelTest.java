@@ -392,4 +392,10 @@ class OpsAccelTest {
             }
         }
     }
+
+    @Test
+    void integerCasts() {
+        same("FP32 to INT32 to FP32", () -> Tensor.uniform(71, -1000, 1000, 3001).to(DType.I32).to(DType.F32), 0, 0);
+        same("INT32 indices from FP32", () -> Tensor.uniform(72, -1, 1, 50, 8).indexSelect(0, Tensor.uniform(73, 0, 49.9f, 20).to(DType.I32)), 0, 0);
+    }
 }

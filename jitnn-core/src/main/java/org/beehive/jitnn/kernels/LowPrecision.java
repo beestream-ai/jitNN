@@ -47,6 +47,21 @@ public final class LowPrecision {
         }
     }
 
+    /** Truncates toward zero, as a Java (int) cast. */
+    public static void f32ToI32(KernelContext kc, FloatArray x, IntArray out, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            out.set(i, (int) x.get(i));
+        }
+    }
+
+    public static void i32ToF32(KernelContext kc, IntArray x, FloatArray out, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            out.set(i, (float) x.get(i));
+        }
+    }
+
     public static void f16ToF32(KernelContext kc, HalfFloatArray x, FloatArray out, int n) {
         int i = kc.globalIdx;
         if (i < n) {
