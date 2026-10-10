@@ -90,13 +90,17 @@ class TileGemmProbeAccelTest {
 
     /** Median ms of RUNS executions (operands on the device), and the output. */
     static double time(String name, Kernel kernel, WorkerGrid grid, HalfFloatArray a, HalfFloatArray b, FloatArray c, int m, int n, int k) throws Exception {
+        // the device under test (jitNN's -Djitnn.device), set before the tasks are added so their sketches are built for it
+        String spec = System.getProperty("jitnn.device", "1:0");
+        System.setProperty(name + ".device", spec);
+        String[] dev = spec.split(":");
         TaskGraph g = new TaskGraph(name).transferToDevice(DataTransferMode.FIRST_EXECUTION, a, b);
         kernel.add(g, a, b, c, m, n, k);
         g.transferToHost(DataTransferMode.UNDER_DEMAND, c);
         ImmutableTaskGraph itg = g.snapshot();
         double[] t = new double[RUNS];
         try (TornadoExecutionPlan plan = new TornadoExecutionPlan(itg)) {
-            plan.withGridScheduler(new GridScheduler(name + ".k", grid));
+            plan.withGridScheduler(new GridScheduler(name + ".k", grid)).withDevice(TornadoExecutionPlan.getDevice(Integer.parseInt(dev[0]), Integer.parseInt(dev[1])));
             for (int i = 0; i < 5; i++) {
                 plan.execute();
             }
