@@ -142,6 +142,13 @@ model("bit_shift", [N("Cast", ["a"], ["a8"], to=TensorProto.UINT8), N("Cast", ["
       [("a", i64(0, 32, 3, 4))], ["y0", "y1"], [("s", i64(0, 3, 3, 4))])
 model("col2im", [N("Col2Im", ["x", "img", "blk"], ["y"], strides=[1, 1])], [("x", rnd(1, 2 * 2 * 2, 4 * 4))], ["y"],
       [("img", np.array([5, 5], np.int64)), ("blk", np.array([2, 2], np.int64))])
+# Einsum: batched products as Keras attention writes them, transposes, sums and dots
+for name, eq, shapes in [("einsum_bmm", "bij,bjk->bik", [(2, 3, 4), (2, 4, 5)]), ("einsum_dense", "abc,cde->abde", [(2, 3, 8), (8, 2, 4)]),
+                         ("einsum_scores", "aecd,abcd->acbe", [(2, 5, 3, 4), (2, 6, 3, 4)]), ("einsum_combine", "acbe,aecd->abcd", [(2, 3, 6, 5), (2, 5, 3, 4)]),
+                         ("einsum_transpose", "ij->ji", [(3, 4)]), ("einsum_sum", "ijk->j", [(2, 3, 4)]), ("einsum_dot", "i,i", [(7,), (7,)]),
+                         ("einsum_outer_sum", "ij,kj->ik", [(3, 4), (5, 4)])]:
+    names = ["a", "b"][:len(shapes)]
+    model(name, [N("Einsum", names, ["y"], equation=eq)], [(n_, rnd(*sh)) for n_, sh in zip(names, shapes)], ["y"])
 
 
 # ---- models exported from PyTorch

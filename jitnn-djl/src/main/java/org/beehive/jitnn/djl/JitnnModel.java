@@ -5,12 +5,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import ai.djl.BaseModel;
 import ai.djl.Device;
 import ai.djl.MalformedModelException;
 import ai.djl.ndarray.types.DataType;
+import ai.djl.nn.Parameter;
+import ai.djl.training.Trainer;
+import ai.djl.training.TrainingConfig;
+import ai.djl.training.initializer.Initializer;
+import ai.djl.util.Pair;
 
 import org.beehive.jitnn.onnx.OnnxSession;
 
@@ -44,6 +50,22 @@ public final class JitnnModel extends BaseModel {
         boolean half = options != null && Boolean.parseBoolean(String.valueOf(options.get("fp16")));
         block = new JitnnSymbolBlock((JitnnNDManager) manager, OnnxSession.load(file, half));
         wasLoaded = true;
+    }
+
+    @Override
+    public Trainer newTrainer(TrainingConfig config) {
+        if (block == null) {
+            throw new IllegalStateException("set a block on the model before creating a trainer");
+        }
+        if (wasLoaded) {
+            block.freezeParameters(false);
+        }
+        for (Pair<Initializer, Predicate<Parameter>> pair : config.getInitializers()) {
+            if (pair.getKey() != null && pair.getValue() != null) {
+                block.setInitializer(pair.getKey(), pair.getValue());
+            }
+        }
+        return new Trainer(this, config);
     }
 
     private Path onnxFile(Path modelPath, String prefix) throws IOException {

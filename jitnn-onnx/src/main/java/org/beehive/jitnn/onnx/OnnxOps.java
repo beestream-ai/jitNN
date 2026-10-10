@@ -92,6 +92,125 @@ final class OnnxOps {
         return o;
     }
 
+    /** The output letters of an einsum equation (implicit form: the letters seen once, sorted). */
+    static String einsumOutput(String eq) {
+        int arrow = eq.indexOf("->");
+        if (arrow >= 0) {
+            return eq.substring(arrow + 2);
+        }
+        StringBuilder out = new StringBuilder();
+        String letters = eq.replace(",", "");
+        letters.chars().sorted().distinct().forEach(c -> {
+            if (letters.indexOf(c) == letters.lastIndexOf(c)) {
+                out.append((char) c);
+            }
+        });
+        return out.toString();
+    }
+
+    private static Tensor sumOut(Tensor t, StringBuilder letters, String keep) {
+        for (int i = letters.length() - 1; i >= 0; i--) {
+            if (keep.indexOf(letters.charAt(i)) < 0) {
+                t = t.sum(i, false);
+                letters.deleteCharAt(i);
+            }
+        }
+        return t;
+    }
+
+    private static Tensor arrange(Tensor t, String from, String to) {
+        int[] order = new int[to.length()];
+        boolean identity = true;
+        for (int i = 0; i < order.length; i++) {
+            order[i] = from.indexOf(to.charAt(i));
+            identity &= order[i] == i;
+        }
+        return identity ? t : t.permute(order);
+    }
+
+    private static void checkDistinct(String operand, String eq) {
+        if (operand.chars().distinct().count() != operand.length()) {
+            throw new UnsupportedOperationException("einsum " + eq + ": repeated letters within an operand (diagonals) are not supported");
+        }
+    }
+
+    /** One-operand einsum: sums the letters missing from the output, then permutes. */
+    static Tensor einsum1(String eq, Tensor a) {
+        String out = einsumOutput(eq);
+        String in = eq.contains("->") ? eq.substring(0, eq.indexOf("->")) : eq;
+        checkDistinct(in, eq);
+        StringBuilder letters = new StringBuilder(in);
+        Tensor t = sumOut(a, letters, out);
+        return arrange(t, letters.toString(), out);
+    }
+
+    /**
+     * Two-operand einsum as one batched GEMM: the letters of both operands and the output are the
+     * batch, those of both but not the output are contracted, the rest are each side's free axes.
+     */
+    static Tensor einsum2(Node n, String eq, Tensor a, Tensor b) {
+        String out = einsumOutput(eq);
+        String lhs = eq.contains("->") ? eq.substring(0, eq.indexOf("->")) : eq;
+        String[] ops = lhs.split(",");
+        checkDistinct(ops[0], eq);
+        checkDistinct(ops[1], eq);
+        if (ops[0].length() != a.rank() || ops[1].length() != b.rank()) {
+            throw unsupported(n, "equation " + eq + " for shapes " + a.shape() + " and " + b.shape());
+        }
+        // letters only one operand has and the output lacks are summed away first
+        StringBuilder la = new StringBuilder(ops[0]);
+        StringBuilder lb = new StringBuilder(ops[1]);
+        a = sumOut(a, la, out + ops[1]);
+        b = sumOut(b, lb, out + ops[0]);
+        String sa = la.toString();
+        String sb = lb.toString();
+        StringBuilder batch = new StringBuilder();
+        StringBuilder contract = new StringBuilder();
+        StringBuilder left = new StringBuilder();
+        StringBuilder right = new StringBuilder();
+        for (char c : sa.toCharArray()) {
+            if (sb.indexOf(c) >= 0) {
+                (out.indexOf(c) >= 0 ? batch : contract).append(c);
+            } else {
+                left.append(c);
+            }
+        }
+        for (char c : sb.toCharArray()) {
+            if (sa.indexOf(c) < 0) {
+                right.append(c);
+            }
+        }
+        int bt = 1;
+        int l = 1;
+        int k = 1;
+        int r = 1;
+        java.util.List<Integer> outDims = new java.util.ArrayList<>();
+        for (char c : batch.toString().toCharArray()) {
+            int d = a.dim(sa.indexOf(c));
+            if (d != b.dim(sb.indexOf(c))) {
+                throw unsupported(n, "broadcasting batch letter '" + c + "' in " + eq);
+            }
+            bt *= d;
+            outDims.add(d);
+        }
+        for (char c : left.toString().toCharArray()) {
+            l *= a.dim(sa.indexOf(c));
+            outDims.add(a.dim(sa.indexOf(c)));
+        }
+        for (char c : contract.toString().toCharArray()) {
+            k *= a.dim(sa.indexOf(c));
+        }
+        for (char c : right.toString().toCharArray()) {
+            r *= b.dim(sb.indexOf(c));
+            outDims.add(b.dim(sb.indexOf(c)));
+        }
+        Tensor a3 = arrange(a, sa, batch.toString() + left + contract).reshape(bt, l, k);
+        Tensor b3 = arrange(b, sb, batch.toString() + contract + right).reshape(bt, k, r);
+        Tensor c = bt == 1 ? a3.reshape(l, k).matmul(b3.reshape(k, r)) : a3.matmul(b3);
+        Tensor y = c.reshape(outDims.stream().mapToInt(Integer::intValue).toArray());
+        return arrange(y, batch.toString() + left + right, out);
+    }
+
     static UnsupportedOperationException unsupported(Node n, String what) {
         return new UnsupportedOperationException("ONNX " + n.opType() + " node '" + n.name() + "': " + what + " is not supported");
     }
@@ -591,6 +710,19 @@ final class OnnxOps {
         });
         // ---- matrix products
         HANDLERS.put("MatMul", (n, in) -> one(matmul(t(in, 0), t(in, 1))));
+        HANDLERS.put("Einsum", (n, in) -> {
+            String eq = n.attrString("equation", "").replace(" ", "");
+            if (eq.contains("...")) {
+                throw unsupported(n, "an ellipsis in equation " + eq);
+            }
+            if (in.size() == 1) {
+                return one(Value.of(einsum1(eq, t(in, 0))));
+            }
+            if (in.size() == 2) {
+                return one(Value.of(einsum2(n, eq, t(in, 0), t(in, 1))));
+            }
+            throw unsupported(n, in.size() + " operands");
+        });
         HANDLERS.put(Rewrites.ATTENTION, (n, in) -> {
             Tensor q = t(in, 0);
             Tensor k = n.attrInt("form", 0) == 1 ? t(in, 1) : t(in, 1).transpose(-2, -1);

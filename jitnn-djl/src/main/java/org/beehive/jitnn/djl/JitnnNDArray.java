@@ -9,6 +9,7 @@ import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDArrayAdapter;
 import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
+import ai.djl.ndarray.index.NDIndex;
 import ai.djl.ndarray.internal.NDArrayEx;
 import ai.djl.ndarray.internal.NDFormat;
 import ai.djl.ndarray.types.DataType;
@@ -1139,6 +1140,41 @@ public final class JitnnNDArray extends NDArrayAdapter {
     }
 
     // ---------------------------------------------------------------- indexing
+
+    private JitnnIndexer indexer() {
+        return new JitnnIndexer(jm());
+    }
+
+    @Override
+    public NDArray get(NDIndex index) {
+        return indexer().get(this, index);
+    }
+
+    @Override
+    public void set(NDIndex index, NDArray value) {
+        indexer().set(this, index, value);
+    }
+
+    @Override
+    public void set(NDIndex index, Number value) {
+        indexer().set(this, index, value);
+    }
+
+    @Override
+    public void set(NDIndex index, java.util.function.Function<NDArray, NDArray> function) {
+        set(index, function.apply(get(index)));
+    }
+
+    @Override
+    public void set(NDArray index, Number value) {
+        Tensor mask = of(index);
+        replace(wrap(F.where(mask.ne(Tensor.scalar(0)), Tensor.full(value.floatValue(), dims(shape)), tensor), dataType));
+    }
+
+    @Override
+    public void setScalar(NDIndex index, Number value) {
+        indexer().setScalar(this, index, value);
+    }
 
     @Override
     public NDArray gather(NDArray index, int axis) {
