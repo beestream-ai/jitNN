@@ -1,0 +1,154 @@
+package org.beehive.jitnn.djl;
+
+import java.util.Collections;
+import java.util.Set;
+import java.util.WeakHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+import ai.djl.Device;
+import ai.djl.Model;
+import ai.djl.engine.Engine;
+import ai.djl.ndarray.NDManager;
+import ai.djl.nn.SymbolBlock;
+import ai.djl.training.GradientCollector;
+
+import org.beehive.jitnn.engine.Engine.Backend;
+
+/**
+ * A DJL engine that runs DJL code on jitNN: NDArray operators become lazy jitNN operators,
+ * compiled into one TornadoVM plan per step and replayed; DJL's blocks, losses, optimisers and
+ * trainers work on top, and {@code Model.load} reads ONNX files through jitnn-onnx.
+ *
+ * <p>Its rank (0) makes it DJL's default engine when it is on the class path; set
+ * {@code ai.djl.default_engine} to choose another. Operators jitNN lacks run on the engine named by
+ * {@code -Djitnn.djl.fallback} (for example {@code PyTorch}), when one is given, else throw.
+ */
+public final class JitnnEngine extends Engine {
+
+    public static final String ENGINE_NAME = "jitNN";
+    static final int RANK = 0;
+
+    private static volatile JitnnEngine instance;
+
+    /** Arrays that track gradients, so that a gradient collector can clear them. */
+    private final Set<JitnnNDArray> trainable = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+    private final AtomicLong draws = new AtomicLong();
+    private volatile long seed = 42;
+    private volatile Engine alternative;
+    private volatile boolean alternativeResolved;
+
+    private JitnnEngine() {
+    }
+
+    public static JitnnEngine getInstance() {
+        if (instance == null) {
+            synchronized (JitnnEngine.class) {
+                if (instance == null) {
+                    instance = new JitnnEngine();
+                }
+            }
+        }
+        return instance;
+    }
+
+    @Override
+    public Engine getAlternativeEngine() {
+        if (!alternativeResolved) {
+            String name = System.getProperty("jitnn.djl.fallback", "").trim();
+            alternative = name.isEmpty() || !Engine.hasEngine(name) ? null : Engine.getEngine(name);
+            alternativeResolved = true;
+        }
+        return alternative;
+    }
+
+    @Override
+    public String getEngineName() {
+        return ENGINE_NAME;
+    }
+
+    @Override
+    public int getRank() {
+        return RANK;
+    }
+
+    @Override
+    public String getVersion() {
+        Package p = JitnnEngine.class.getPackage();
+        String v = p == null ? null : p.getImplementationVersion();
+        return v == null ? "0.1.0-SNAPSHOT" : v;
+    }
+
+    @Override
+    public boolean hasCapability(String capability) {
+        return false;
+    }
+
+    /** True when jitNN runs operators on a TornadoVM device (else on the host reference). */
+    static boolean onDevice() {
+        return org.beehive.jitnn.engine.Engine.backend() == Backend.TORNADO;
+    }
+
+    @Override
+    public Device defaultDevice() {
+        return onDevice() ? Device.gpu() : Device.cpu();
+    }
+
+    @Override
+    public int getGpuCount() {
+        return onDevice() ? 1 : 0;
+    }
+
+    @Override
+    public SymbolBlock newSymbolBlock(NDManager manager) {
+        return new JitnnSymbolBlock((JitnnNDManager) manager);
+    }
+
+    @Override
+    public Model newModel(String name, Device device) {
+        return new JitnnModel(name, device);
+    }
+
+    @Override
+    public NDManager newBaseManager() {
+        return JitnnNDManager.getSystemManager().newSubManager();
+    }
+
+    @Override
+    public NDManager newBaseManager(Device device) {
+        return JitnnNDManager.getSystemManager().newSubManager(device);
+    }
+
+    @Override
+    public GradientCollector newGradientCollector() {
+        return new JitnnGradientCollector(this);
+    }
+
+    @Override
+    public void setRandomSeed(int seed) {
+        super.setRandomSeed(seed);
+        this.seed = seed;
+        draws.set(0);
+    }
+
+    /** A fresh seed for the next random array: the engine seed and a draw counter. */
+    long nextSeed() {
+        return seed * 0x9E3779B97F4A7C15L + draws.getAndIncrement();
+    }
+
+    void track(JitnnNDArray array) {
+        trainable.add(array);
+    }
+
+    void zeroGradients() {
+        synchronized (trainable) {
+            for (JitnnNDArray a : trainable) {
+                a.clearGradient();
+            }
+        }
+    }
+
+    @Override
+    public String toString() {
+        return ENGINE_NAME + ':' + getVersion() + (onDevice() ? " (TornadoVM)" : " (host reference)");
+    }
+}

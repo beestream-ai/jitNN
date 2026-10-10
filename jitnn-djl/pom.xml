@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.beehive-lab</groupId>
+        <artifactId>jitnn-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>jitnn-djl</artifactId>
+    <name>jitNN DJL engine</name>
+    <description>A Deep Java Library engine that runs DJL code on jitNN</description>
+
+    <properties>
+        <djl.version>0.38.0</djl.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.beehive-lab</groupId>
+            <artifactId>jitnn-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.beehive-lab</groupId>
+            <artifactId>jitnn-onnx</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.beehive-lab</groupId>
+            <artifactId>tornado-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ai.djl</groupId>
+            <artifactId>api</artifactId>
+            <version>${djl.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+        </dependency>
+    </dependencies>
+</project>
