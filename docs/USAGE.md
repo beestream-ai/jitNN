@@ -372,6 +372,71 @@ float[] logits = out.get("output").toFloatArray();
 passed as INT32 tensors. The outputs are lazy jitNN tensors: read them, or keep computing with
 them. The first `run` compiles the graph; later runs with the same input shapes replay it.
 
+## Custom operators
+
+A custom operator is a kernel in plain Java, written with TornadoVM's `KernelContext`, plus an
+optional host reference and gradient. Once built it behaves like a built-in operator: it is
+recorded lazily, compiled into the same plan as its neighbours, cached and differentiated.
+
+```java
+public static void swish(KernelContext kc, FloatArray x, FloatArray y, int n) {
+    int i = kc.globalIdx;
+    if (i < n) {
+        float v = x.get(i);
+        y.set(i, v / (1.0f + TornadoMath.exp(-v)));
+    }
+}
+
+static final CustomOp SWISH = CustomOp.unary("swish", MyKernels::swish, v -> v / (1 + Math.exp(-v)))
+        .withGradient((x, y, gy) -> gy.mul(y.add(x.sigmoid().mul(y.neg().add(1)))));
+
+Tensor y = SWISH.apply(x);
+```
+
+`CustomOp.unary` and `CustomOp.binary` cover element-wise FP32 operators: the kernel runs on a
+1-D grid of at least `n` threads and bound-checks its index. `CustomOp.builder(name)` covers the
+rest: the input types, one or more outputs with a shape function, the tasks to launch (each with an
+explicit grid from `Emitter`), the host reference and the gradient.
+
+```java
+static final CustomOp MIN_MAX = CustomOp.builder("minMax")
+        .inputs(DType.F32)
+        .output((in, attrs) -> Shape.of(in[0].shape().dim(0)), DType.F32)
+        .output((in, attrs) -> Shape.of(in[0].shape().dim(0)), DType.F32)
+        .launch((e, n) -> {
+            FloatArray x = e.f32(n.in(0));
+            FloatArray min = e.f32(n.out(0));
+            FloatArray max = e.f32(n.out(1));
+            int rows = n.in(0).shape().dim(0);
+            int cols = n.in(0).shape().dim(1);
+            e.task(Emitter.grid1D(rows), (g, id) -> g.task(id, MyKernels::minMax, e.context(), x, min, max, rows, cols));
+        })
+        .reference(n -> { /* the same on the host, into n.out(0) and n.out(1) */ })
+        .build();
+
+Tensor[] mm = MIN_MAX.applyAll(null, null, x);
+```
+
+`apply(iattr, fattr, inputs...)` passes integer and float attributes, which the launcher reads from
+`n.iattr` and `n.fattr`. Compiled plans are cached by operator name and attributes, so names are
+global: building a second operator with a name already in use throws. Without a reference the
+operator runs only on a device; without a gradient, `backward()` through it throws.
+
+## Printing the kernels
+
+`Engine.printKernels(System.out)` prints every plan compiled from then on: its operators with
+shapes and task numbers, then the CUDA, OpenCL or Metal source TornadoVM generates for each kernel,
+custom ones included. `Engine.printKernels(null)` stops it; `-Djitnn.printKernels=true` (standard
+output) or `-Djitnn.printKernels=<file>` turns it on at start-up. Plans already compiled are not
+printed again: `Engine.reset()` drops them.
+
+```
+// ==== jitNN plan trace on CUDA NVIDIA A100 80GB PCIe: 2 operators, 2 kernels in 1 graph(s)
+//   [0] custom:swish [77, 3] F32 -> [77, 3] F32  tasks t0
+//   [1] binary [0] [77, 3] F32, [] F32 -> [77, 3] F32  tasks t1
+extern "C" __global__ void swish(...)
+```
+
 ## Backends
 
 `Engine.backend()` is `TORNADO` when a TornadoVM runtime is on the class path, else `REFERENCE`:

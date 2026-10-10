@@ -52,6 +52,8 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 
 ## Adding an operator
 
+Operators outside jitNN use `CustomOp` (see USAGE.md). Built-in operators:
+
 1. Write the kernel in `kernels/` with `KernelContext` (never `@Parallel`). Use `&` and `|`, not
    `&&` and `||`, in conditions.
 2. Add an `Op` in `ops/` with `emit` (tasks and grids), `reference` (double precision, written

@@ -27,6 +27,9 @@ final class CompiledTrace {
     java.util.Map<String, String> taskLabels;
     java.util.Map<String, long[]> profileTotals = new java.util.HashMap<>();
 
+    /** With kernel printing on: the operator listing printed before the kernels on the first run. */
+    String printHeader;
+
     TornadoExecutionPlan plan;
     TornadoExecutionResult last;
     long executions;

@@ -11,6 +11,7 @@ System properties, read once at start-up.
 | `jitnn.plan.cache` | `16` | compiled plans kept; the least recently used is closed, saving parameters first |
 | `jitnn.cudaGraph` | `true` | on CUDA, capture each plan as a CUDA graph and replay it |
 | `jitnn.verbose` | `false` | log every compiled plan: device, nodes, tasks, build time |
+| `jitnn.printKernels` | `false` | print each compiled plan's operators and generated kernel source: `true` for standard output, or a file name (see `Engine.printKernels`) |
 | `jitnn.profile` | `false` | enable TornadoVM's profiler: `Engine.lastProfile()` gives the last step's kernel time, `Engine.kernelBreakdown()` the device time per operator task (GEMMs labelled with their shape); on CUDA also set `jitnn.cudaGraph=false`, as the profiler reports no kernel time under CUDA graphs |
 | `jitnn.gemm` | `auto` | force a GEMM kernel: `simdgroup`, `128`, `64`, `16` |
 | `jitnn.transpose` | `32` | transpose kernel: `32` (32x32 tiles), `16`, or `naive` |

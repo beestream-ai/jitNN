@@ -173,6 +173,41 @@ public final class Engine {
         return TornadoExecutor.isLoaded() ? TornadoExecutor.timeSplit() : new long[2];
     }
 
+    private static volatile java.io.PrintStream kernelSink = initialKernelSink();
+
+    private static java.io.PrintStream initialKernelSink() {
+        String p = System.getProperty("jitnn.printKernels", "").trim();
+        if (p.isEmpty() || p.equals("false")) {
+            return null;
+        }
+        if (p.equals("true")) {
+            return System.out;
+        }
+        try {
+            return new java.io.PrintStream(new java.io.FileOutputStream(p, true), true);
+        } catch (java.io.FileNotFoundException e) {
+            throw new IllegalArgumentException("jitnn.printKernels: cannot write " + p, e);
+        }
+    }
+
+    /**
+     * Prints every plan compiled from now on to {@code out} (null stops): the plan's operators with
+     * their shapes and task counts, then the CUDA, OpenCL or Metal source TornadoVM generates for
+     * each kernel, on the plan's first run. Plans already compiled are not printed again; call
+     * {@link #reset()} first to recompile them. {@code -Djitnn.printKernels=true} (standard output)
+     * or {@code =<file>} turns it on at start-up.
+     *
+     * <p>While a plan is compiled, standard output is redirected to collect TornadoVM's dump;
+     * other threads' output in that window goes into the dump.
+     */
+    public static void printKernels(java.io.PrintStream out) {
+        kernelSink = out;
+    }
+
+    static java.io.PrintStream kernelSink() {
+        return kernelSink;
+    }
+
     /** Closes every cached compiled plan, first saving persistent storages to the host. */
     public static void reset() {
         sync();

@@ -16,6 +16,7 @@ import org.beehive.jitnn.Tensor;
 import uk.ac.manchester.tornado.api.GridScheduler;
 import uk.ac.manchester.tornado.api.TaskGraph;
 import uk.ac.manchester.tornado.api.TornadoExecutionPlan;
+import uk.ac.manchester.tornado.api.TornadoExecutionResult;
 import uk.ac.manchester.tornado.api.enums.DataTransferMode;
 import uk.ac.manchester.tornado.api.exceptions.TornadoExecutionPlanException;
 import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
@@ -372,6 +373,10 @@ final class TornadoExecutor {
         if (CUDA_GRAPH && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA) {
             plan.withCUDAGraph();
         }
+        if (Engine.kernelSink() != null) {
+            plan.withPrintKernel();
+            ct.printHeader = describe(name, plan, nodes, tasksPerNode, graphs.size());
+        }
         ct.plan = plan;
         ct.compileNanos = System.nanoTime() - t0;
         if (VERBOSE) {
@@ -380,6 +385,68 @@ final class TornadoExecutor {
                     ct.compileNanos / 1e6);
         }
         return ct;
+    }
+
+    /** The operators of a plan, for kernel printing. */
+    private static String describe(String name, TornadoExecutionPlan plan, List<Node> nodes, int[] tasksPerNode, int graphs) {
+        StringBuilder b = new StringBuilder();
+        b.append("// ==== jitNN plan ").append(name).append(" on ").append(plan.getDevice(0).getTornadoVMBackend()).append(' ').append(plan.getDevice(0).getDeviceName())
+                .append(": ").append(nodes.size()).append(" operators, ").append(Arrays.stream(tasksPerNode).sum()).append(" kernels in ").append(graphs).append(" graph(s)\n");
+        int task = 0;
+        for (int i = 0; i < nodes.size(); i++) {
+            Node n = nodes.get(i);
+            b.append("//   [").append(i).append("] ").append(n.op.name());
+            if (n.iattr != null && n.iattr.length > 0) {
+                b.append(' ').append(Arrays.toString(n.iattr));
+            }
+            b.append(' ');
+            for (int k = 0; k < n.inputs.length; k++) {
+                b.append(k == 0 ? "" : ", ").append(n.inputs[k].shape()).append(' ').append(n.inputs[k].dtype());
+            }
+            b.append(" -> ");
+            for (int k = 0; k < n.outputs.length; k++) {
+                b.append(k == 0 ? "" : ", ").append(n.outputs[k].shape()).append(' ').append(n.outputs[k].dtype());
+            }
+            if (tasksPerNode[i] == 0) {
+                b.append("  (no kernel)");
+            } else {
+                b.append("  tasks t").append(task);
+                if (tasksPerNode[i] > 1) {
+                    b.append("..t").append(task + tasksPerNode[i] - 1);
+                }
+            }
+            task += tasksPerNode[i];
+            b.append('\n');
+        }
+        return b.toString();
+    }
+
+    private static final Object PRINT_LOCK = new Object();
+
+    /** The first run of a plan with kernel printing on: collects TornadoVM's source dump from standard output. */
+    private static TornadoExecutionResult executePrinting(CompiledTrace ct) {
+        java.io.PrintStream sink = Engine.kernelSink();
+        synchronized (PRINT_LOCK) {
+            java.io.PrintStream stdout = System.out;
+            java.io.ByteArrayOutputStream dump = new java.io.ByteArrayOutputStream();
+            System.setOut(new java.io.PrintStream(dump, true));
+            TornadoExecutionResult result;
+            try {
+                result = ct.plan.execute();
+            } finally {
+                System.setOut(stdout);
+                ct.plan.withoutPrintKernel();
+                String header = ct.printHeader;
+                ct.printHeader = null;
+                if (sink != null) {
+                    sink.print(header);
+                    sink.print(dump.toString());
+                    sink.println("// ==== end of plan " + ct.name);
+                    sink.flush();
+                }
+            }
+            return result;
+        }
     }
 
     private static void execute(CompiledTrace ct, List<Storage> slots) {
@@ -424,7 +491,7 @@ final class TornadoExecutor {
             ct.bound[i] = s;
         }
         long t0 = System.nanoTime();
-        ct.last = ct.plan.execute();
+        ct.last = ct.printHeader != null ? executePrinting(ct) : ct.plan.execute();
         executeNanos += System.nanoTime() - t0;
         ct.executions++;
         if (PROFILE) {
