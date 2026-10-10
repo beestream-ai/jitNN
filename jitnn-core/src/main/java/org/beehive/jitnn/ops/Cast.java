@@ -40,6 +40,17 @@ public final class Cast implements Op {
         return out;
     }
 
+    /**
+     * Records the cast of FP32 {@code x} into the existing tensor {@code out} (same shape; F16 or
+     * BF16): for casts kept between steps in persistent storage, recomputed when x changes.
+     */
+    public static void into(Tensor x, Tensor out) {
+        if (x.dtype() != DType.F32 || !(out.dtype() == DType.F16 || out.dtype() == DType.BF16) || x.numel() != out.numel()) {
+            throw new IllegalArgumentException("cast into: needs FP32 into a half tensor of the same size, got " + x + " and " + out);
+        }
+        Tensor.record(OP, new Tensor[] { x }, new Tensor[] { out }, new int[] { DType.F32.ordinal(), out.dtype().ordinal() }, null, true);
+    }
+
     @Override
     public String name() {
         return "cast";

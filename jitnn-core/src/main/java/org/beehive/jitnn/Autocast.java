@@ -44,20 +44,24 @@ public final class Autocast {
     private static final java.util.Map<Tensor, Cast> WEIGHTS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
     /**
-     * A weight cast to the autocast type, kept between steps while gradients are off: cast again
-     * only when the weight's storage has changed since (its version), so inference does not
-     * re-cast every weight on every step. While gradients are recorded the cast is part of the
+     * A persistent FP32 weight cast to FP16, kept between steps while gradients are off in
+     * persistent FP16 storage: cast again only when the weight's storage has changed since (its
+     * version), so inference does not re-cast every weight on every step. While gradients are recorded the cast is part of the
      * graph, as {@link #operand}.
      */
     static Tensor weight(Tensor w) {
         DType d = TYPE.get();
-        if (d == null || w.dtype() != DType.F32 || Grad.isEnabled()) {
+        if (d != DType.F16 || w.dtype() != DType.F32 || Grad.isEnabled() || !w.storage().isPersistent()) {
             return operand(w);
         }
         long version = w.storage().version();
         Cast c = WEIGHTS.get(w);
-        if (c == null || c.version() != version || c.type() != d) {
-            c = new Cast(version, d, w.to(d));
+        if (c == null || c.version() != version) {
+            // the half copy lives in persistent storage (an intermediate's buffer would be reused by
+            // the next execution), rewritten inside the trace that first sees the new weight
+            Tensor half = c != null ? c.half() : Tensor.persistentHalf(new float[w.numel()], w.shape().dims());
+            org.beehive.jitnn.ops.Cast.into(w, half);
+            c = new Cast(version, d, half);
             WEIGHTS.put(w, c);
         }
         return c.half();

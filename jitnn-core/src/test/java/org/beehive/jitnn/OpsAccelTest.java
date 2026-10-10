@@ -180,11 +180,13 @@ class OpsAccelTest {
         for (int rows : new int[] { 512, 300 }) {
             same("autocast FP16 linear " + rows + "x768 -> 1024 + bias + ReLU, twice", () -> Grad.inference(() -> {
                 try (Grad.Scope ignored = Autocast.enable(DType.F16)) {
-                    Tensor w = Tensor.uniform(120, -0.05f, 0.05f, 1024, 768);
+                    // a persistent weight, as a model's: its FP16 cast is cached and reused by the second trace
+                    Tensor w = Tensor.persistent(Tensor.uniform(120, -0.05f, 0.05f, 1024, 768));
                     Tensor b = Tensor.uniform(121, -1, 1, 1024);
                     Tensor y1 = F.linearRelu(Tensor.uniform(122, -1, 1, rows, 768), w, b);
+                    float[] first = y1.toFloatArray();
                     Tensor y2 = F.linearRelu(Tensor.uniform(123, -1, 1, rows, 768), w, b);
-                    return y1.add(y2);
+                    return Tensor.of(first, rows, 1024).add(y2);
                 }
             }), 2e-2, 2e-2);
         }
