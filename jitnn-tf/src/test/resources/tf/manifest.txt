@@ -1,0 +1,43 @@
+case mlp savedmodel
+input features f32 3 12
+output output_0 f32 3 5
+case cnn savedmodel
+input image f32 2 16 16 3
+output output_0 f32 2 4
+case transformer savedmodel
+input ids i32 2 8
+output output_0 f32 2 3
+case ops savedmodel
+input x f32 2 6 8
+input idx i32 2 3
+output argmax i32 2 6
+output batch_matmul_adj f32 2 8 8
+output cast_floordiv f32 2 3
+output concat_pack f32 2 8 8
+output cumsum f32 2 6 8
+output einsum f32 2 6 6
+output expand_squeeze f32 2 6 8
+output fill_range f32 2 3
+output gather f32 2 3 8
+output math f32 2 6 8
+output matmul_t f32 6 6
+output one_hot f32 2 3 5
+output pad f32 2 9 9
+output reduce f32 2 6 8
+output reduce_sum f32 6
+output resize f32 2 9 9 1
+output resize_nearest f32 2 12 12 1
+output slice_basic f32 2 4 4
+output slice_ellipsis f32 2 6 2
+output slice_newaxis f32 2 1 3
+output slice_rev f32 2 6
+output slice_shrink f32 6
+output softmax f32 2 6 8
+output split f32 2 6 6
+output tile f32 2 4 6
+output transpose f32 8 2 6
+output unpack f32 2 8
+output where f32 2 6 8
+case mlp_frozen frozen
+input features f32 3 12
+output Identity f32 3 5

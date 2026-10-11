@@ -200,7 +200,29 @@ bit_shift out:y0 i32 50332 12 3 4
 bit_shift out:y1 i32 50380 12 3 4
 col2im in:x f32 50428 128 1 8 16
 col2im out:y f32 50940 50 1 2 5 5
-torch_cnn in:x f32 51140 1536 2 3 16 16
-torch_cnn out:y f32 57284 10 2 5
-torch_transformer_block in:x f32 57324 640 2 10 32
-torch_transformer_block out:y f32 59884 640 2 10 32
+einsum_bmm in:a f32 51140 24 2 3 4
+einsum_bmm in:b f32 51236 40 2 4 5
+einsum_bmm out:y f32 51396 30 2 3 5
+einsum_dense in:a f32 51516 48 2 3 8
+einsum_dense in:b f32 51708 64 8 2 4
+einsum_dense out:y f32 51964 48 2 3 2 4
+einsum_scores in:a f32 52156 120 2 5 3 4
+einsum_scores in:b f32 52636 144 2 6 3 4
+einsum_scores out:y f32 53212 180 2 3 6 5
+einsum_combine in:a f32 53932 180 2 3 6 5
+einsum_combine in:b f32 54652 120 2 5 3 4
+einsum_combine out:y f32 55132 144 2 6 3 4
+einsum_transpose in:a f32 55708 12 3 4
+einsum_transpose out:y f32 55756 12 4 3
+einsum_sum in:a f32 55804 24 2 3 4
+einsum_sum out:y f32 55900 3 3
+einsum_dot in:a f32 55912 7 7
+einsum_dot in:b f32 55940 7 7
+einsum_dot out:y f32 55968 1 
+einsum_outer_sum in:a f32 55972 12 3 4
+einsum_outer_sum in:b f32 56020 20 5 4
+einsum_outer_sum out:y f32 56100 15 3 5
+torch_cnn in:x f32 56160 1536 2 3 16 16
+torch_cnn out:y f32 62304 10 2 5
+torch_transformer_block in:x f32 62344 640 2 10 32
+torch_transformer_block out:y f32 64904 640 2 10 32
