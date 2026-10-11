@@ -134,6 +134,11 @@ public final class OnnxModel {
         this.opsets = opsets;
     }
 
+    /** A model from a graph built in memory (by jitNN's other importers), with its operator-set versions. */
+    public static OnnxModel of(Graph graph, Map<String, Long> opsets) {
+        return new OnnxModel(graph, opsets);
+    }
+
     public Graph graph() {
         return graph;
     }

@@ -954,6 +954,14 @@ final class OnnxOps {
             for (int i = 0; i < p.length; i++) {
                 p[i] = perm == null ? p.length - 1 - i : (int) perm[i];
             }
+            if (n.attrInt("jitnn_last2", 0) != 0) {
+                // jitNN's TensorFlow importer: swap the last two axes of a tensor of any rank
+                for (int i = 0; i < p.length; i++) {
+                    p[i] = i;
+                }
+                p[p.length - 1] = p.length - 2;
+                p[p.length - 2] = p.length - 1;
+            }
             return one(Value.of(x.tensor(true).permute(p), x.type));
         });
         HANDLERS.put("Concat", (n, in) -> {

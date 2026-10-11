@@ -7,9 +7,10 @@ import java.nio.charset.StandardCharsets;
 /**
  * A reader for the protocol buffers wire format, enough to decode ONNX's messages without a
  * protobuf library: varints, fixed 32/64-bit values and length-delimited fields (strings, bytes,
- * nested messages and packed repeated numbers).
+ * nested messages and packed repeated numbers). Public for jitNN's other importers (TensorFlow);
+ * not a stable API.
  */
-final class Proto {
+public final class Proto {
 
     static final int VARINT = 0;
     static final int FIXED64 = 1;
@@ -20,7 +21,7 @@ final class Proto {
     private final int end;
     private int tag;
 
-    Proto(ByteBuffer buf) {
+    public Proto(ByteBuffer buf) {
         this.buf = buf.duplicate().order(ByteOrder.LITTLE_ENDIAN);
         this.end = this.buf.limit();
     }
@@ -33,7 +34,7 @@ final class Proto {
     }
 
     /** Advances to the next field; false at the end of the message. */
-    boolean next() {
+    public boolean next() {
         if (buf.position() >= end) {
             return false;
         }
@@ -41,15 +42,15 @@ final class Proto {
         return true;
     }
 
-    int field() {
+    public int field() {
         return tag >>> 3;
     }
 
-    int wire() {
+    public int wire() {
         return tag & 7;
     }
 
-    long varint() {
+    public long varint() {
         long result = 0;
         int shift = 0;
         while (true) {
@@ -65,31 +66,31 @@ final class Proto {
         }
     }
 
-    long fixed64() {
+    public long fixed64() {
         return buf.getLong();
     }
 
-    int fixed32() {
+    public int fixed32() {
         return buf.getInt();
     }
 
-    float float32() {
+    public float float32() {
         return buf.getFloat();
     }
 
-    double float64() {
+    public double float64() {
         return buf.getDouble();
     }
 
     /** The current length-delimited field as a view (no copy). */
-    ByteBuffer bytes() {
+    public ByteBuffer bytes() {
         int len = (int) varint();
         ByteBuffer slice = buf.slice(buf.position(), len).order(ByteOrder.LITTLE_ENDIAN);
         buf.position(buf.position() + len);
         return slice;
     }
 
-    String string() {
+    public String string() {
         ByteBuffer b = bytes();
         byte[] a = new byte[b.remaining()];
         b.get(a);
@@ -97,7 +98,7 @@ final class Proto {
     }
 
     /** The current length-delimited field as a nested message. */
-    Proto message() {
+    public Proto message() {
         int len = (int) varint();
         int start = buf.position();
         buf.position(start + len);
@@ -105,7 +106,7 @@ final class Proto {
     }
 
     /** Repeated int64 values: one varint, or a packed run. */
-    void longs(LongSink sink) {
+    public void longs(LongSink sink) {
         if (wire() == LENGTH) {
             int len = (int) varint();
             int stop = buf.position() + len;
@@ -118,7 +119,7 @@ final class Proto {
     }
 
     /** Repeated float values: one fixed32, or a packed run. */
-    void floats(FloatSink sink) {
+    public void floats(FloatSink sink) {
         if (wire() == LENGTH) {
             int len = (int) varint();
             int stop = buf.position() + len;
@@ -131,7 +132,7 @@ final class Proto {
     }
 
     /** Repeated double values: one fixed64, or a packed run. */
-    void doubles(DoubleSink sink) {
+    public void doubles(DoubleSink sink) {
         if (wire() == LENGTH) {
             int len = (int) varint();
             int stop = buf.position() + len;
@@ -143,7 +144,7 @@ final class Proto {
         }
     }
 
-    void skip() {
+    public void skip() {
         switch (wire()) {
             case VARINT -> varint();
             case FIXED64 -> buf.position(buf.position() + 8);
@@ -156,15 +157,15 @@ final class Proto {
         }
     }
 
-    interface LongSink {
+    public interface LongSink {
         void accept(long v);
     }
 
-    interface FloatSink {
+    public interface FloatSink {
         void accept(float v);
     }
 
-    interface DoubleSink {
+    public interface DoubleSink {
         void accept(double v);
     }
 }

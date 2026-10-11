@@ -77,6 +77,11 @@ public final class OnnxSession {
         return new OnnxSession(OnnxModel.load(file), halfPrecision);
     }
 
+    /** A session over a model built in memory (see {@link OnnxModel#of}). */
+    public static OnnxSession of(OnnxModel model, boolean halfPrecision) {
+        return new OnnxSession(model, halfPrecision);
+    }
+
     public OnnxModel model() {
         return model;
     }
