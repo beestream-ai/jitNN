@@ -31,12 +31,18 @@ final class TensorBundle {
     /** {@code prefix} is the path without suffix, e.g. {@code <model>/variables/variables}. */
     TensorBundle(Path prefix) throws IOException {
         ByteBuffer index = map(Path.of(prefix + ".index"));
-        int shardCount = 1;
         readTable(index);
-        for (Entry e : entries.values()) {
-            shardCount = Math.max(shardCount, e.shard + 1);
+        // the shard count is in the data files' names: <prefix>.data-00000-of-NNNNN
+        int shardCount = 1;
+        String base = prefix.getFileName() + ".data-";
+        try (java.util.stream.Stream<Path> files = Files.list(prefix.toAbsolutePath().getParent())) {
+            for (Path f : (Iterable<Path>) files::iterator) {
+                String n = f.getFileName().toString();
+                if (n.startsWith(base) && n.contains("-of-")) {
+                    shardCount = Math.max(shardCount, Integer.parseInt(n.substring(n.lastIndexOf("-of-") + 4)));
+                }
+            }
         }
-        entries.remove("");
         shards = new ByteBuffer[shardCount];
         for (int s = 0; s < shardCount; s++) {
             Path data = Path.of(String.format("%s.data-%05d-of-%05d", prefix, s, shardCount));
@@ -108,7 +114,10 @@ final class TensorBundle {
             long off = v(handle);
             long size = v(handle);
             for (Map.Entry<String, ByteBuffer> de : block(file, off, size).entrySet()) {
-                entries.put(de.getKey(), entry(de.getValue()));
+                // the empty key holds the BundleHeaderProto, not a tensor
+                if (!de.getKey().isEmpty()) {
+                    entries.put(de.getKey(), entry(de.getValue()));
+                }
             }
         }
     }

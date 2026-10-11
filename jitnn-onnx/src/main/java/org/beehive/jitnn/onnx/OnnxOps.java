@@ -389,7 +389,27 @@ final class OnnxOps {
                     y = F.flip(y, ax);
                     continue;
                 }
-                throw unsupported(n, "slice step " + steps[k]);
+                // any other step: select the positions, ONNX's clamping rules
+                long step = steps[k];
+                long st = starts[k] < 0 ? starts[k] + d : starts[k];
+                long en = ends[k] < 0 && ends[k] > Long.MIN_VALUE / 2 ? ends[k] + d : ends[k];
+                java.util.List<Integer> pos = new java.util.ArrayList<>();
+                if (step > 0) {
+                    st = Math.max(0, Math.min(st, d));
+                    en = Math.max(0, Math.min(en, d));
+                    for (long i = st; i < en; i += step) {
+                        pos.add((int) i);
+                    }
+                } else {
+                    st = Math.max(-1, Math.min(st, d - 1));
+                    en = Math.max(-1, Math.min(en, d - 1));
+                    for (long i = st; i > en; i += step) {
+                        pos.add((int) i);
+                    }
+                }
+                int[] idx = pos.stream().mapToInt(Integer::intValue).toArray();
+                y = y.indexSelect(ax, Tensor.of(idx, idx.length));
+                continue;
             }
             long st = starts[k] < 0 ? starts[k] + d : starts[k];
             long en = ends[k] < 0 ? ends[k] + d : ends[k];
