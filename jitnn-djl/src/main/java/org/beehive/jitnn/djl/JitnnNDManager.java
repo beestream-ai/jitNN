@@ -133,17 +133,19 @@ public class JitnnNDManager extends BaseNDManager {
 
     @Override
     public JitnnNDArray zeros(Shape shape, DataType dataType) {
-        return wrap(Tensor.zeros(JitnnNDArray.dims(shape)), dataType);
+        return wrap(host(new float[Math.toIntExact(shape.size())], shape), dataType);
     }
 
     @Override
     public JitnnNDArray ones(Shape shape, DataType dataType) {
-        return wrap(Tensor.ones(JitnnNDArray.dims(shape)), dataType);
+        return full(shape, 1, dataType);
     }
 
     @Override
     public JitnnNDArray full(Shape shape, float value, DataType dataType) {
-        return wrap(Tensor.full(value, JitnnNDArray.dims(shape)), dataType);
+        float[] v = new float[Math.toIntExact(shape.size())];
+        java.util.Arrays.fill(v, value);
+        return wrap(host(v, shape), dataType);
     }
 
     @Override
@@ -158,7 +160,7 @@ public class JitnnNDManager extends BaseNDManager {
 
     @Override
     public JitnnNDArray eye(int rows, int cols, int k, DataType dataType) {
-        return wrap(Tensor.eye(rows, cols, k), dataType);
+        return wrap(onHost(() -> Tensor.eye(rows, cols, k)), dataType);
     }
 
     @Override
@@ -171,18 +173,44 @@ public class JitnnNDManager extends BaseNDManager {
         return wrap(Tensor.of(v, num), DataType.FLOAT32);
     }
 
+    /**
+     * Created arrays hold host data, never a device intermediate: DJL keeps them (parameters,
+     * running statistics) across steps, and an intermediate's buffer belongs to its cached plan,
+     * which an identical later creation replays.
+     */
+    private static Tensor host(float[] values, Shape shape) {
+        Tensor t = Tensor.of(values, JitnnNDArray.dims(shape));
+        return (long) values.length * 4 >= PERSISTENT_BYTES ? Tensor.persistent(t) : t;
+    }
+
+    /** Computes {@code f} with jitNN's host reference (same values as the devices: Philox, exact ops) and returns host data. */
+    private static Tensor onHost(java.util.function.Supplier<Tensor> f) {
+        float[][] out = new float[1][];
+        int[][] dims = new int[1][];
+        org.beehive.jitnn.engine.Engine.with(org.beehive.jitnn.engine.Engine.Backend.REFERENCE, () -> {
+            Tensor t = f.get();
+            out[0] = t.toFloatArray();
+            dims[0] = t.shape().dims();
+            return null;
+        });
+        Tensor t = Tensor.of(out[0], dims[0]);
+        return (long) out[0].length * 4 >= PERSISTENT_BYTES ? Tensor.persistent(t) : t;
+    }
+
     private long seed() {
         return JitnnEngine.getInstance().nextSeed();
     }
 
     @Override
     public JitnnNDArray randomUniform(float low, float high, Shape shape, DataType dataType) {
-        return wrap(Tensor.uniform(seed(), low, high, JitnnNDArray.dims(shape)), dataType);
+        long seed = seed();
+        return wrap(onHost(() -> Tensor.uniform(seed, low, high, JitnnNDArray.dims(shape))), dataType);
     }
 
     @Override
     public JitnnNDArray randomNormal(float loc, float scale, Shape shape, DataType dataType) {
-        return wrap(Tensor.normal(seed(), loc, scale, JitnnNDArray.dims(shape)), dataType);
+        long seed = seed();
+        return wrap(onHost(() -> Tensor.normal(seed, loc, scale, JitnnNDArray.dims(shape))), dataType);
     }
 
     @Override
@@ -190,9 +218,11 @@ public class JitnnNDManager extends BaseNDManager {
         // inverse CDF of the normal truncated to [-2, 2] standard deviations, from a uniform draw
         double lo = 0.5 * (1 + erf(-2 / Math.sqrt(2)));
         double hi = 0.5 * (1 + erf(2 / Math.sqrt(2)));
-        Tensor u = Tensor.uniform(seed(), (float) lo, (float) hi, JitnnNDArray.dims(shape));
-        Tensor z = JitnnNDArray.erfinv(u.mul(2).add(-1)).mul((float) Math.sqrt(2));
-        return wrap(z.mul(scale).add(loc), dataType);
+        long seed = seed();
+        return wrap(onHost(() -> {
+            Tensor u = Tensor.uniform(seed, (float) lo, (float) hi, JitnnNDArray.dims(shape));
+            return JitnnNDArray.erfinv(u.mul(2).add(-1)).mul((float) Math.sqrt(2)).mul(scale).add(loc);
+        }), dataType);
     }
 
     private static double erf(double x) {
@@ -204,14 +234,14 @@ public class JitnnNDManager extends BaseNDManager {
 
     @Override
     public JitnnNDArray randomInteger(long low, long high, Shape shape, DataType dataType) {
-        Tensor u = Tensor.uniform(seed(), low, high, JitnnNDArray.dims(shape)).floor();
-        return wrap(u.clamp(low, high - 1), dataType);
+        long seed = seed();
+        return wrap(onHost(() -> Tensor.uniform(seed, low, high, JitnnNDArray.dims(shape)).floor().clamp(low, high - 1)), dataType);
     }
 
     @Override
     public JitnnNDArray randomPermutation(long n) {
-        Tensor keys = Tensor.uniform(seed(), 0, 1, Math.toIntExact(n));
-        return wrap(keys.argsort(0, false).to(org.beehive.jitnn.DType.F32), DataType.INT64);
+        long seed = seed();
+        return wrap(onHost(() -> Tensor.uniform(seed, 0, 1, Math.toIntExact(n)).argsort(0, false).to(org.beehive.jitnn.DType.F32)), DataType.INT64);
     }
 
     /** The root manager: never closed, holds detached arrays. */
