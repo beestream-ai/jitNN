@@ -117,8 +117,14 @@ public class JitnnNDManager extends BaseNDManager {
         } else {
             throw new IllegalArgumentException("jitNN arrays cannot be created from " + data.getClass().getSimpleName() + " as " + dataType);
         }
-        return wrap(Tensor.of(values, JitnnNDArray.dims(shape)), dataType);
+        Tensor t = Tensor.of(values, JitnnNDArray.dims(shape));
+        // large arrays (datasets) stay on the device: an ordinary host tensor is uploaded by every
+        // step that reads it, a persistent one once
+        return wrap((long) size * 4 >= PERSISTENT_BYTES ? Tensor.persistent(t) : t, dataType);
     }
+
+    /** Arrays created from host data at least this large are kept in persistent device storage. */
+    static final long PERSISTENT_BYTES = Long.getLong("jitnn.djl.persistentBytes", 4L << 20);
 
     @Override
     public JitnnNDArray create(Shape shape, DataType dataType) {

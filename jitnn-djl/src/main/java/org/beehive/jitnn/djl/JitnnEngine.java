@@ -42,6 +42,11 @@ public final class JitnnEngine extends Engine {
     private volatile boolean alternativeResolved;
 
     private JitnnEngine() {
+        // every DJL array is visible to the program, which may read it after the step that made it:
+        // jitNN must not recycle intermediate buffers inside a trace unless asked to
+        if (System.getProperty("jitnn.reuseBuffers") == null) {
+            System.setProperty("jitnn.reuseBuffers", "false");
+        }
     }
 
     public static JitnnEngine getInstance() {
