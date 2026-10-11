@@ -63,6 +63,8 @@ The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERAT
 | `jitnn-core` | tensors, autograd, the execution engine, every operator and kernel, `Linalg`, `Fft`, `SparseMatrix`, FP8, collectives |
 | `jitnn-nn` | modules and layers, optimisers, the models, embedding models and text sampling, the classical estimators (`org.beehive.jitnn.ml`), data-parallel training |
 | `jitnn-onnx` | the ONNX importer: `OnnxSession` |
+| `jitnn-djl` | a Deep Java Library engine: DJL code (NDArray, blocks, Trainer, Predictor) runs on jitNN |
+| `jitnn-tf` | the TensorFlow importer: SavedModels and frozen GraphDefs, `TfModel` |
 
 ## Where it runs
 

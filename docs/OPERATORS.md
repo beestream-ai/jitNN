@@ -278,7 +278,7 @@ About 110 ONNX operators are supported:
 | Family | Operators |
 |---|---|
 | Element-wise and activations | arithmetic, math functions, comparisons, logic, `Where`, `IsNaN`, `IsInf`, the common activations |
-| Products | `MatMul`, `Gemm` |
+| Products | `MatMul`, `Gemm`, `Einsum` (one or two operands, no ellipsis or diagonals) |
 | Convolution | `Conv` 1-D, 2-D and 3-D, grouped, `ConvTranspose`; asymmetric and `SAME` padding |
 | Pooling | `MaxPool`, `AveragePool`, `GlobalAveragePool`, `GlobalMaxPool` |
 | Normalisation | `BatchNormalization`, `LayerNormalization`, `InstanceNormalization`, `GroupNormalization`, `LRN` |
@@ -304,6 +304,45 @@ The attention operator uses the fused attention kernel when batch x heads is at 
 `OnnxSession.load(path, true)` runs in half precision: the matrix products (linear layers and
 attention) take FP16 operands with FP32 accumulation and the linear weights are stored in FP16;
 convolutions stay FP32.
+
+## TensorFlow models (`jitnn-tf`)
+
+`TfModel.load(path)` reads a SavedModel directory (TensorFlow 2, Keras `export` or
+`tf.saved_model.save`; its `serving_default` signature) or a frozen GraphDef file, and
+`run(Map<String, Tensor>)` runs it. The importer inlines the graph's function calls, reads the
+variables from the checkpoint (found through the SavedModel's restore graph), and translates the
+TensorFlow operations into the ONNX importer's operators, so both share their kernels, host shape
+folding and rewrites. Only the operations the signature's outputs need are translated.
+
+| Family | TensorFlow operations |
+|---|---|
+| Element-wise | `Add(V2)`, `Sub`, `Mul`, `(Real)Div`, `FloorDiv`, `FloorMod`, `Maximum`, `Minimum`, `Pow`, `SquaredDifference`, `AddN`, `BiasAdd`, the math functions and activations (`Relu6`, `LeakyRelu`, `Rsqrt`, `Log1p`, `Expm1`, ...), comparisons, logic, `Select(V2)`, `Cast` |
+| Products | `MatMul` (transposes), `BatchMatMul(V2, V3)` (adjoints), `Einsum` |
+| Convolution and pooling | `Conv2D` (NHWC or NCHW, `SAME`, `VALID`, explicit padding, strides, dilations), `DepthwiseConv2dNative`, `MaxPool`, `AvgPool`, `FusedBatchNorm(V2, V3)` (inference, folded into a scale and shift at load) |
+| Reductions | `Mean`, `Sum`, `Max`, `Min`, `Prod`, `ArgMax`, `ArgMin`, `Cumsum`, `TopKV2`, `Softmax`, `LogSoftmax` |
+| Shapes and indexing | `Reshape`, `Shape`, `Size`, `ExpandDims`, `Squeeze`, `Transpose`, `ConcatV2`, `Pack`, `Unpack`, `Split`, `SplitV`, `Slice`, `StridedSlice` (all masks), `GatherV2`, `ResourceGather`, `GatherNd`, `Tile`, `Fill`, `ZerosLike`, `OnesLike`, `Range`, `OneHot`, `Pad(V2)`, `MirrorPad`, `ResizeBilinear`, `ResizeNearestNeighbor`, `DepthToSpace`, `SpaceToDepth` |
+
+NHWC convolutions, pooling and resizes are wrapped in transposes to and from NCHW. Constant
+operands that ONNX takes as attributes (permutations, reduction axes, slice bounds, convolution
+filters) must be constants in the graph, as they are in exported models. Control flow (`While`,
+`If`) and training-mode batch normalisation are not supported; a model that uses them is
+rejected at load with the list of operations.
+
+## DJL (`jitnn-djl`)
+
+With `jitnn-djl` on the class path, jitNN is the Deep Java Library's default engine (rank 0;
+`-Dai.djl.default_engine=...` picks another). NDArrays are jitNN tensors, recorded lazily and
+compiled per step like any jitNN code. DJL's blocks (`Linear`, `Conv1d`/`2d`/`3d`, `Conv2dTranspose`,
+`BatchNorm`, `LayerNorm`, `Dropout`, the pooling blocks, `Embedding`, `PReLU`, `LSTM`, `GRU`,
+`RNN`), losses, optimisers (`Sgd` with momentum, `Nag`, `Adam`/AdamW, `Adagrad`, `RmsProp`,
+`Adadelta`, all as jitNN's fused in-place updates) and `Trainer` work; `Model.load` reads ONNX
+files through jitnn-onnx.
+
+Every numeric DJL type is held in FP32 (integers exactly up to 2^24) and tagged with its DJL type,
+which arithmetic results and host copies follow. Not supported: non-square pooling windows and
+convolution strides, ceil-mode pooling, LP pooling, random image augmentation, the multibox
+operators, sparse arrays and strings. Operators jitNN lacks run on the engine named by
+`-Djitnn.djl.fallback` (for example `PyTorch`) when it is on the class path, else throw.
 
 ## Not yet supported
 

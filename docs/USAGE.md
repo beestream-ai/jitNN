@@ -372,6 +372,37 @@ float[] logits = out.get("output").toFloatArray();
 passed as INT32 tensors. The outputs are lazy jitNN tensors: read them, or keep computing with
 them. The first `run` compiles the graph; later runs with the same input shapes replay it.
 
+## TensorFlow models
+
+`jitnn-tf` runs TensorFlow SavedModels and frozen GraphDefs:
+
+```java
+TfModel model = TfModel.load(Path.of("exported_model"));              // a SavedModel directory, or a .pb file
+Map<String, Tensor> out = model.run(Map.of("image", Tensor.of(pixels, 1, 224, 224, 3)));
+```
+
+Inputs and outputs carry the signature's names (`model.inputNames()`, `outputNames()`). Images
+stay NHWC, as TensorFlow takes them; integer inputs are INT32 tensors.
+
+## DJL
+
+Add `jitnn-djl` and DJL code runs on jitNN unchanged:
+
+```java
+try (Model model = Model.newInstance("mlp")) {                     // jitNN is the default engine
+    model.setBlock(new SequentialBlock().add(Linear.builder().setUnits(64).build()).add(Activation::relu)
+            .add(Linear.builder().setUnits(10).build()));
+    try (Trainer trainer = model.newTrainer(new DefaultTrainingConfig(Loss.softmaxCrossEntropyLoss())
+            .optOptimizer(Optimizer.adam().build()))) {
+        trainer.initialize(new Shape(32, 784));
+        EasyTrain.fit(trainer, epochs, trainSet, validateSet);
+    }
+}
+```
+
+DJL's operators are recorded as jitNN traces, compiled at the first sync point (reading the loss,
+for example) and replayed on later steps of the same shape. `Model.load` reads ONNX files.
+
 ## Custom operators
 
 A custom operator is a kernel in plain Java, written with TornadoVM's `KernelContext`, plus an
