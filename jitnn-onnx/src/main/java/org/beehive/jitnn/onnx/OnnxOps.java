@@ -44,8 +44,10 @@ final class OnnxOps {
         return List.of(Value.of(t));
     }
 
+    /** Input k as an FP32 tensor (device INT32 tensors, such as integer graph inputs, are converted). */
     static Tensor t(List<Value> in, int k) {
-        return in.get(k).tensor(true);
+        Tensor x = in.get(k).tensor(true);
+        return x.dtype() == DType.I32 ? x.to(DType.F32) : x;
     }
 
     /** An integer value as an INT32 tensor (host integers uploaded; device FP32 truncated). */
