@@ -151,7 +151,10 @@ public final class Tensor {
 
     /** Persistent storage without gradient tracking (optimiser state, running statistics). */
     public static Tensor persistent(Tensor init) {
-        float[] values = init.toFloatArray();
+        // host data (not persistent, so no pending operator can write it) is copied without a sync,
+        // which would run everything recorded so far
+        boolean plainHost = init.storage.isHostValid() && !init.storage.isPersistent() && init.storage.dtype() == DType.F32 && init.storage.host() instanceof FloatArray;
+        float[] values = plainHost ? java.util.Arrays.copyOf(((FloatArray) init.storage.host()).toHeapArray(), init.numel()) : init.toFloatArray();
         Tensor p = new Tensor(init.shape, Storage.ofHost(FloatArray.fromArray(values.length == 0 ? new float[1] : values), DType.F32, true));
         return p;
     }
