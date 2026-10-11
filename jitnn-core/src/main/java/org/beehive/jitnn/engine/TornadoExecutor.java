@@ -568,8 +568,14 @@ final class TornadoExecutor {
                     s.hostValid = true;
                 }
                 s.validOn.remove(ct);
-            } else if (s.boundTrace == ct && !s.hostValid) {
-                s.stale = true;
+            } else if (s.boundTrace == ct && !s.hostValid && !s.stale && ct.last != null) {
+                // an output not read yet: keep its data on the host, as the plan's buffers go
+                ct.last.transferToHost(s.array);
+                TornadoNativeArray own = Storage.newArray(s.dtype, s.numel);
+                copy((TornadoNativeArray) s.array, own);
+                s.array = own;
+                s.hostValid = true;
+                s.boundTrace = null;
             }
         }
         try {

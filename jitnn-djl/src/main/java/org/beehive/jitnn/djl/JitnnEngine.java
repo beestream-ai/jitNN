@@ -47,6 +47,11 @@ public final class JitnnEngine extends Engine {
         if (System.getProperty("jitnn.reuseBuffers") == null) {
             System.setProperty("jitnn.reuseBuffers", "false");
         }
+        // DJL training loops run several distinct traces per step (data, forward and backward,
+        // evaluators, optimiser updates): keep them all compiled
+        if (System.getProperty("jitnn.plan.cache") == null) {
+            System.setProperty("jitnn.plan.cache", "64");
+        }
     }
 
     public static JitnnEngine getInstance() {
