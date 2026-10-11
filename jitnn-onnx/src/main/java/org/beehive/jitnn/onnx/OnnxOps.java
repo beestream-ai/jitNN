@@ -380,6 +380,10 @@ final class OnnxOps {
     }
 
     static Tensor deviceSlice(Node n, Tensor x, long[] starts, long[] ends, long[] axes, long[] steps) {
+        if (x.dtype() == DType.I32) {
+            // integer tensors are sliced in FP32 (exact up to 2^24) and converted back
+            return deviceSlice(n, x.to(DType.F32), starts, ends, axes, steps).to(DType.I32);
+        }
         Tensor y = x;
         for (int k = 0; k < starts.length; k++) {
             int ax = axis(axes[k], x.rank());
@@ -969,7 +973,8 @@ final class OnnxOps {
         HANDLERS.put("Unsqueeze", (n, in) -> one(unsqueeze(in.get(0), axesFrom(n, in, 1))));
         HANDLERS.put("Transpose", (n, in) -> {
             Value x = in.get(0);
-            long[] perm = n.attrInts("perm", null);
+            // a second input carries a permutation computed in the graph (jitNN's TensorFlow importer)
+            long[] perm = in.size() > 1 && present(in, 1) ? in.get(1).longs() : n.attrInts("perm", null);
             int[] p = new int[x.rank()];
             for (int i = 0; i < p.length; i++) {
                 p[i] = perm == null ? p.length - 1 - i : (int) perm[i];

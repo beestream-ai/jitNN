@@ -241,8 +241,16 @@ final class Translator {
                     "VarIsInitializedOp", "DisableCopyOnRead" -> {
                 // variables are constants once read from the checkpoint; the saver graph is dropped
             }
-            case "ReadVariableOp" -> emit("Identity", out, List.of(TfGraphs.node(in.get(0)) + ":0"));
-            case "Identity", "StopGradient", "Snapshot", "PreventGradient", "CheckNumerics", "EnsureShape" -> emit("Identity", out, List.of(in.get(0)));
+            case "ReadVariableOp", "Identity", "StopGradient", "Snapshot", "PreventGradient", "CheckNumerics", "EnsureShape" -> {
+                String src = n.op().equals("ReadVariableOp") ? TfGraphs.node(in.get(0)) + ":0" : in.get(0);
+                TfGraph.Tensor c = constOf(src);
+                if (c != null) {
+                    // constants stay constants through identities and variable reads
+                    constant(out, c);
+                } else {
+                    emit("Identity", out, List.of(src));
+                }
+            }
             case "IdentityN" -> {
                 for (int i = 0; i < in.size(); i++) {
                     emit("Identity", n.name() + ":" + i, List.of(in.get(i)));
@@ -282,6 +290,7 @@ final class Translator {
             case "Neg", "Abs", "Exp", "Log", "Sqrt", "Floor", "Ceil", "Round", "Sign", "Sin", "Cos", "Tan", "Tanh", "Sigmoid", "Relu", "Erf", "Softplus", "Softsign", "Elu",
                     "Selu", "Reciprocal" -> emit(n.op(), out, List.of(in.get(0)));
             case "Inv" -> emit("Reciprocal", out, List.of(in.get(0)));
+            case "Erfc" -> emit("Sub", out, List.of(constF(n.name(), new long[0], 1), tmp("Erf", n.name(), List.of(in.get(0)))));
             case "Rsqrt" -> emit("Reciprocal", out, List.of(tmp("Sqrt", n.name(), List.of(in.get(0)))));
             case "Square" -> emit("Mul", out, List.of(in.get(0), in.get(0)));
             case "Log1p" -> emit("Log", out, List.of(tmp("Add", n.name(), List.of(in.get(0), constF(n.name(), new long[0], 1)))));
@@ -348,7 +357,11 @@ final class Translator {
                 long[] dims = n.ints("squeeze_dims");
                 emit("Squeeze", out, dims == null || dims.length == 0 ? List.of(in.get(0)) : List.of(in.get(0), constI(n.name(), dims)));
             }
-            case "Transpose" -> emit("Transpose", out, List.of(in.get(0)), ais("perm", constLongs(n, in.get(1), "permutation")));
+            case "Transpose" -> {
+                TfGraph.Tensor perm = constOf(in.get(1));
+                // a permutation computed in the graph (Keras Tensordot) is read when the graph runs
+                emit("Transpose", out, perm != null ? List.of(in.get(0)) : List.of(in.get(0), in.get(1)), perm != null ? new Attribute[] { ais("perm", perm.longs()) } : new Attribute[0]);
+            }
             case "ConcatV2" -> {
                 long axis = constLongs(n, in.get(in.size() - 1), "axis")[0];
                 emit("Concat", out, in.subList(0, in.size() - 1), ai("axis", axis));
