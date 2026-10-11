@@ -1211,8 +1211,35 @@ final class OnnxOps {
                 full[ax] = p[i];
                 full[ax + rank] = p[i + p.length / 2];
             }
-            if (full[0] != 0 || full[rank] != 0 || full[1] != 0 || full[1 + rank] != 0) {
-                throw unsupported(n, "padding the batch or channel axis");
+            if (full[0] != 0 || full[rank] != 0 || full[1] != 0 || full[1 + rank] != 0 || rank < 3) {
+                if (!mode.equals("constant")) {
+                    throw unsupported(n, mode + " padding of the batch or channel axis");
+                }
+                // constant padding on any axis: concatenate blocks of the value
+                Tensor y = x;
+                for (int ax = 0; ax < rank; ax++) {
+                    long b = full[ax];
+                    long a = full[ax + rank];
+                    if (b < 0 || a < 0) {
+                        throw unsupported(n, "negative pads");
+                    }
+                    if (b == 0 && a == 0) {
+                        continue;
+                    }
+                    java.util.List<Tensor> parts = new java.util.ArrayList<>();
+                    int[] d = y.shape().dims().clone();
+                    if (b > 0) {
+                        d[ax] = (int) b;
+                        parts.add(Tensor.full(value, d.clone()));
+                    }
+                    parts.add(y);
+                    if (a > 0) {
+                        d[ax] = (int) a;
+                        parts.add(Tensor.full(value, d.clone()));
+                    }
+                    y = Tensor.cat(ax, parts.toArray(new Tensor[0]));
+                }
+                return one(y);
             }
             int spatial = rank - 2;
             int[] before = new int[spatial];
