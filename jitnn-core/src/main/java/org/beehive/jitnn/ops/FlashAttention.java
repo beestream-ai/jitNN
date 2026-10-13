@@ -180,6 +180,10 @@ public final class FlashAttention implements Op {
         int hasMask = n.inputs.length > qkvCount ? 1 : 0;
         FloatArray mask = hasMask != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
         FloatArray o = e.f32(n.out(0));
+        if (hasMask == 0 && a[10] == BHTD && e.unread(n.out(1))
+                && org.beehive.jitnn.natives.Libs.attention(e, q, k, v, o, z / a[5], a[5], t, s, d, scale, causal != 0)) {
+            return;
+        }
         FloatArray lse = e.f32(n.out(1));
         WorkerGrid g0 = grid(z, t, d);
         if (d <= FlashKernels32.D) {

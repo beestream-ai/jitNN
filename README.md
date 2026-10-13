@@ -166,6 +166,7 @@ step 47 ms. Method, all results and the remaining gaps are in
 | [INSTALL.md](docs/INSTALL.md) | TornadoVM SDK, building, test data, the Python environments for references |
 | [USAGE.md](docs/USAGE.md) | Tensors, lazy execution and sync points, autograd, modules, optimisers, the training loop, linear algebra, FFT, sparse, embeddings, classical ML, FP8, several devices, ONNX |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Every `jitnn.*` option, kernel variants, test properties |
+| [NATIVE.md](docs/NATIVE.md) | `--with-native`: which operators call cuBLAS, cuDNN, cuFFT, cuSPARSE or MLX, and the fallback to jitNN kernels |
 | [OPERATORS.md](docs/OPERATORS.md) | Every operator and its kernels and gradient, the ONNX operators, what is not supported yet |
 | [VALIDATION.md](docs/VALIDATION.md) | Reference backend, finite differences, PyTorch, scikit-learn and ONNX Runtime references, the model gates |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | Per-kernel, training and inference results on CUDA, Metal and OpenCL, against vendor libraries |

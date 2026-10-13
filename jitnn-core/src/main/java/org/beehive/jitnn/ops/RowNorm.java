@@ -63,6 +63,10 @@ public final class RowNorm implements Op {
         FloatArray w = e.f32(n.in(1));
         FloatArray b = hasBias != 0 ? e.f32(n.in(2)) : e.dummyF32();
         FloatArray y = e.f32(n.out(0));
+        if (e.unread(n.out(1)) && e.unread(n.out(2))
+                && org.beehive.jitnn.natives.Libs.rowNorm(e, x, w, hasBias != 0 ? b : null, y, rows, cols, eps, mode == NormKernels.LAYER)) {
+            return;
+        }
         FloatArray mean = e.f32(n.out(1));
         FloatArray rstd = e.f32(n.out(2));
         // the warp forward wins with many rows of moderate width (A100: 2048-4096 x 768); with few

@@ -63,9 +63,21 @@ public final class Emitter {
     final List<Object> scratch = new ArrayList<>();
     private final Map<String, IntArray> constantCache = new java.util.HashMap<>();
 
-    Emitter(String graphName, IdentityHashMap<Storage, Object> arrays) {
+    private final java.util.Set<Storage> unread;
+
+    Emitter(String graphName, IdentityHashMap<Storage, Object> arrays, java.util.Set<Storage> unread) {
         this.graphName = graphName;
         this.arrays = arrays;
+        this.unread = unread;
+    }
+
+    /**
+     * True when nothing reads {@code t} after this plan: an internal output (no user code holds it)
+     * that no later operator of the trace consumes and that was not requested. An operator may then
+     * leave it unwritten.
+     */
+    public boolean unread(Tensor t) {
+        return unread.contains(t.storage());
     }
 
     public FloatArray f32(Tensor t) {
@@ -140,6 +152,13 @@ public final class Emitter {
         return use(a);
     }
 
+    /** An FP16 device work buffer owned by the compiled plan. */
+    public uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray scratchF16(int numel) {
+        var a = new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(Math.max(numel, 1));
+        scratch.add(a);
+        return use(a);
+    }
+
     /** An INT32 device work buffer owned by the compiled plan. */
     public uk.ac.manchester.tornado.api.types.arrays.IntArray scratchI32(int numel) {
         uk.ac.manchester.tornado.api.types.arrays.IntArray a = new uk.ac.manchester.tornado.api.types.arrays.IntArray(Math.max(numel, 1));
@@ -163,6 +182,20 @@ public final class Emitter {
 
     public void task(WorkerGrid grid, TaskAdder adder) {
         tasks.add(new Spec("t" + tasks.size(), grid, adder, node));
+    }
+
+    /** The vendor-library functions this plan's library tasks call ("cudnn.conv", see {@link Native}). */
+    final java.util.Set<String> libraries = new java.util.TreeSet<>();
+
+    /**
+     * Adds a TornadoVM library task (a cuBLAS, cuDNN, ... or MLX call, through
+     * {@code TaskGraph.libraryTask}): it has no launch grid, and runs on the same device and
+     * stream as the kernels around it. Its arrays must come from this emitter's accessors.
+     */
+    public void library(Native.Lib lib, String function, TaskAdder adder) {
+        libraries.add(Native.feature(lib, function));
+        Native.emitted(lib);
+        tasks.add(new Spec("t" + tasks.size(), null, adder, node));
     }
 
     /** A 1-D grid of at least {@code n} threads, in groups of {@link #LOCAL}. */
@@ -214,6 +247,9 @@ public final class Emitter {
     }
 
     void registerGrid(GridScheduler scheduler, String graph, Spec s) {
+        if (s.grid() == null) {
+            return;
+        }
         scheduler.addWorkerGrid(graph + "." + s.id(), s.grid());
     }
 }

@@ -97,3 +97,17 @@ Kernels tagged `WORKAROUND(...)` avoid these:
 | TornadoVM inlines a callee only up to 600 IR nodes, counted after the callee's own inlining | the element-wise kernels dispatch to smaller op groups (base, activations, math, NaN-aware), each under the limit; a big helper calling smaller ones does not help |
 | The OpenCL backend writes `Float.NaN` as `NaNF`, which does not compile, and specialises scalar kernel arguments into literals (so a NaN or infinity passed as an argument hits the same problem) | the FP8 decoders read NaN and infinity from a small device array |
 | `cos` and `sin` fail to compile when their argument becomes a compile-time constant | the DFT reads its phases from a twiddle table computed on the host |
+
+## Vendor libraries
+
+- **Entry point.** Operators reach cuBLAS, cuDNN, cuFFT, cuSPARSE and MLX only through
+  `natives.Libs`. Each method returns false when no enabled, available library takes the call;
+  the operator then emits its own kernels.
+- **Library classes.** `natives.Cuda` and `natives.Mlx` hold the `TaskGraph.libraryTask` calls.
+  They load only after `engine.Native` has probed the library on the device, so jitNN runs without
+  TornadoVM's library modules.
+- **Emitting a call.** `Emitter.library(lib, function, adder)` adds a task without a launch grid.
+  The function name (`"cudnn.conv"`) is the unit that is turned off when a plan fails.
+- **Unread outputs.** `Emitter.unread(tensor)` tells an operator that nothing reads an output, such
+  as a norm's statistics or attention's log-sum-exp in inference. It may then call a library that
+  does not produce it.

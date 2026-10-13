@@ -48,6 +48,9 @@ public final class Sparse {
             FloatArray dense = e.f32(node.in(4));
             FloatArray out = e.f32(node.out(0));
             int feat = node.in(4).dim(1), total = node.iattr[0] * feat;
+            if (org.beehive.jitnn.natives.Libs.spmm(e, ptr, col, val, dense, out, node.iattr[0], node.in(4).dim(0), feat, (int) node.in(3).shape().numel())) {
+                return;
+            }
             e.task(Emitter.grid1D(total), (g, id) -> g.task(id, SparseKernels::spmm, e.context(), ptr, col, val, dense, out, feat, total));
         }
 

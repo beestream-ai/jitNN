@@ -42,6 +42,9 @@ public final class Softmax implements Op {
         int rows = n.iattr[0];
         int cols = n.iattr[1];
         int log = n.iattr[2];
+        if (log == 0 && org.beehive.jitnn.natives.Libs.softmax(e, x, y, rows, cols)) {
+            return;
+        }
         if (cols <= SoftmaxKernels.CACHED_COLS) {
             e.task(Emitter.groups(rows), (g, id) -> g.task(id, SoftmaxKernels::softmaxRowsCached, e.context(), x, y, cols, log));
         } else {

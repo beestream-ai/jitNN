@@ -97,6 +97,9 @@ public final class Conv2d implements Op {
      * strided, B at z * strideB, C contiguous [m, n] per z.
      */
     static void pointwiseGemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int ep, int strideA, int strideB, int batch) {
+        if (org.beehive.jitnn.natives.Libs.gemmBatched(e, a, b, c, bias, m, n, k, ta, 0, ep, batch, strideA, strideB)) {
+            return;
+        }
         // measured per shape on the A10 (ResNet-50 at 32x32): wide planes take 64x128 tiles,
         // many rows on small planes 128x64, the rest 64x64; the narrow 128x16 never wins
         String v = !POINTWISE_VARIANT.equals("auto") ? POINTWISE_VARIANT : n >= 256 && ta == 0 ? "64x128" : m >= 128 ? "128x64" : "64";
@@ -159,8 +162,10 @@ public final class Conv2d implements Op {
         // du[z] = d[z] [cout, chunk] v[z]^T [chunk, cin] for z = (e, slice)
         int tilesY = Emitter.ceilDiv(cout, GemmKernels.BM);
         FloatArray none = e.dummyF32();
-        e.task(Emitter.blocks2D(Emitter.ceilDiv(cin, GemmKernels.BN), tilesY * 16 * slices, 16, 16),
-                (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), d, v, du, none, cout, cin, chunk, 0, 1, 0, cout * chunk, cin * chunk, tilesY));
+        if (!org.beehive.jitnn.natives.Libs.gemmBatched(e, d, v, du, null, cout, cin, chunk, 0, 1, 0, 16 * slices, cout * chunk, cin * chunk)) {
+            e.task(Emitter.blocks2D(Emitter.ceilDiv(cin, GemmKernels.BN), tilesY * 16 * slices, 16, 16),
+                    (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), d, v, du, none, cout, cin, chunk, 0, 1, 0, cout * chunk, cin * chunk, tilesY));
+        }
         e.task(Emitter.grid1D(cout * cin), (g, id) -> g.task(id, ConvKernels::winogradGradWeight, e.context(), du, dw, cout, cin, slices));
     }
 
@@ -211,8 +216,10 @@ public final class Conv2d implements Op {
             e.task(Emitter.grid1D(cout * cin), (g, id) -> g.task(id, ConvKernels::winograd4Weight, e.context(), w, u, cout, cin, flip));
             int tilesY = Emitter.ceilDiv(cout, GemmKernels.BM);
             FloatArray none = e.dummyF32();
-            e.task(Emitter.blocks2D(Emitter.ceilDiv(tiles, GemmKernels.BN), tilesY * 36, 16, 16),
-                    (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), u, v, mm, none, cout, tiles, cin, 0, 0, 0, cout * cin, cin * tiles, tilesY));
+            if (!org.beehive.jitnn.natives.Libs.gemmBatched(e, u, v, mm, null, cout, tiles, cin, 0, 0, 0, 36, cout * cin, cin * tiles)) {
+                e.task(Emitter.blocks2D(Emitter.ceilDiv(tiles, GemmKernels.BN), tilesY * 36, 16, 16),
+                        (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), u, v, mm, none, cout, tiles, cin, 0, 0, 0, cout * cin, cin * tiles, tilesY));
+            }
             e.task(Emitter.grid1D(cout * tiles), (g, id) -> g.task(id, ConvKernels::winograd4Output, e.context(), mm, out, bias, cout, oh, ow, th, tw, tiles, epilogue));
             return;
         }
@@ -226,8 +233,10 @@ public final class Conv2d implements Op {
         e.task(Emitter.grid1D(cout * cin), (g, id) -> g.task(id, ConvKernels::winogradWeight, e.context(), w, u, cout, cin, flip));
         int tilesY = Emitter.ceilDiv(cout, GemmKernels.BM);
         FloatArray none = e.dummyF32();
-        e.task(Emitter.blocks2D(Emitter.ceilDiv(tiles, GemmKernels.BN), tilesY * 16, 16, 16),
-                (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), u, v, mm, none, cout, tiles, cin, 0, 0, 0, cout * cin, cin * tiles, tilesY));
+        if (!org.beehive.jitnn.natives.Libs.gemmBatched(e, u, v, mm, null, cout, tiles, cin, 0, 0, 0, 16, cout * cin, cin * tiles)) {
+            e.task(Emitter.blocks2D(Emitter.ceilDiv(tiles, GemmKernels.BN), tilesY * 16, 16, 16),
+                    (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), u, v, mm, none, cout, tiles, cin, 0, 0, 0, cout * cin, cin * tiles, tilesY));
+        }
         e.task(Emitter.grid1D(cout * tiles), (g, id) -> g.task(id, ConvKernels::winogradOutput, e.context(), mm, out, bias, cout, oh, ow, th, tw, tiles, epilogue));
     }
 
@@ -248,6 +257,9 @@ public final class Conv2d implements Op {
         if (depthwise(a)) {
             int total = a[N] * cout * oh * ow;
             e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ConvKernels::depthwiseForward, e.context(), x, w, out, bias, cout, h, wd, oh, ow, k, st, pd, dl, total, epilogue));
+            return;
+        }
+        if (org.beehive.jitnn.natives.Libs.conv2d(e, x, w, out, a[BIAS] != 0 ? bias : null, a[N], cin, h, wd, cout, oh, ow, k, st, pd, dl, gr, epilogue)) {
             return;
         }
         if (pointwise(a)) {

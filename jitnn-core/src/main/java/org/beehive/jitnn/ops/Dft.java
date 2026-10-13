@@ -68,6 +68,12 @@ public final class Dft implements Op {
         int stride = a[0], nIn = a[1], nOut = a[2], n = a[3], realIn = a[5], realOut = a[6], weight = a[7];
         float scale = node.fattr[0];
         int total = rows(node) * nOut;
+        // whole rows, full length, no Hermitian weighting: one batched cuFFT call
+        boolean c2c = realIn == 0 && realOut == 0 && nOut == n;
+        boolean r2c = realIn == 1 && realOut == 0 && a[4] < 0 && nOut == n / 2 + 1;
+        if (nIn == n && stride == nIn && weight == 0 && (c2c || r2c) && org.beehive.jitnn.natives.Libs.fft(e, x, y, n, rows(node), a[4], r2c, scale)) {
+            return;
+        }
         e.task(Emitter.grid1D(total), (g, id) -> g.task(id, FftKernels::dft, e.context(), x, tw, y, stride, nIn, nOut, n, scale, realIn, realOut, weight, total));
     }
 

@@ -24,6 +24,10 @@ System properties, read once at start-up.
 | `jitnn.onnx.fusedAttentionRows` | `32` | `jitnn-onnx`: rewritten attention uses the fused kernel when batch x heads is at most this, else batched GEMMs and a fused scale-softmax |
 | `jitnn.tensorCores` | `true` | on CUDA, half-precision products (FP16, BF16 operands) run on tensor cores (`mma.sync` m16n8k16, compute capability 8.0+) |
 | `jitnn.fusedAttention` | `true` | FP32 attention with head dimensions up to 128 runs the fused FlashAttention-style kernels; `false` composes batched GEMMs and a softmax |
+| `jitnn.native` | `off` | vendor libraries in place of jitNN kernels: `auto` uses every one available on the device, or a list of `cublas`, `cudnn`, `cufft`, `cusparse`, `mlx`; anything missing falls back to jitNN kernels (see [NATIVE.md](NATIVE.md)) |
+| `jitnn.withNative` | `false` | `true` is `jitnn.native=auto`; the `--with-native` option of jitNN's tools sets it |
+| `jitnn.native.tf32` | `false` | cuBLAS FP32 products on TF32 tensor cores |
+| `jitnn.native.verbose` | `false` | log which libraries were found on each device |
 
 ## GEMM selection (`auto`)
 

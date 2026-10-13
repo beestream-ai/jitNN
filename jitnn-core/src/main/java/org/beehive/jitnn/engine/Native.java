@@ -1,0 +1,178 @@
+package org.beehive.jitnn.engine;
+
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+
+import uk.ac.manchester.tornado.api.enums.TornadoVMBackendType;
+
+/**
+ * Vendor libraries that some operators can call instead of jitNN's own kernels: cuBLAS, cuDNN,
+ * cuFFT and cuSPARSE on CUDA, MLX on Metal (through TornadoVM's library tasks, inside the same
+ * task graph as the JIT kernels).
+ *
+ * <p>Off by default. {@code -Djitnn.native=auto} (or {@code -Djitnn.withNative=true}, which the
+ * {@code --with-native} option of jitNN's tools sets) uses every library that is available on the
+ * plan's device; a comma-separated list ({@code cublas,cudnn,cufft,cusparse,mlx}) restricts it.
+ * A library is available when TornadoVM's module for it is loaded and a one-task probe plan runs on
+ * the device; one that is missing, or that fails later, is left to the JIT kernels.
+ */
+public final class Native {
+
+    /** The libraries jitNN can call. */
+    public enum Lib {
+        CUBLAS(TornadoVMBackendType.CUDA), CUDNN(TornadoVMBackendType.CUDA), CUFFT(TornadoVMBackendType.CUDA), CUSPARSE(TornadoVMBackendType.CUDA), MLX(
+                TornadoVMBackendType.METAL);
+
+        final TornadoVMBackendType backend;
+
+        Lib(TornadoVMBackendType backend) {
+            this.backend = backend;
+        }
+    }
+
+    private static final Set<Lib> WANTED = parse();
+    private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose") || Boolean.getBoolean("jitnn.native.verbose");
+    /** Per device key and library: available (probed) or not. */
+    private static final Map<String, Map<Lib, Boolean>> AVAILABLE = new java.util.HashMap<>();
+    /** Library functions ("cudnn.sdpa") turned off at run time: a plan that called them failed. */
+    private static final Set<String> DISABLED = new java.util.TreeSet<>();
+    /** Library functions that have run in some plan: a later failure is not theirs. */
+    private static final Set<String> PROVEN = new java.util.HashSet<>();
+    /** Libraries treated as missing (tests of the fallback): {@code -Djitnn.native.unavailable=cudnn,...}. */
+    private static final String UNAVAILABLE = System.getProperty("jitnn.native.unavailable", "").toLowerCase(Locale.ROOT);
+
+    private Native() {
+    }
+
+    private static Set<Lib> parse() {
+        String mode = System.getProperty("jitnn.native", Boolean.getBoolean("jitnn.withNative") ? "auto" : "off").trim().toLowerCase(Locale.ROOT);
+        Set<Lib> libs = EnumSet.noneOf(Lib.class);
+        switch (mode) {
+            case "", "off", "false", "none" -> {
+            }
+            case "auto", "on", "true", "all" -> libs.addAll(EnumSet.allOf(Lib.class));
+            default -> {
+                for (String s : mode.split(",")) {
+                    libs.add(Lib.valueOf(s.trim().toUpperCase(Locale.ROOT)));
+                }
+            }
+        }
+        return libs;
+    }
+
+    /** True when any library is requested (the option is on). */
+    public static boolean requested() {
+        return !WANTED.isEmpty();
+    }
+
+    /**
+     * Whether operators on the current plan's device should call {@code lib}: requested, for this
+     * backend, not disabled, and available (probed once per device).
+     */
+    public static synchronized boolean use(String function, Lib lib) {
+        if (!WANTED.contains(lib) || DISABLED.contains(feature(lib, function)) || Devices.backend() != lib.backend) {
+            return false;
+        }
+        Map<Lib, Boolean> perDevice = AVAILABLE.computeIfAbsent(Devices.key(), k -> new EnumMap<>(Lib.class));
+        Boolean ok = perDevice.get(lib);
+        if (ok == null) {
+            ok = probe(lib);
+            perDevice.put(lib, ok);
+        }
+        return ok;
+    }
+
+    /** "cudnn.conv": a library function, the unit that is turned off when it fails. */
+    static String feature(Lib lib, String function) {
+        return lib.name().toLowerCase(Locale.ROOT) + "." + function;
+    }
+
+    private static boolean probe(Lib lib) {
+        String why;
+        try {
+            why = java.util.Arrays.asList(UNAVAILABLE.split(",")).contains(lib.name().toLowerCase(Locale.ROOT)) ? "treated as missing (jitnn.native.unavailable)"
+                    : org.beehive.jitnn.natives.Libs.probe(lib);
+        } catch (LinkageError | RuntimeException ex) {
+            // the TornadoVM module is not loaded, or the probe plan failed
+            why = ex.getClass().getSimpleName() + ": " + firstLine(ex);
+        }
+        if (why == null) {
+            if (VERBOSE) {
+                System.err.printf("[jitnn] native %s: available on %s%n", lib.name().toLowerCase(Locale.ROOT), Devices.name());
+            }
+            return true;
+        }
+        System.err.printf("[jitnn] native %s: not available on %s (%s); using jitNN kernels%n", lib.name().toLowerCase(Locale.ROOT), Devices.name(), why);
+        return false;
+    }
+
+    private static String firstLine(Throwable t) {
+        Throwable c = t;
+        String msg = t.getMessage();
+        while (c.getCause() != null && c.getCause() != c) {
+            c = c.getCause();
+            if (c.getMessage() != null) {
+                msg = c.getMessage();
+            }
+        }
+        return msg == null ? "" : msg.lines().findFirst().orElse("");
+    }
+
+    /**
+     * A plan calling {@code features} failed on its first execution: stops using those of them that
+     * have not run successfully elsewhere (all of them if every one has); later plans use jitNN kernels.
+     */
+    static synchronized void disable(Set<String> features, Throwable cause) {
+        Set<String> suspects = new java.util.TreeSet<>(features);
+        suspects.removeAll(PROVEN);
+        if (suspects.isEmpty()) {
+            suspects.addAll(features);
+        }
+        DISABLED.addAll(suspects);
+        System.err.printf("[jitnn] native %s failed (%s); using jitNN kernels instead%n", suspects, firstLine(cause));
+    }
+
+    /** A plan calling {@code features} ran: they work on this device. */
+    static synchronized void proven(Set<String> features) {
+        PROVEN.addAll(features);
+    }
+
+    /** A task graph on the current plan's device, for a probe (see {@link #runProbe}). */
+    public static uk.ac.manchester.tornado.api.TaskGraph probeGraph(String name) {
+        String graph = "jitnnProbe" + name;
+        Devices.pin(graph);
+        return new uk.ac.manchester.tornado.api.TaskGraph(graph);
+    }
+
+    /** Runs a probe graph once on the current plan's device. */
+    public static void runProbe(uk.ac.manchester.tornado.api.TaskGraph graph) {
+        try (uk.ac.manchester.tornado.api.TornadoExecutionPlan plan = new uk.ac.manchester.tornado.api.TornadoExecutionPlan(graph.snapshot())) {
+            Devices.apply(plan);
+            plan.execute();
+        } catch (uk.ac.manchester.tornado.api.exceptions.TornadoExecutionPlanException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static final Map<Lib, Long> EMITTED = new EnumMap<>(Lib.class);
+
+    static synchronized void emitted(Lib lib) {
+        EMITTED.merge(lib, 1L, Long::sum);
+    }
+
+    /** Library tasks compiled into plans so far, per library (calls that replays repeat are not counted). */
+    public static synchronized Map<Lib, Long> emittedTasks() {
+        return new EnumMap<>(EMITTED);
+    }
+
+    /** Part of the plan cache key: the libraries in use, as they change what operators emit. */
+    static synchronized String keyTag() {
+        if (WANTED.isEmpty()) {
+            return "";
+        }
+        return "N" + DISABLED + "|";
+    }
+}

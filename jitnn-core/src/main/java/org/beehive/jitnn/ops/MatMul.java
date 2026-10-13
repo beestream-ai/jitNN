@@ -158,6 +158,9 @@ public final class MatMul implements Op {
 
     @Override
     public void emit(Emitter e, Node node) {
+        if (emitNative(e, node)) {
+            return;
+        }
         if (node.iattr.length == 5 && node.iattr[3] == 1 && node.iattr[4] == 0) {
             int slices = splitK(node.iattr[0], node.iattr[1], node.iattr[2]);
             if (slices > 1) {
@@ -188,6 +191,20 @@ public final class MatMul implements Op {
             return;
         }
         emitGemm(e, a, b, c, null, m, n, k, ta, tb, 0);
+    }
+
+    /** The product as a vendor-library call (cuBLAS, MLX) when {@code -Djitnn.native} enables one: false otherwise. */
+    private static boolean emitNative(Emitter e, Node node) {
+        int[] a = node.iattr;
+        FloatArray c = e.f32(node.out(0));
+        if (HostValues.isHalf(node.in(0))) {
+            return a.length == 5 && node.in(0).dtype() == DType.F16 && node.in(1).dtype() == DType.F16
+                    && org.beehive.jitnn.natives.Libs.gemmF16(e, e.f16(node.in(0)), e.f16(node.in(1)), c, null, a[0], a[1], a[2], a[3], a[4], 0);
+        }
+        if (a.length > 5) {
+            return org.beehive.jitnn.natives.Libs.gemmBatched(e, e.f32(node.in(0)), e.f32(node.in(1)), c, null, a[0], a[1], a[2], a[3], a[4], 0, a[5], a[6], a[7]);
+        }
+        return org.beehive.jitnn.natives.Libs.gemm(e, e.f32(node.in(0)), e.f32(node.in(1)), c, null, a[0], a[1], a[2], a[3], a[4], 0);
     }
 
     /** Half-precision operands: the 64x64 register-blocked kernels that convert on load. */
@@ -259,6 +276,9 @@ public final class MatMul implements Op {
      */
     static void emitGemmA32(Emitter e, FloatArray a, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int epilogue) {
         var b = e.f16(bt);
+        if (org.beehive.jitnn.natives.Libs.gemmA32(e, a, b, c, bias, m, n, k, epilogue)) {
+            return;
+        }
         int slices = mmaSlices(m, n, k);
         int ks = k / slices;
         WorkerGrid grid = Emitter.blocks3D(m / MmaGemmKernels.TILE, n / MmaGemmKernels.TILE, slices, MmaGemmKernels.THREADS);
@@ -319,6 +339,9 @@ public final class MatMul implements Op {
 
     /** C = op(A) op(B) (+ epilogue) for half-precision A and B of the same type, FP32 C. */
     static void emitGemmHalf(Emitter e, Tensor at, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        if (at.dtype() == DType.F16 && bt.dtype() == DType.F16 && org.beehive.jitnn.natives.Libs.gemmF16(e, e.f16(at), e.f16(bt), c, bias, m, n, k, ta, tb, epilogue)) {
+            return;
+        }
         if (useTensorCores(e)) {
             if (wholeTiles(m, n, k)) {
                 int slices = mmaSlices(m, n, k);
@@ -379,6 +402,9 @@ public final class MatMul implements Op {
      * {@code auto|simdgroup|128|64|16} overrides the choice.
      */
     static void emitGemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        if (org.beehive.jitnn.natives.Libs.gemm(e, a, b, c, bias, m, n, k, ta, tb, epilogue)) {
+            return;
+        }
         String variant = System.getProperty("jitnn.gemm", "auto");
         if (variant.equals("auto") && !e.isMetal()) {
             // the device's tuning table, measured offline per shape class (Tuning); "auto" keeps the rules below

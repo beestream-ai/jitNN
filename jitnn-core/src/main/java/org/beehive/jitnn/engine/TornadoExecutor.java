@@ -108,7 +108,8 @@ final class TornadoExecutor {
         }
         int[] kinds = new int[slots.size()];
         boolean[] written = new boolean[slots.size()];
-        StringBuilder key = new StringBuilder(256).append(Devices.key()).append('|');
+        String nativeTag = Native.keyTag();
+        StringBuilder key = new StringBuilder(256).append(Devices.key()).append('|').append(nativeTag);
         StringBuilder ids = new StringBuilder();
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
@@ -177,6 +178,15 @@ final class TornadoExecutor {
                 }
             }
         }
+        // outputs nothing reads: internal (no user code holds them), not consumed in the trace, not
+        // requested; an operator may skip them (a library call without the saved statistics)
+        Set<Storage> unread = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (int i = 0; i < slots.size(); i++) {
+            Storage s = slots.get(i);
+            if (kinds[i] == CompiledTrace.INTERMEDIATE && s.internal && !consumed[i] && !wantedSet.contains(s)) {
+                unread.add(s);
+            }
+        }
         String structure = key.toString();
         String k = structure + "|P" + ids;
         CompiledTrace ct = CACHE.get(k);
@@ -189,7 +199,7 @@ final class TornadoExecutor {
             if (DEBUG_KEYS) {
                 System.err.println("[jitnn] key " + k);
             }
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse);
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread);
             ct.structure = structure;
             BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
@@ -215,7 +225,26 @@ final class TornadoExecutor {
             if (VERBOSE) {
                 System.err.printf("[jitnn] out of device memory in %s: closed every cached plan and recompiled%n", ct.name);
             }
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse);
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread);
+            ct.structure = structure;
+            BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
+            CACHE.put(k, ct);
+            compiles++;
+            execute(ct, slots);
+        } catch (RuntimeException failure) {
+            if (ct.executions > 0 || ct.libraries.isEmpty()) {
+                throw failure;
+            }
+            // a vendor library failed on its first call (missing at run time, or an argument form it
+            // does not take): stop using it and compile the trace with jitNN's kernels
+            CACHE.remove(k);
+            forget(ct);
+            closeQuietly(ct);
+            Native.disable(ct.libraries, failure);
+            String tag = Native.keyTag();
+            structure = Devices.key() + "|" + tag + structure.substring(Devices.key().length() + 1 + nativeTag.length());
+            k = structure + "|P" + ids;
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread);
             ct.structure = structure;
             BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
@@ -298,6 +327,15 @@ final class TornadoExecutor {
         return null;
     }
 
+    /** Releases a plan that failed before it ran (nothing of it is on the host to save). */
+    private static void closeQuietly(CompiledTrace ct) {
+        try {
+            ct.plan.close();
+        } catch (TornadoExecutionPlanException | RuntimeException ignored) {
+            // the plan is unusable either way
+        }
+    }
+
     /** Drops a plan from the structure index (it was closed or dropped from the cache). */
     private static void forget(CompiledTrace ct) {
         ct.closed = true;
@@ -316,7 +354,7 @@ final class TornadoExecutor {
     }
 
     private static CompiledTrace compile(String key, List<Node> nodes, List<Storage> slots, IdentityHashMap<Storage, Integer> slotOf, int[] kinds, boolean[] written, boolean[] recyclable,
-            int[] lastUse) {
+            int[] lastUse, Set<Storage> unread) {
         long t0 = System.nanoTime();
         String name = "jitnn" + GRAPHS.incrementAndGet();
         Object[] arrays = new Object[slots.size()];
@@ -368,7 +406,7 @@ final class TornadoExecutor {
             }
             byStorage.put(s, arrays[i]);
         }
-        Emitter e = new Emitter(name, byStorage);
+        Emitter e = new Emitter(name, byStorage, unread);
         for (Node n : nodes) {
             e.beginNode();
             n.op.emit(e, n);
@@ -468,6 +506,7 @@ final class TornadoExecutor {
         ct.deviceArrays = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         ct.deviceArrays.addAll(owner.keySet());
         ct.recyclable = recyclable;
+        ct.libraries = e.libraries;
         ct.taskLabels = labels;
         ct.intermediateBytes = freshBytes;
         uk.ac.manchester.tornado.api.ImmutableTaskGraph[] snapshots = new uk.ac.manchester.tornado.api.ImmutableTaskGraph[graphs.size()];
@@ -475,12 +514,18 @@ final class TornadoExecutor {
             snapshots[i] = graphs.get(i).snapshot();
         }
         TornadoExecutionPlan plan = new TornadoExecutionPlan(snapshots);
-        plan.withGridScheduler(scheduler);
+        if (e.tasks.stream().anyMatch(t -> t.grid() != null)) {
+            // a plan of library tasks only has no grids, and TornadoVM rejects an empty scheduler
+            plan.withGridScheduler(scheduler);
+        }
         if (PROFILE) {
             plan.withProfiler(uk.ac.manchester.tornado.api.enums.ProfilerMode.SILENT);
         }
         Devices.apply(plan);
-        if (CUDA_GRAPH && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA) {
+        // WORKAROUND(TornadoVM): cuDNN's workspace is shared by a plan's task graphs and reallocated
+        // when a later convolution needs more, which leaves graphs captured before it pointing at freed
+        // memory (CUDA_ERROR_ILLEGAL_ADDRESS); plans that call cuDNN run without a CUDA graph
+        if (CUDA_GRAPH && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA && e.libraries.stream().noneMatch(f -> f.startsWith("cudnn."))) {
             plan.withCUDAGraph();
         }
         if (Engine.kernelSink() != null) {
@@ -609,6 +654,9 @@ final class TornadoExecutor {
         executeNanos += System.nanoTime() - t0;
         if (VERBOSE && ct.executions == 0) {
             System.err.printf("[jitnn] first execution of %s (kernel compilation): %.1f ms%n", ct.name, (System.nanoTime() - t0) / 1e6);
+        }
+        if (ct.executions == 0 && !ct.libraries.isEmpty()) {
+            Native.proven(ct.libraries);
         }
         ct.executions++;
         if (PROFILE) {
