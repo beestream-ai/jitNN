@@ -398,4 +398,35 @@ class OpsAccelTest {
         same("FP32 to INT32 to FP32", () -> Tensor.uniform(71, -1000, 1000, 3001).to(DType.I32).to(DType.F32), 0, 0);
         same("INT32 indices from FP32", () -> Tensor.uniform(72, -1, 1, 50, 8).indexSelect(0, Tensor.uniform(73, 0, 49.9f, 20).to(DType.I32)), 0, 0);
     }
+
+    /** LSTM forward and gradients against the reference: fused kernels (H <= 512, B <= 256) and the per-step ones beyond. */
+    @Test
+    void lstmSequences() {
+        // T, B, I, H
+        int[][] shapes = { { 200, 8, 3, 48 }, { 37, 5, 7, 512 }, { 12, 260, 4, 16 }, { 9, 3, 6, 513 } };
+        for (int[] sh : shapes) {
+            int t = sh[0], b = sh[1], in = sh[2], h = sh[3];
+            String what = "lstm T" + t + " B" + b + " H" + h;
+            java.util.function.Function<Boolean, Supplier<Tensor>> run = padded -> () -> {
+                Tensor x = Tensor.uniform(81, -1, 1, t, b, in).requiresGrad(true);
+                Tensor wih = Tensor.uniform(82, -0.3f, 0.3f, 4 * h, in).requiresGrad(true);
+                Tensor whh = Tensor.uniform(83, -0.3f, 0.3f, 4 * h, h).requiresGrad(true);
+                Tensor bih = Tensor.uniform(84, -0.1f, 0.1f, 4 * h).requiresGrad(true);
+                Tensor bhh = Tensor.uniform(85, -0.1f, 0.1f, 4 * h).requiresGrad(true);
+                Tensor h0 = Tensor.uniform(86, -0.5f, 0.5f, b, h).requiresGrad(true);
+                Tensor c0 = Tensor.uniform(87, -0.5f, 0.5f, b, h).requiresGrad(true);
+                int[] lengths = new int[b];
+                for (int i = 0; i < b; i++) {
+                    lengths[i] = padded ? Math.max(1, t - (i * 7) % t) : t;
+                }
+                Tensor y = F.lstm(x, wih, whh, bih, bhh, h0, c0, lengths)[0];
+                y.mul(Tensor.uniform(88, -1, 1, t, b, h)).sum().backward();
+                // the output and every gradient, side by side
+                return Tensor.cat(0, y.reshape(-1), x.grad().reshape(-1), wih.grad().reshape(-1), whh.grad().reshape(-1), bih.grad(), bhh.grad(), h0.grad().reshape(-1),
+                        c0.grad().reshape(-1));
+            };
+            same(what, run.apply(false), 2e-4, 2e-5);
+            same(what + " padded", run.apply(true), 2e-4, 2e-5);
+        }
+    }
 }

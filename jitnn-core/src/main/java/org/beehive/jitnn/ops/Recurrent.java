@@ -15,9 +15,10 @@ import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 /**
  * The recurrence of one LSTM or GRU layer over a whole sequence, PyTorch's equations and gate
  * order (LSTM i, f, g, o; GRU r, z, n). The input projection xg = x W_ih^T + b_ih [T, B, G·H] is
- * an ordinary GEMM before it; this op adds h W_hh^T + b_hh and runs the cells, one kernel per
- * timestep (see {@link RnnKernels}). Its backward runs one kernel per timestep in reverse and gets
- * dW_hh from a single GEMM over the whole sequence.
+ * an ordinary GEMM before it; this op adds h W_hh^T + b_hh and runs the cells (see
+ * {@link RnnKernels}): for an LSTM of up to 512 hidden units and 256 rows, the whole sequence in
+ * one fused launch (a work-group per batch row), else one kernel per timestep. Its backward runs
+ * the same way in reverse and gets dW_hh from a single GEMM over the whole sequence.
  *
  * <p>Gradients flow from the output sequence y (and so from h_n, a slice of it); the final cell
  * state c_n is returned without a gradient. INT32 {@code lengths} [B] masks padded sequences
@@ -110,6 +111,25 @@ public final class Recurrent {
     /** The tiled step kernels unless {@code -Djitnn.rnn=simple} (the thread-per-cell kernels). */
     static final boolean TILED = !"simple".equals(System.getProperty("jitnn.rnn"));
 
+    /**
+     * The fused LSTM kernels (the whole sequence in one launch, a work-group per batch row) for
+     * layers up to {@link RnnKernels#FUSED_MAX_H} hidden units and {@link #FUSED_MAX_B} rows, unless
+     * {@code -Djitnn.rnn=steps} or {@code simple} (a launch per timestep).
+     */
+    static final boolean FUSED = System.getProperty("jitnn.rnn") == null || "fused".equals(System.getProperty("jitnn.rnn"));
+
+    /** Above this batch, the per-step kernels, which share W_hh across rows, win. */
+    static final int FUSED_MAX_B = 256;
+
+    static boolean fused(int[] a) {
+        return FUSED && a[H] <= RnnKernels.FUSED_MAX_H && a[B] <= FUSED_MAX_B;
+    }
+
+    /** One work-group per batch row, one thread per hidden unit (rounded up to a warp). */
+    private static WorkerGrid rows(int[] a) {
+        return Emitter.blocks1D(a[B], Math.max(32, Emitter.ceilDiv(a[H], 32) * 32));
+    }
+
     /** Work-groups of the tiled step kernels: batch tiles x unit tiles. */
     private static WorkerGrid steps(int[] a) {
         int groups = Emitter.ceilDiv(a[B], RnnKernels.STEP_ROWS) * Emitter.ceilDiv(a[H], RnnKernels.STEP_UNITS);
@@ -178,6 +198,14 @@ public final class Recurrent {
             FloatArray gates = e.f32(n.out(2));
             IntArray len = e.i32(n.in(5));
             int b = a[B], h = a[H];
+            if (fused(a)) {
+                FloatArray wt = e.scratch(4 * h * h);
+                int rows4 = 4 * h;
+                int steps = a[T];
+                e.task(Emitter.grid1D(4 * h * h), (g, id) -> g.task(id, RnnKernels::transposeWeights, e.context(), whh, wt, rows4, h));
+                e.task(rows(a), (g, id) -> g.task(id, RnnKernels::lstmFusedForward, e.context(), xg, wt, bhh, h0, c0, y, cs, gates, len, steps, b, h));
+                return;
+            }
             for (int t = 0; t < a[T]; t++) {
                 int step = t;
                 if (TILED) {
@@ -281,6 +309,10 @@ public final class Recurrent {
             FloatArray dc = e.scratch(a[T] * a[B] * a[H]);
             IntArray len = e.i32(n.in(5));
             int steps = a[T], b = a[B], h = a[H];
+            if (fused(a)) {
+                e.task(rows(a), (g, id) -> g.task(id, RnnKernels::lstmFusedBackward, e.context(), dy, whh, gates, cs, c0, dGates, dc, dh0, dc0, len, steps, b, h));
+                return;
+            }
             if (TILED) {
                 FloatArray part = e.scratch(RnnKernels.BACK_SPLIT * b * h);
                 int gw = 4 * h;

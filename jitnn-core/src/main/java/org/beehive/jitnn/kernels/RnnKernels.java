@@ -789,4 +789,173 @@ public final class RnnKernels {
             dh0.set(idx, acc);
         }
     }
+
+    // ---------------------------------------------------------------- fused (one launch per sequence)
+
+    /** Largest hidden size of the fused kernels: one thread per hidden unit in a work-group. */
+    public static final int FUSED_MAX_H = 512;
+
+    /** wt [cols, rows] = w [rows, cols]^T (W_hh transposed once, so the fused forward reads it coalesced). */
+    public static void transposeWeights(KernelContext kc, FloatArray w, FloatArray wt, int rows, int cols) {
+        int idx = kc.globalIdx;
+        if (idx < rows * cols) {
+            int r = idx / cols;
+            int k = idx - r * cols;
+            wt.set(k * rows + r, w.get(idx));
+        }
+    }
+
+    /**
+     * The whole LSTM forward recurrence in one launch: work-group bi runs batch row bi over every
+     * timestep, thread u computing hidden unit u. h_{t-1} lives in local memory (double-buffered,
+     * one barrier per step); c stays in a register. W_hh comes transposed, wt [H, 4H]. Writes
+     * y, the cell states and the gates exactly as {@link #lstmForward} does, step by step.
+     */
+    public static void lstmFusedForward(KernelContext kc, FloatArray xg, FloatArray wt, FloatArray bhh, FloatArray h0, FloatArray c0, FloatArray y, FloatArray cs,
+            FloatArray gates, IntArray lengths, int steps, int b, int h) {
+        float[] hb = kc.allocateFloatLocalArray(2 * FUSED_MAX_H);
+        int u = kc.localIdx;
+        int bi = kc.groupIdx;
+        int g4 = 4 * h;
+        float c = 0.0f;
+        if (u < h) {
+            hb[u] = h0.get(bi * h + u);
+            c = c0.get(bi * h + u);
+        }
+        kc.localBarrier();
+        int len = lengths.get(bi);
+        for (int t = 0; t < steps; t++) {
+            int cur = (t % 2) * FUSED_MAX_H;
+            int nxt = FUSED_MAX_H - cur;
+            if (u < h) {
+                int xrow = (t * b + bi) * g4;
+                int out = (t * b + bi) * h + u;
+                if (t >= len) {
+                    cs.set(out, c);
+                    y.set(out, 0.0f);
+                    gates.set(xrow + u, 0.0f);
+                    gates.set(xrow + h + u, 0.0f);
+                    gates.set(xrow + 2 * h + u, 0.0f);
+                    gates.set(xrow + 3 * h + u, 0.0f);
+                    hb[nxt + u] = 0.0f;
+                } else {
+                    float a0 = xg.get(xrow + u) + bhh.get(u);
+                    float a1 = xg.get(xrow + h + u) + bhh.get(h + u);
+                    float a2 = xg.get(xrow + 2 * h + u) + bhh.get(2 * h + u);
+                    float a3 = xg.get(xrow + 3 * h + u) + bhh.get(3 * h + u);
+                    for (int k = 0; k < h; k++) {
+                        float hp = hb[cur + k];
+                        int wrow = k * g4;
+                        a0 += hp * wt.get(wrow + u);
+                        a1 += hp * wt.get(wrow + h + u);
+                        a2 += hp * wt.get(wrow + 2 * h + u);
+                        a3 += hp * wt.get(wrow + 3 * h + u);
+                    }
+                    float i = ElementwiseKernels.sigmoid(a0);
+                    float f = ElementwiseKernels.sigmoid(a1);
+                    float g = ElementwiseKernels.tanh(a2);
+                    float o = ElementwiseKernels.sigmoid(a3);
+                    c = f * c + i * g;
+                    float hv = o * ElementwiseKernels.tanh(c);
+                    cs.set(out, c);
+                    y.set(out, hv);
+                    gates.set(xrow + u, i);
+                    gates.set(xrow + h + u, f);
+                    gates.set(xrow + 2 * h + u, g);
+                    gates.set(xrow + 3 * h + u, o);
+                    hb[nxt + u] = hv;
+                }
+            }
+            kc.localBarrier();
+        }
+    }
+
+    /**
+     * The whole LSTM backward recurrence in one launch, work-group bi for batch row bi, thread u
+     * for hidden unit u: dGates[t + 1] lives in local memory (double-buffered), dc[t + 1] in a
+     * register. Writes dGates, dc, dh0 and dc0 exactly as {@link #lstmBackward} and
+     * {@link #lstmInitial} do.
+     */
+    public static void lstmFusedBackward(KernelContext kc, FloatArray dy, FloatArray whh, FloatArray gates, FloatArray cs, FloatArray c0, FloatArray dGates, FloatArray dc,
+            FloatArray dh0, FloatArray dc0, IntArray lengths, int steps, int b, int h) {
+        float[] gb = kc.allocateFloatLocalArray(8 * FUSED_MAX_H);
+        int u = kc.localIdx;
+        int bi = kc.groupIdx;
+        int g4 = 4 * h;
+        int len = lengths.get(bi);
+        int start = (steps % 2) * 4 * FUSED_MAX_H;
+        if (u < h) {
+            gb[start + u] = 0.0f;
+            gb[start + h + u] = 0.0f;
+            gb[start + 2 * h + u] = 0.0f;
+            gb[start + 3 * h + u] = 0.0f;
+        }
+        kc.localBarrier();
+        float dcNext = 0.0f;
+        for (int t = steps - 1; t >= 0; t--) {
+            int prev = ((t + 1) % 2) * 4 * FUSED_MAX_H;
+            int cur = (t % 2) * 4 * FUSED_MAX_H;
+            if (u < h) {
+                int cell = (t * b + bi) * h + u;
+                int row = (t * b + bi) * g4;
+                if (t >= len) {
+                    dc.set(cell, 0.0f);
+                    dGates.set(row + u, 0.0f);
+                    dGates.set(row + h + u, 0.0f);
+                    dGates.set(row + 2 * h + u, 0.0f);
+                    dGates.set(row + 3 * h + u, 0.0f);
+                    gb[cur + u] = 0.0f;
+                    gb[cur + h + u] = 0.0f;
+                    gb[cur + 2 * h + u] = 0.0f;
+                    gb[cur + 3 * h + u] = 0.0f;
+                    dcNext = 0.0f;
+                } else {
+                    float dh = dy.get(cell);
+                    for (int j = 0; j < g4; j++) {
+                        dh += gb[prev + j] * whh.get(j * h + u);
+                    }
+                    float dcv = 0.0f;
+                    if (t < steps - 1) {
+                        dcv = dcNext * gates.get(row + b * g4 + h + u);
+                    }
+                    float i = gates.get(row + u);
+                    float f = gates.get(row + h + u);
+                    float g = gates.get(row + 2 * h + u);
+                    float o = gates.get(row + 3 * h + u);
+                    float tc = ElementwiseKernels.tanh(cs.get(cell));
+                    dcv += dh * o * (1.0f - tc * tc);
+                    dc.set(cell, dcv);
+                    float cp;
+                    if (t == 0) {
+                        cp = c0.get(bi * h + u);
+                    } else {
+                        cp = cs.get(cell - b * h);
+                    }
+                    float d0 = dcv * g * i * (1.0f - i);
+                    float d1 = dcv * cp * f * (1.0f - f);
+                    float d2 = dcv * i * (1.0f - g * g);
+                    float d3 = dh * tc * o * (1.0f - o);
+                    dGates.set(row + u, d0);
+                    dGates.set(row + h + u, d1);
+                    dGates.set(row + 2 * h + u, d2);
+                    dGates.set(row + 3 * h + u, d3);
+                    gb[cur + u] = d0;
+                    gb[cur + h + u] = d1;
+                    gb[cur + 2 * h + u] = d2;
+                    gb[cur + 3 * h + u] = d3;
+                    dcNext = dcv;
+                }
+            }
+            kc.localBarrier();
+        }
+        if (u < h) {
+            float acc = 0.0f;
+            for (int j = 0; j < g4; j++) {
+                acc += gb[j] * whh.get(j * h + u);
+            }
+            dh0.set(bi * h + u, acc);
+            dc0.set(bi * h + u, dcNext * gates.get(bi * g4 + h + u));
+        }
+    }
+
 }
