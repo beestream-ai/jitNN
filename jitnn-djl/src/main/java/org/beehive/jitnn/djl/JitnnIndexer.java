@@ -64,9 +64,11 @@ final class JitnnIndexer extends NDArrayIndexer {
             if (min[axis] == 0 && step[axis] == 1 && len == t.dim(axis)) {
                 continue;
             }
-            if (step[axis] == 1) {
-                t = t.narrow(axis, (int) min[axis], len);
+            if (step[axis] == 1 && min[axis] == 0) {
+                t = t.narrow(axis, 0, len);
             } else {
+                // a moving window (a dataset read batch by batch) as an index list, a runtime input:
+                // as narrow's start the offset would be part of the plan, recompiling every batch
                 int[] pos = new int[len];
                 for (int i = 0; i < len; i++) {
                     pos[i] = (int) (min[axis] + i * step[axis]);
