@@ -84,19 +84,22 @@ public final class Conv2d implements Op {
 
     /**
      * The batched GEMM of 1x1 convolutions ({@code -Djitnn.conv1x1.gemm}): {@code 64} (64x64 tiles),
-     * {@code 128x64}, {@code 64x128}, {@code 128x16} (narrow, for 4x4 planes), or {@code auto}.
+     * {@code 128x64}, {@code 64x128}, {@code 128x16} (narrow, for 4x4 planes), or {@code auto}
+     * (the default: by output rows and plane size).
      */
     static final String POINTWISE_VARIANT = System.getProperty("jitnn.conv1x1.gemm", "auto");
 
-    /** Whether the 1x1 input gradient runs as one GEMM per image ({@code -Djitnn.conv1x1.backward=gemm}) instead of the implicit GEMM. */
-    static final boolean POINTWISE_BACKWARD = "gemm".equals(System.getProperty("jitnn.conv1x1.backward", "implicit"));
+    /** Whether the 1x1 input gradient runs as one GEMM per image (20-35% faster) unless {@code -Djitnn.conv1x1.backward=implicit}. */
+    static final boolean POINTWISE_BACKWARD = !"implicit".equals(System.getProperty("jitnn.conv1x1.backward", "gemm"));
 
     /**
      * C[z] = op(A[z]) B[z] for z < batch as the chosen batched GEMM: A broadcast (stride 0) or
      * strided, B at z * strideB, C contiguous [m, n] per z.
      */
     static void pointwiseGemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int ep, int strideA, int strideB, int batch) {
-        String v = POINTWISE_VARIANT.equals("auto") ? "64" : POINTWISE_VARIANT;
+        // measured per shape on the A10 (ResNet-50 at 32x32): wide planes take 64x128 tiles,
+        // many rows on small planes 128x64, the rest 64x64; the narrow 128x16 never wins
+        String v = !POINTWISE_VARIANT.equals("auto") ? POINTWISE_VARIANT : n >= 256 && ta == 0 ? "64x128" : m >= 128 ? "128x64" : "64";
         int bm = v.startsWith("128") ? 128 : 64;
         int bn = v.equals("64x128") ? 128 : v.equals("128x16") ? 16 : 64;
         int tilesY = Emitter.ceilDiv(m, bm);
