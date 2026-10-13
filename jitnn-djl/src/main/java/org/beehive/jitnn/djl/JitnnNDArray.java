@@ -249,8 +249,31 @@ public final class JitnnNDArray extends NDArrayAdapter {
         }
     }
 
+    /**
+     * The gradient kept in persistent device storage, written in place after each backward pass:
+     * DJL reads values (loss, accuracy) between backward and the optimiser step, which splits
+     * them into two plans, and a persistent buffer lets the step's update run at the head of the
+     * next step's plan instead of moving every gradient through the host.
+     */
+    private Tensor gradBuffer;
+
+    /** Copies the gradient of the last backward pass into the persistent buffer. */
+    void storeGradient() {
+        Tensor g = tensor.grad();
+        if (g == null || isReleased()) {
+            return;
+        }
+        if (gradBuffer == null) {
+            gradBuffer = Tensor.persistent(Tensor.of(new float[Math.toIntExact(shape.size())], dims(shape)));
+        }
+        org.beehive.jitnn.ops.Assign.into(g, gradBuffer);
+    }
+
     @Override
     public NDArray getGradient() {
+        if (gradBuffer != null) {
+            return wrap(gradBuffer, DataType.FLOAT32);
+        }
         Tensor g = tensor.grad();
         return wrap(g == null ? Tensor.zeros(dims(shape)) : g, DataType.FLOAT32);
     }

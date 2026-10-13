@@ -26,6 +26,7 @@ final class JitnnGradientCollector implements GradientCollector {
         } else {
             t.backward(Tensor.ones(t.shape().dims()));
         }
+        engine.storeGradients();
     }
 
     @Override

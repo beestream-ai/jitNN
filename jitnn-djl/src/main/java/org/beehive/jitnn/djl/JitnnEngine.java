@@ -160,6 +160,18 @@ public final class JitnnEngine extends Engine {
         }
     }
 
+    /** After a backward pass: every trainable array's gradient into its persistent buffer. */
+    void storeGradients() {
+        synchronized (trainable) {
+            for (WeakReference<JitnnNDArray> r : trainable) {
+                JitnnNDArray a = r.get();
+                if (a != null) {
+                    a.storeGradient();
+                }
+            }
+        }
+    }
+
     void zeroGradients() {
         synchronized (trainable) {
             Iterator<WeakReference<JitnnNDArray>> it = trainable.iterator();
