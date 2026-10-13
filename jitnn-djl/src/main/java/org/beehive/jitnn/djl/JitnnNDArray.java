@@ -26,7 +26,7 @@ import org.beehive.jitnn.ops.Binary;
  * the host only when it is read ({@code toFloatArray}, {@code toByteBuffer}, {@code getFloat}, ...).
  *
  * <p>The tensor is FP32 for every numeric DJL type; the DJL type is a tag that the results of
- * arithmetic follow (integer division truncates) and that host copies are encoded in. Operators
+ * arithmetic follow (integer division truncates; a floating scalar promotes to FLOAT32) and that host copies are encoded in. Operators
  * jitNN lacks go to the fallback engine ({@code -Djitnn.djl.fallback}) or throw.
  */
 public final class JitnnNDArray extends NDArrayAdapter {
@@ -73,6 +73,15 @@ public final class JitnnNDArray extends NDArrayAdapter {
     /** A result of the same DJL type as this array (integer types truncate). */
     JitnnNDArray same(Tensor t) {
         return wrap(dataType.isFloating() ? t : t.trunc(), dataType);
+    }
+
+    /**
+     * A result of this array and scalar {@code n}: an integer array with a floating scalar gives
+     * FLOAT32 (as in PyTorch, so {@code uint8.div(255.0)} does not truncate); otherwise this type.
+     */
+    JitnnNDArray withScalar(Number n, Tensor t) {
+        boolean floatScalar = n instanceof Float || n instanceof Double;
+        return floatScalar && !dataType.isFloating() ? wrap(t, DataType.FLOAT32) : same(t);
     }
 
     JitnnNDArray floating(Tensor t) {
@@ -402,7 +411,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray add(Number n) {
-        return same(tensor.add(n.floatValue()));
+        return withScalar(n, tensor.add(n.floatValue()));
     }
 
     @Override
@@ -412,7 +421,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray sub(Number n) {
-        return same(tensor.add(-n.floatValue()));
+        return withScalar(n, tensor.add(-n.floatValue()));
     }
 
     @Override
@@ -422,7 +431,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray mul(Number n) {
-        return same(tensor.mul(n.floatValue()));
+        return withScalar(n, tensor.mul(n.floatValue()));
     }
 
     @Override
@@ -432,7 +441,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray div(Number n) {
-        return same(tensor.div(scalar(n)));
+        return withScalar(n, tensor.div(scalar(n)));
     }
 
     @Override
@@ -442,7 +451,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray mod(Number n) {
-        return same(tensor.remainder(scalar(n)));
+        return withScalar(n, tensor.remainder(scalar(n)));
     }
 
     @Override
@@ -452,7 +461,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray pow(Number n) {
-        return same(tensor.pow(n.floatValue()));
+        return withScalar(n, tensor.pow(n.floatValue()));
     }
 
     @Override
@@ -462,7 +471,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray maximum(Number n) {
-        return same(tensor.maximum(scalar(n)));
+        return withScalar(n, tensor.maximum(scalar(n)));
     }
 
     @Override
@@ -472,7 +481,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray minimum(Number n) {
-        return same(tensor.minimum(scalar(n)));
+        return withScalar(n, tensor.minimum(scalar(n)));
     }
 
     @Override

@@ -66,6 +66,12 @@ class DjlEngineTest {
             NDArray ints = m.create(new int[] { 7, -7 });
             assertArrayEquals(new int[] { 3, -3 }, ints.div(2).toIntArray());
             assertArrayEquals(new int[] { 1, 1 }, ints.mod(2).toIntArray());
+            // a floating scalar promotes integer arrays, as DJL's ToTensor needs for uint8 images
+            assertArrayEquals(new float[] { 3.5f, -3.5f }, ints.div(2.0).toFloatArray());
+            NDArray pixels = m.create(java.nio.ByteBuffer.wrap(new byte[] { 0, (byte) 128, (byte) 255 }), new Shape(3), DataType.UINT8);
+            assertEquals(DataType.FLOAT32, pixels.div(255.0).getDataType());
+            assertArrayEquals(new float[] { 0, 128 / 255f, 1 }, pixels.div(255.0).toFloatArray(), 1e-6f);
+            assertEquals(DataType.UINT8, pixels.div(2).getDataType());
             assertArrayEquals(new float[] { 2, 5 }, a.get(new NDIndex(":, {}", m.create(new int[] { 1, 2 }))).get(":, 0").toFloatArray());
         }
     }
