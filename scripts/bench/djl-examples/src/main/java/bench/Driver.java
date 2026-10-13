@@ -46,13 +46,18 @@ public final class Driver {
 
     private static void infer(String example) throws Exception {
         int repeat = Integer.getInteger("repeat", 5);
+        String first = null;
         for (int i = 0; i < repeat; i++) {
             long t0 = System.nanoTime();
             Object result = example.equals("classify") ? ai.djl.examples.inference.cv.ImageClassification.predict()
                     : ai.djl.examples.inference.cv.YoloDetection.predict();
             double ms = (System.nanoTime() - t0) / 1e6;
+            String text = String.valueOf(result).replaceAll("\\s+", " ");
             if (i == 0) {
-                System.out.println("[djlex] " + example + " result: " + String.valueOf(result).replaceAll("\\s+", " "));
+                first = text;
+                System.out.println("[djlex] " + example + " result: " + text);
+            } else if (!text.equals(first)) {
+                System.out.println("[djlex] " + example + " call " + i + " DIFFERS: " + text);
             }
             System.out.printf("[djlex] %s engine=%s call %d %.1f ms%n", example, Engine.getInstance().getEngineName(), i, ms);
         }
