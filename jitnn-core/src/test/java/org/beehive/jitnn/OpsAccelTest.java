@@ -449,4 +449,29 @@ class OpsAccelTest {
             }, 1e-4, 1e-4);
         }
     }
+
+    /** Element-wise chains fused into one kernel (inference, and the gradient chains of a backward pass) against the unfused reference. */
+    @Test
+    void fusedElementwiseChains() {
+        same("fused chain", () -> Grad.inference(() -> {
+            Tensor x = Tensor.uniform(101, -2, 2, 64, 33);
+            Tensor y = Tensor.uniform(102, -2, 2, 64, 33);
+            Tensor z = Tensor.uniform(103, 0.5f, 2, 33);
+            return x.mul(y).add(1).tanh().mul(z).sigmoid().sub(x.square()).div(z).exp().log1p();
+        }));
+        same("fused chain, many inputs", () -> Grad.inference(() -> {
+            Tensor a = Tensor.uniform(104, -1, 1, 7, 9, 11);
+            Tensor b = Tensor.uniform(105, -1, 1, 9, 11);
+            Tensor c = Tensor.uniform(106, -1, 1, 11);
+            Tensor d = Tensor.uniform(107, -1, 1, 7, 1, 11);
+            Tensor e = Tensor.uniform(108, -1, 1, 7, 9, 1);
+            return a.add(b).mul(c).relu().add(d).maximum(e).gelu().mul(2).add(Tensor.scalar(0.5f)).abs().sqrt();
+        }));
+        same("fused gradient chains", () -> {
+            Tensor x = Tensor.uniform(109, -2, 2, 32, 40).requiresGrad(true);
+            Tensor w = Tensor.uniform(110, -1, 1, 40).requiresGrad(true);
+            x.mul(w).tanh().mul(x.sigmoid()).add(x.square().mul(0.1f)).gelu().sum().backward();
+            return Tensor.cat(0, x.grad().reshape(-1), w.grad());
+        }, 1e-5, 1e-5);
+    }
 }

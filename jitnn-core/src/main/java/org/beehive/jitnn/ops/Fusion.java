@@ -15,6 +15,7 @@ import org.beehive.jitnn.engine.Emitter;
 import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.engine.Storage;
+import org.beehive.jitnn.kernels.FusedKernels;
 import org.beehive.jitnn.kernels.FoldKernels;
 
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
@@ -103,16 +104,197 @@ public final class Fusion {
                 }
             }
         }
-        if (!changed) {
-            return nodes;
-        }
         List<Node> result = new ArrayList<>(folds);
         for (Node n : out) {
             if (n != null) {
                 result.add(n);
             }
         }
-        return result;
+        if (ELEMENTWISE) {
+            List<Node> chained = fuseElementwise(result, wantedSet);
+            if (chained != null) {
+                return chained;
+            }
+        }
+        return changed ? result : nodes;
+    }
+
+    /** Element-wise chains into one kernel unless {@code -Djitnn.fuse.elementwise=false}. */
+    private static final boolean ELEMENTWISE = !"false".equals(System.getProperty("jitnn.fuse.elementwise"));
+
+    private static boolean elementwise(Node n) {
+        if (n.op != Unary.OP && n.op != Binary.OP) {
+            return false;
+        }
+        for (Tensor t : n.inputs) {
+            if (t.dtype() != DType.F32) {
+                return false;
+            }
+        }
+        return n.out(0).dtype() == DType.F32 && n.out(0).rank() <= 6;
+    }
+
+    /** A chain being built: its external inputs, its instructions, and the order of the nodes it absorbed. */
+    private static final class Chain {
+        final List<Tensor> inputs = new ArrayList<>();
+        /** Per instruction: kind, op code, operand a, operand b, as values (input index, or -1 - instruction index). */
+        final List<int[]> instructions = new ArrayList<>();
+        final List<float[]> params = new ArrayList<>();
+        Tensor output;
+    }
+
+    /**
+     * Merges unary and binary element-wise operators into {@link ElementwiseFused} chains: a
+     * producer joins its consumer when its output has the consumer's shape and only that
+     * consumer reads it (internal, not requested), and the chain keeps at most
+     * {@link FusedKernels#MAX_INPUTS} inputs and {@link FusedKernels#MAX_INSTRUCTIONS}
+     * instructions. A chain runs where its last operator stood, so producers that read persistent
+     * storage some operator of the trace writes are not delayed. Returns null when nothing changed.
+     */
+    private static List<Node> fuseElementwise(List<Node> nodes, Set<Storage> wanted) {
+        IdentityHashMap<Storage, Integer> uses = new IdentityHashMap<>();
+        Set<Storage> writtenPersistent = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Node n : nodes) {
+            for (Tensor t : n.inputs) {
+                uses.merge(t.storage(), 1, Integer::sum);
+            }
+            for (Tensor t : n.outputs) {
+                if (t.storage().isPersistent()) {
+                    writtenPersistent.add(t.storage());
+                }
+            }
+        }
+        IdentityHashMap<Storage, Chain> chainOf = new IdentityHashMap<>();
+        IdentityHashMap<Chain, Integer> slot = new IdentityHashMap<>();
+        List<Object> order = new ArrayList<>();
+        boolean any = false;
+        for (Node n : nodes) {
+            if (!elementwise(n)) {
+                order.add(n);
+                continue;
+            }
+            Chain c = new Chain();
+            int[] operands = new int[n.inputs.length];
+            for (int k = 0; k < n.inputs.length; k++) {
+                Tensor in = n.inputs[k];
+                Chain prev = chainOf.get(in.storage());
+                if (prev != null && fusable(in, uses, wanted) && in.shape().equals(n.out(0).shape()) && !readsWritten(prev, writtenPersistent)
+                        && merged(c, prev) <= FusedKernels.MAX_INPUTS && c.instructions.size() + prev.instructions.size() + 1 <= FusedKernels.MAX_INSTRUCTIONS) {
+                    // absorb the producer's chain: its inputs and instructions, re-indexed
+                    int[] remapIn = new int[prev.inputs.size()];
+                    for (int q = 0; q < prev.inputs.size(); q++) {
+                        remapIn[q] = inputIndex(c, prev.inputs.get(q));
+                    }
+                    int shift = c.instructions.size();
+                    for (int q = 0; q < prev.instructions.size(); q++) {
+                        int[] ins = prev.instructions.get(q).clone();
+                        ins[2] = remap(ins[2], remapIn, shift);
+                        ins[3] = remap(ins[3], remapIn, shift);
+                        c.instructions.add(ins);
+                        c.params.add(prev.params.get(q));
+                    }
+                    operands[k] = -1 - (c.instructions.size() - 1);
+                    order.set(slot.get(prev), null);
+                    in.storage().markFused();
+                    any = true;
+                } else {
+                    operands[k] = inputIndex(c, in);
+                }
+            }
+            boolean unary = n.op == Unary.OP;
+            c.instructions.add(new int[] { unary ? FusedKernels.UNARY : FusedKernels.BINARY, n.iattr[0], operands[0], unary ? operands[0] : operands[1] });
+            c.params.add(new float[] { n.fattr[0], n.fattr[1] });
+            c.output = n.out(0);
+            chainOf.put(n.out(0).storage(), c);
+            slot.put(c, order.size());
+            order.add(c);
+        }
+        if (!any) {
+            return null;
+        }
+        List<Node> out = new ArrayList<>();
+        IdentityHashMap<Chain, Node> single = new IdentityHashMap<>();
+        for (Node n : nodes) {
+            if (elementwise(n)) {
+                single.put(chainOf.get(n.out(0).storage()), n);
+            }
+        }
+        for (Object o : order) {
+            if (o instanceof Node n) {
+                out.add(n);
+            } else if (o instanceof Chain c) {
+                out.add(c.instructions.size() == 1 ? single.get(c) : chainNode(c));
+            }
+        }
+        return out;
+    }
+
+    private static boolean readsWritten(Chain c, Set<Storage> written) {
+        for (Tensor t : c.inputs) {
+            if (written.contains(t.storage())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Inputs of c after absorbing prev (shared tensors counted once). */
+    private static int merged(Chain c, Chain prev) {
+        int count = c.inputs.size();
+        for (Tensor t : prev.inputs) {
+            boolean seen = false;
+            for (Tensor u : c.inputs) {
+                seen |= u.storage() == t.storage() && u.shape().equals(t.shape());
+            }
+            count += seen ? 0 : 1;
+        }
+        return count;
+    }
+
+    private static int inputIndex(Chain c, Tensor t) {
+        for (int i = 0; i < c.inputs.size(); i++) {
+            Tensor u = c.inputs.get(i);
+            if (u.storage() == t.storage() && u.shape().equals(t.shape())) {
+                return i;
+            }
+        }
+        c.inputs.add(t);
+        return c.inputs.size() - 1;
+    }
+
+    private static int remap(int operand, int[] remapIn, int shift) {
+        return operand >= 0 ? remapIn[operand] : -1 - ((-1 - operand) + shift);
+    }
+
+    private static Node chainNode(Chain c) {
+        int inputs = c.inputs.size();
+        Shape out = c.output.rank() == 0 ? Shape.of(1) : c.output.shape();
+        int rank = out.rank();
+        int[] meta = new int[3 + rank + FusedKernels.MAX_INPUTS * rank + 5 * c.instructions.size()];
+        meta[0] = inputs;
+        meta[1] = c.instructions.size();
+        meta[2] = rank;
+        int[] dims = out.dims();
+        System.arraycopy(dims, 0, meta, 3, rank);
+        for (int k = 0; k < inputs; k++) {
+            Tensor t = c.inputs.get(k);
+            int[] st = t.rank() == 0 ? new int[rank] : t.shape().broadcastStrides(out);
+            System.arraycopy(st, 0, meta, 3 + (1 + k) * rank, rank);
+        }
+        float[] params = new float[2 * c.instructions.size()];
+        int p = 3 + rank + FusedKernels.MAX_INPUTS * rank;
+        for (int j = 0; j < c.instructions.size(); j++) {
+            int[] ins = c.instructions.get(j);
+            meta[p] = ins[0];
+            meta[p + 1] = ins[1];
+            meta[p + 2] = ins[2] >= 0 ? ins[2] : inputs + (-1 - ins[2]);
+            meta[p + 3] = ins[3] >= 0 ? ins[3] : inputs + (-1 - ins[3]);
+            meta[p + 4] = inputs + j;
+            params[2 * j] = c.params.get(j)[0];
+            params[2 * j + 1] = c.params.get(j)[1];
+            p += 5;
+        }
+        return new Node(ElementwiseFused.OP, c.inputs.toArray(new Tensor[0]), new Tensor[] { c.output }, meta, params, true);
     }
 
     private static boolean fusable(Tensor t, IdentityHashMap<Storage, Integer> uses, Set<Storage> wanted) {
