@@ -227,6 +227,15 @@ public final class Tensor {
         return storage;
     }
 
+    /**
+     * Declares a persistent tensor (a weight) no longer used, as when its model is closed:
+     * compiled plans that use it can then run another model of the same structure without
+     * compiling again. Using the tensor afterwards is an error.
+     */
+    public void release() {
+        storage.release();
+    }
+
     public Node gradFn() {
         return gradFn;
     }

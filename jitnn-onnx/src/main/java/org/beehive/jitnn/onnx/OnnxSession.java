@@ -31,7 +31,7 @@ import org.beehive.jitnn.onnx.OnnxModel.TensorData;
  * stored in FP16. Convolutions stay FP32. Integer tensors become INT32
  * on the device. Booleans are FP32 0 / 1.
  */
-public final class OnnxSession {
+public final class OnnxSession implements AutoCloseable {
 
     private final OnnxModel model;
     private final Map<String, Value> constants = new HashMap<>();
@@ -109,6 +109,19 @@ public final class OnnxSession {
             }
             default -> {
                 return Value.host(t.longs(), t.dims());
+            }
+        }
+    }
+
+    /**
+     * Releases the model's weights: plans compiled for this session can then run another session
+     * of the same model (loading it again) without compiling. The session cannot run afterwards.
+     */
+    @Override
+    public void close() {
+        for (Value v : constants.values()) {
+            if (v.tensor != null && v.tensor.storage().isPersistent()) {
+                v.tensor.release();
             }
         }
     }

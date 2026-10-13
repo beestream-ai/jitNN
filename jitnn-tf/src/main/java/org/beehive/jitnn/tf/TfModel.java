@@ -35,7 +35,7 @@ import org.beehive.jitnn.tf.TfGraph.Node;
  * Inputs and outputs carry the signature's names. Integer inputs (token ids) are INT32 tensors;
  * images stay NHWC, as TensorFlow takes them.
  */
-public final class TfModel {
+public final class TfModel implements AutoCloseable {
 
     private final OnnxSession session;
 
@@ -71,6 +71,12 @@ public final class TfModel {
     /** The jitnn-onnx session the model was translated to. */
     public OnnxSession session() {
         return session;
+    }
+
+    /** Releases the model's weights (see {@link OnnxSession#close()}); the model cannot run afterwards. */
+    @Override
+    public void close() {
+        session.close();
     }
 
     /** Runs the model; outputs are lazy jitNN tensors, by signature output name. */

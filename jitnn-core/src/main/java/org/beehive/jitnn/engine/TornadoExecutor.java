@@ -32,7 +32,10 @@ import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
  *
  * <p>Compiled plans are cached by the trace's structure (operators, attributes, shapes and which
  * persistent storages it uses), so the second and later training steps replay a plan instead of
- * compiling one.
+ * compiling one. A plan whose persistent storages were all released (their model was closed) is
+ * reused by a trace of the same structure over other persistent storages, such as the same model
+ * loaded again: their contents are copied into the plan's buffers and uploaded, and nothing is
+ * compiled.
  */
 final class TornadoExecutor {
 
@@ -71,8 +74,12 @@ final class TornadoExecutor {
         }
     };
 
+    /** Cached plans by structure (the key without persistent storage identities), for plan reuse. */
+    private static final Map<String, List<CompiledTrace>> BY_STRUCTURE = new java.util.HashMap<>();
+
     private static long compiles;
     private static long replays;
+    private static long reuses;
 
     private TornadoExecutor() {
     }
@@ -102,6 +109,7 @@ final class TornadoExecutor {
         int[] kinds = new int[slots.size()];
         boolean[] written = new boolean[slots.size()];
         StringBuilder key = new StringBuilder(256).append(Devices.key()).append('|');
+        StringBuilder ids = new StringBuilder();
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
             if (!s.persistent && !produced.contains(s) && ++s.inputUses >= 2 && (long) s.numel * 4 >= PROMOTE_BYTES) {
@@ -112,9 +120,13 @@ final class TornadoExecutor {
                 s.internal = false;
             }
             if (s.persistent) {
+                if (s.released) {
+                    throw new IllegalStateException("a tensor of a closed model was used (persistent storage " + s.id + " was released)");
+                }
                 kinds[i] = CompiledTrace.PERSISTENT;
                 written[i] = produced.contains(s);
-                key.append('P').append(s.id).append(written[i] ? 'w' : 'r');
+                key.append('P').append(written[i] ? 'w' : 'r');
+                ids.append(s.id).append(',');
             } else if (produced.contains(s)) {
                 kinds[i] = CompiledTrace.INTERMEDIATE;
                 key.append('T');
@@ -165,13 +177,21 @@ final class TornadoExecutor {
                 }
             }
         }
-        String k = key.toString();
+        String structure = key.toString();
+        String k = structure + "|P" + ids;
         CompiledTrace ct = CACHE.get(k);
-        if (ct == null) {
+        if (ct == null && (ct = reuse(structure, slots, kinds)) != null) {
+            CACHE.remove(ct.key);
+            ct.key = k;
+            CACHE.put(k, ct);
+            reuses++;
+        } else if (ct == null) {
             if (DEBUG_KEYS) {
                 System.err.println("[jitnn] key " + k);
             }
             ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse);
+            ct.structure = structure;
+            BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
             compiles++;
         } else {
@@ -190,11 +210,14 @@ final class TornadoExecutor {
                 throw oom;
             }
             CACHE.remove(k);
+            forget(ct);
             evictAllExcept(null);
             if (VERBOSE) {
                 System.err.printf("[jitnn] out of device memory in %s: closed every cached plan and recompiled%n", ct.name);
             }
             ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse);
+            ct.structure = structure;
+            BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
             compiles++;
             execute(ct, slots);
@@ -217,6 +240,74 @@ final class TornadoExecutor {
             }
         }
         hostNanos += System.nanoTime() - start - (executeNanos - before);
+    }
+
+    /**
+     * A cached plan of this structure whose persistent storages are those of the trace or were
+     * released, rebound to the trace's storages; null if there is none. Each rebound storage takes
+     * over the plan's buffer (its host contents are copied in, and uploaded at the next execution).
+     */
+    private static CompiledTrace reuse(String structure, List<Storage> slots, int[] kinds) {
+        List<CompiledTrace> candidates = BY_STRUCTURE.get(structure);
+        if (candidates == null) {
+            return null;
+        }
+        for (CompiledTrace c : candidates) {
+            boolean fits = !c.closed;
+            for (int i = 0; fits && i < kinds.length; i++) {
+                Storage s = slots.get(i);
+                Storage old = c.bound[i];
+                if (kinds[i] != CompiledTrace.PERSISTENT || old == s) {
+                    continue;
+                }
+                // the storage's array may be another plan's buffer: it can move only if no plan holds it
+                boolean movable = s.array == c.arrays[i] || (!s.planBound && s.validOn.isEmpty());
+                fits = old != null && old.released && movable;
+            }
+            if (!fits) {
+                continue;
+            }
+            int rebound = 0;
+            for (int i = 0; i < kinds.length; i++) {
+                Storage s = slots.get(i);
+                Storage old = c.bound[i];
+                if (kinds[i] != CompiledTrace.PERSISTENT || old == s) {
+                    continue;
+                }
+                TornadoNativeArray buffer = (TornadoNativeArray) c.arrays[i];
+                old.validOn.remove(c);
+                if (old.array == buffer) {
+                    old.array = null;
+                    old.hostValid = false;
+                }
+                if (s.array != buffer) {
+                    Engine.ensureHost(s);
+                    copy(s.array, buffer);
+                    s.array = buffer;
+                    s.hostValid = true;
+                }
+                s.planBound = true;
+                c.bound[i] = s;
+                rebound++;
+            }
+            if (VERBOSE) {
+                System.err.printf("[jitnn] reused plan %s for released persistent storages: %d rebound, nothing compiled%n", c.name, rebound);
+            }
+            return c;
+        }
+        return null;
+    }
+
+    /** Drops a plan from the structure index (it was closed or dropped from the cache). */
+    private static void forget(CompiledTrace ct) {
+        ct.closed = true;
+        List<CompiledTrace> list = ct.structure == null ? null : BY_STRUCTURE.get(ct.structure);
+        if (list != null) {
+            list.remove(ct);
+            if (list.isEmpty()) {
+                BY_STRUCTURE.remove(ct.structure);
+            }
+        }
     }
 
     private static int add(List<Storage> slots, Storage s) {
@@ -273,6 +364,7 @@ final class TornadoExecutor {
             }
             if (kinds[i] == CompiledTrace.PERSISTENT) {
                 bound[i] = s;
+                s.planBound = true;
             }
             byStorage.put(s, arrays[i]);
         }
@@ -515,6 +607,9 @@ final class TornadoExecutor {
         long t0 = System.nanoTime();
         ct.last = ct.printHeader != null ? executePrinting(ct) : ct.plan.execute();
         executeNanos += System.nanoTime() - t0;
+        if (VERBOSE && ct.executions == 0) {
+            System.err.printf("[jitnn] first execution of %s (kernel compilation): %.1f ms%n", ct.name, (System.nanoTime() - t0) / 1e6);
+        }
         ct.executions++;
         if (PROFILE) {
             lastKernelNanos = ct.last.getProfilerResult().getDeviceKernelTime();
@@ -581,13 +676,14 @@ final class TornadoExecutor {
     }
 
     private static void close(CompiledTrace ct) {
+        forget(ct);
         for (int i = 0; i < ct.kinds.length; i++) {
             Storage s = ct.bound[i];
             if (s == null) {
                 continue;
             }
             if (ct.kinds[i] == CompiledTrace.PERSISTENT) {
-                if (s.validOn.contains(ct) && !s.hostValid && s.validOn.size() == 1) {
+                if (s.validOn.contains(ct) && !s.hostValid && s.validOn.size() == 1 && !s.released) {
                     ct.last.transferToHost(s.array);
                     s.hostValid = true;
                 }
@@ -721,6 +817,6 @@ final class TornadoExecutor {
 
     /** Compile and replay counts, for tests and benchmarks. */
     static synchronized long[] stats() {
-        return new long[] { compiles, replays };
+        return new long[] { compiles, replays, reuses };
     }
 }

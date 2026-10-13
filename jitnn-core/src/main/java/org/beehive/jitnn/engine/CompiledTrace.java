@@ -10,7 +10,10 @@ final class CompiledTrace {
     static final int INPUT = 1;
     static final int INTERMEDIATE = 2;
 
-    final String key;
+    String key;
+    /** The key without the identities of the persistent storages (see TornadoExecutor's plan reuse). */
+    String structure;
+    boolean closed;
     final String name;
     final int[] kinds;
     final Object[] arrays;

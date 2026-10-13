@@ -44,6 +44,43 @@ class OpsAccelTest {
         return Tensor.of(seq(n, scale, offset), dims);
     }
 
+    /** A model loaded again after the first was closed (its weights released) reuses its plans. */
+    @Test
+    void releasedWeightsReusePlans() {
+        java.util.function.BiFunction<Tensor[], Tensor, Tensor> model = (w, x) -> F.linear(F.linear(x, w[0], w[1]).relu(), w[2], w[3]);
+        // host weights, as a model file gives them; each "load" has different values
+        java.util.function.IntFunction<Tensor[]> load = seed -> new Tensor[] { Tensor.persistent(t(64 * 48, 0.001f * seed, -0.1f, 64, 48)),
+                Tensor.persistent(t(64, 0.01f, 0.001f * seed, 64)), Tensor.persistent(t(10 * 64, -0.0005f * seed, 0.1f, 10, 64)),
+                Tensor.persistent(t(10, 0.1f, -0.001f * seed, 10)) };
+        Supplier<Tensor> x = () -> Tensor.uniform(5, -1, 1, 8, 48);
+        float[][] expected = new float[3][];
+        for (int m = 0; m < 3; m++) {
+            int seed = 200 + 10 * m;
+            expected[m] = on(Backend.REFERENCE, () -> model.apply(load.apply(seed), x.get()));
+        }
+        Engine.with(Backend.TORNADO, () -> {
+            Tensor[] first = load.apply(200);
+            close(expected[0], model.apply(first, x.get()).toFloatArray(), RTOL, ATOL, "first model");
+            long[] before = Engine.planStats();
+            for (Tensor w : first) {
+                w.release();
+            }
+            for (int m = 1; m < 3; m++) {
+                Tensor[] again = load.apply(200 + 10 * m);
+                close(expected[m], model.apply(again, x.get()).toFloatArray(), RTOL, ATOL, "model loaded again " + m);
+                close(expected[m], model.apply(again, x.get()).toFloatArray(), RTOL, ATOL, "model loaded again " + m + ", replayed");
+                for (Tensor w : again) {
+                    w.release();
+                }
+            }
+            long[] after = Engine.planStats();
+            org.junit.jupiter.api.Assertions.assertEquals(before[0], after[0], "plans compiled for the reloaded models");
+            org.junit.jupiter.api.Assertions.assertEquals(before[2] + 2, after[2], "plans reused");
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> model.apply(first, x.get()).toFloatArray());
+            return null;
+        });
+    }
+
     /** Shapes large enough for the 128 x 128 GEMM and batched convolutions (ResNet-50 and BERT-base inference sizes). */
     @Test
     void largeShapes() {

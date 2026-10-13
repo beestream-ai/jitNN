@@ -50,6 +50,11 @@ public final class Storage {
     /** Incremented whenever the contents change (host writes, executions that write it); caches derived from it compare it. */
     long version;
 
+    /** A persistent storage whose model was closed: a compiled plan may hand its buffer to another storage. */
+    boolean released;
+    /** A persistent storage some compiled plan binds (its array is that plan's buffer). */
+    boolean planBound;
+
     public Storage(DType dtype, int numel, boolean persistent) {
         this.dtype = dtype;
         this.numel = numel;
@@ -157,6 +162,21 @@ public final class Storage {
     public TornadoNativeArray host() {
         Engine.ensureHost(this);
         return array;
+    }
+
+    /**
+     * Declares that a persistent storage is no longer used (its model was closed). A compiled plan
+     * that binds it can then be reused for another model of the same structure without compiling
+     * again; using the storage afterwards is an error.
+     */
+    public void release() {
+        if (persistent) {
+            // work recorded before the model was closed may still read it
+            if (Engine.pending() > 0) {
+                Engine.sync();
+            }
+            released = true;
+        }
     }
 
     /** Marks the host copy as newer than every device copy (after the user wrote it). */

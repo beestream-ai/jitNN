@@ -16,6 +16,11 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
   it, jitNN fetches it from a valid plan (`TornadoExecutionResult.transferToHost`) and uploads it
   (`TornadoExecutionPlan.transferToDevice`). *Inputs* are host data, copied into the plan's own
   arrays each execution. *Intermediates* live on the device and are fetched only when read.
+- **Plan reuse.** The plan key names each persistent storage it binds. Plans are also indexed by
+  structure, without those names: on a key miss, a plan of the same structure whose differing
+  persistent storages were all released (`Storage.release`, called when a model closes) is rebound
+  to the trace's storages, which take over its buffers. TornadoVM's code cache is per plan, so
+  this skips the kernel compilation a new plan would need.
 - **Autograd** adds gradient nodes to the same trace, so forward, backward and the optimiser step
   compile together.
 - **Reference backend**: `ReferenceExecutor` runs each node eagerly with `Op.reference`.

@@ -144,9 +144,9 @@ public final class Engine {
         TornadoExecutor.fetch(s);
     }
 
-    /** Plans compiled and plans replayed on this JVM so far: {@code [compiles, replays]}. */
+    /** Plans compiled, replayed and reused for released storages on this JVM so far: {@code [compiles, replays, reuses]}. */
     public static long[] planStats() {
-        return TornadoExecutor.isLoaded() ? TornadoExecutor.stats() : new long[2];
+        return TornadoExecutor.isLoaded() ? TornadoExecutor.stats() : new long[3];
     }
 
     /**

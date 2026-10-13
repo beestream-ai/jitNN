@@ -52,6 +52,24 @@ public final class JitnnModel extends BaseModel {
         wasLoaded = true;
     }
 
+    /**
+     * Releases the model's weights before closing it, so that loading the same model again reuses
+     * the plans compiled for this one.
+     */
+    @Override
+    public void close() {
+        if (block instanceof JitnnSymbolBlock symbol && symbol.session() != null) {
+            symbol.session().close();
+        } else if (block != null) {
+            for (Pair<String, Parameter> p : block.getParameters()) {
+                if (p.getValue().isInitialized() && p.getValue().getArray() instanceof JitnnNDArray a && a.tensor().storage().isPersistent()) {
+                    a.tensor().release();
+                }
+            }
+        }
+        super.close();
+    }
+
     @Override
     public Trainer newTrainer(TrainingConfig config) {
         if (block == null) {

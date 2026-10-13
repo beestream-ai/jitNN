@@ -40,6 +40,10 @@ Two consequences follow:
   read it later. Values already read to the host stay valid.
 - **Keep the step's structure stable.** A different batch size or a new branch compiles a new plan.
   `-Djitnn.verbose=true` logs each compile.
+- **Close models you are done with.** Closing an `OnnxSession`, a `TfModel` or a DJL model (or
+  calling `Tensor.release()` on its weights) lets the next model of the same structure, such as the
+  same file loaded again, reuse the closed model's plans: its weights are copied into them and
+  nothing is compiled. A released tensor cannot be used again.
 
 ## Autograd
 
