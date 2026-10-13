@@ -409,8 +409,10 @@ class OpsAccelTest {
             String what = "lstm T" + t + " B" + b + " H" + h;
             java.util.function.Function<Boolean, Supplier<Tensor>> run = padded -> () -> {
                 Tensor x = Tensor.uniform(81, -1, 1, t, b, in).requiresGrad(true);
-                Tensor wih = Tensor.uniform(82, -0.3f, 0.3f, 4 * h, in).requiresGrad(true);
-                Tensor whh = Tensor.uniform(83, -0.3f, 0.3f, 4 * h, h).requiresGrad(true);
+                // PyTorch's initialisation, U(-1/sqrt(H), 1/sqrt(H)): a stable recurrence, so FP32 rounding does not grow
+                float k = (float) (1 / Math.sqrt(h));
+                Tensor wih = Tensor.uniform(82, -k, k, 4 * h, in).requiresGrad(true);
+                Tensor whh = Tensor.uniform(83, -k, k, 4 * h, h).requiresGrad(true);
                 Tensor bih = Tensor.uniform(84, -0.1f, 0.1f, 4 * h).requiresGrad(true);
                 Tensor bhh = Tensor.uniform(85, -0.1f, 0.1f, 4 * h).requiresGrad(true);
                 Tensor h0 = Tensor.uniform(86, -0.5f, 0.5f, b, h).requiresGrad(true);
