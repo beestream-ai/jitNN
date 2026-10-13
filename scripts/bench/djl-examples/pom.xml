@@ -5,13 +5,14 @@
     <groupId>org.beehive.jitnn.bench</groupId>
     <artifactId>djl-examples-bench</artifactId>
     <version>1</version>
-    <name>DJL's training examples, unchanged, on jitNN and on DJL's PyTorch engine</name>
+    <name>DJL's examples on jitNN and on DJL's PyTorch and OnnxRuntime engines</name>
 
     <!-- The example sources are copied unchanged from a DJL checkout by run.sh (examples/src/main/java). -->
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <djl.version>0.38.0</djl.version>
+        <ort.version>1.30.0</ort.version>
     </properties>
 
     <dependencies>
@@ -42,7 +43,7 @@
         </dependency>
     </dependencies>
 
-    <!-- One engine per run: -Pjitnn or -Ppytorch. -->
+    <!-- One engine per run: -Pjitnn, -Ppytorch or -Ponnxruntime (ONNX Runtime with CUDA). -->
     <profiles>
         <profile>
             <id>jitnn</id>
@@ -52,11 +53,44 @@
                     <artifactId>jitnn-djl</artifactId>
                     <version>0.1.0-SNAPSHOT</version>
                 </dependency>
+                <!-- only for the ai.djl.onnxruntime model zoo that YoloDetection's djl:// URL names -->
+                <dependency>
+                    <groupId>ai.djl.onnxruntime</groupId>
+                    <artifactId>onnxruntime-engine</artifactId>
+                    <version>${djl.version}</version>
+                </dependency>
             </dependencies>
         </profile>
         <profile>
             <id>pytorch</id>
             <dependencies>
+                <dependency>
+                    <groupId>ai.djl.pytorch</groupId>
+                    <artifactId>pytorch-engine</artifactId>
+                    <version>${djl.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>onnxruntime</id>
+            <dependencies>
+                <dependency>
+                    <groupId>ai.djl.onnxruntime</groupId>
+                    <artifactId>onnxruntime-engine</artifactId>
+                    <version>${djl.version}</version>
+                    <exclusions>
+                        <exclusion>
+                            <groupId>com.microsoft.onnxruntime</groupId>
+                            <artifactId>onnxruntime</artifactId>
+                        </exclusion>
+                    </exclusions>
+                </dependency>
+                <dependency>
+                    <groupId>com.microsoft.onnxruntime</groupId>
+                    <artifactId>onnxruntime_gpu</artifactId>
+                    <version>${ort.version}</version>
+                </dependency>
+                <!-- ONNX Runtime engine hands image pre-processing to PyTorch, as DJL documents -->
                 <dependency>
                     <groupId>ai.djl.pytorch</groupId>
                     <artifactId>pytorch-engine</artifactId>
