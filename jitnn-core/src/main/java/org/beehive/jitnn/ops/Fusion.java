@@ -142,6 +142,9 @@ public final class Fusion {
         final List<float[]> params = new ArrayList<>();
         /** The producer chains this one absorbed. */
         final List<Chain> absorbed = new ArrayList<>();
+        /** Intermediates the chain also stores (other operators read them): instruction index and tensor. */
+        final List<Integer> storeInstr = new ArrayList<>();
+        final List<Tensor> stores = new ArrayList<>();
         Tensor output;
     }
 
@@ -166,23 +169,33 @@ public final class Fusion {
                 }
             }
         }
+        IdentityHashMap<Storage, List<Integer>> readers = new IdentityHashMap<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            for (Tensor t : nodes.get(i).inputs) {
+                readers.computeIfAbsent(t.storage(), k -> new ArrayList<>()).add(i);
+            }
+        }
         IdentityHashMap<Storage, Chain> chainOf = new IdentityHashMap<>();
         IdentityHashMap<Chain, Integer> slot = new IdentityHashMap<>();
         List<Object> order = new ArrayList<>();
         boolean any = false;
-        for (Node n : nodes) {
+        for (int pos = 0; pos < nodes.size(); pos++) {
+            Node n = nodes.get(pos);
             if (!elementwise(n)) {
                 order.add(n);
                 continue;
             }
-            Chain c = build(n, chainOf, uses, wanted, writtenPersistent, true);
+            Chain c = build(n, pos, chainOf, uses, readers, wanted, writtenPersistent, true);
             if (c.inputs.size() > FusedKernels.MAX_INPUTS) {
                 // absorbing producers left too many inputs: this operator starts its own chain
-                c = build(n, chainOf, uses, wanted, writtenPersistent, false);
+                c = build(n, pos, chainOf, uses, readers, wanted, writtenPersistent, false);
             }
             for (Chain prev : c.absorbed) {
                 order.set(slot.get(prev), null);
-                prev.output.storage().markFused();
+                chainOf.remove(prev.output.storage());
+                if (!c.stores.contains(prev.output)) {
+                    prev.output.storage().markFused();
+                }
                 any = true;
             }
             c.output = n.out(0);
@@ -211,15 +224,35 @@ public final class Fusion {
     }
 
     /** The chain of element-wise node n, absorbing its producers' chains when {@code absorb} and they qualify. */
-    private static Chain build(Node n, IdentityHashMap<Storage, Chain> chainOf, IdentityHashMap<Storage, Integer> uses, Set<Storage> wanted, Set<Storage> writtenPersistent,
-            boolean absorb) {
+    /** Whether every reader of s other than the node at {@code pos} comes after it. */
+    private static boolean readLater(Storage s, int pos, IdentityHashMap<Storage, List<Integer>> readers) {
+        for (int r : readers.getOrDefault(s, List.of())) {
+            if (r < pos) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Chain build(Node n, int pos, IdentityHashMap<Storage, Chain> chainOf, IdentityHashMap<Storage, Integer> uses,
+            IdentityHashMap<Storage, List<Integer>> readers, Set<Storage> wanted, Set<Storage> writtenPersistent, boolean absorb) {
         Chain c = new Chain();
         int[] operands = new int[n.inputs.length];
         for (int k = 0; k < n.inputs.length; k++) {
             Tensor in = n.inputs[k];
             Chain prev = absorb ? chainOf.get(in.storage()) : null;
+            // dropped: nobody else reads it; stored: others read it, all after this operator, where the chain runs
+            boolean drop = prev != null && fusable(in, uses, wanted);
+            boolean keep = prev != null && !drop && !in.storage().isPersistent() && readLater(in.storage(), pos, readers);
+            if (prev != null) {
+                for (Tensor st : prev.stores) {
+                    keep &= readLater(st.storage(), pos, readers);
+                    drop &= readLater(st.storage(), pos, readers);
+                }
+            }
+            int outputs = c.stores.size() + (prev == null ? 0 : prev.stores.size()) + (keep ? 1 : 0) + 1;
             // the producer's own output shape must be the consumer's (not a reshaped alias of it)
-            if (prev != null && fusable(in, uses, wanted) && prev.output.shape().equals(n.out(0).shape()) && in.shape().equals(n.out(0).shape())
+            if (prev != null && (drop || keep) && outputs <= FusedKernels.MAX_OUTPUTS && prev.output.shape().equals(n.out(0).shape()) && in.shape().equals(n.out(0).shape())
                     && !readsWritten(prev, writtenPersistent) && merged(c, prev) <= FusedKernels.MAX_INPUTS
                     && c.instructions.size() + prev.instructions.size() + 1 <= FusedKernels.MAX_INSTRUCTIONS) {
                     // absorb the producer's chain: its inputs and instructions, re-indexed
@@ -234,6 +267,14 @@ public final class Fusion {
                         ins[3] = remap(ins[3], remapIn, shift);
                         c.instructions.add(ins);
                         c.params.add(prev.params.get(q));
+                    }
+                    for (int q = 0; q < prev.stores.size(); q++) {
+                        c.storeInstr.add(prev.storeInstr.get(q) + shift);
+                        c.stores.add(prev.stores.get(q));
+                    }
+                    if (keep) {
+                        c.storeInstr.add(c.instructions.size() - 1);
+                        c.stores.add(prev.output);
                     }
                 operands[k] = -1 - (c.instructions.size() - 1);
                 c.absorbed.add(prev);
@@ -302,6 +343,7 @@ public final class Fusion {
         }
         float[] params = new float[2 * c.instructions.size()];
         int p = 3 + rank + FusedKernels.MAX_INPUTS * rank;
+        meta = java.util.Arrays.copyOf(meta, meta.length + 1 + 1 + c.stores.size());
         for (int j = 0; j < c.instructions.size(); j++) {
             int[] ins = c.instructions.get(j);
             meta[p] = ins[0];
@@ -313,7 +355,16 @@ public final class Fusion {
             params[2 * j + 1] = c.params.get(j)[1];
             p += 5;
         }
-        return new Node(ElementwiseFused.OP, c.inputs.toArray(new Tensor[0]), new Tensor[] { c.output }, meta, params, true);
+        // outputs: the chain's result, then the intermediates it stores
+        Tensor[] outs = new Tensor[1 + c.stores.size()];
+        outs[0] = c.output;
+        meta[p] = outs.length;
+        meta[p + 1] = inputs + c.instructions.size() - 1;
+        for (int k = 0; k < c.stores.size(); k++) {
+            outs[1 + k] = c.stores.get(k);
+            meta[p + 2 + k] = inputs + c.storeInstr.get(k);
+        }
+        return new Node(ElementwiseFused.OP, c.inputs.toArray(new Tensor[0]), outs, meta, params, true);
     }
 
     private static boolean fusable(Tensor t, IdentityHashMap<Storage, Integer> uses, Set<Storage> wanted) {

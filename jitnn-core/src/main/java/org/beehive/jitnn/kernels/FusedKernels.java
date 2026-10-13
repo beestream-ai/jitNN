@@ -10,14 +10,16 @@ import uk.ac.manchester.tornado.api.types.arrays.IntArray;
  * broadcast or a permuted view costs no copy.
  *
  * <p>{@code meta} = [inputs, instructions, rank, dims[rank], strides[MAX_INPUTS][rank], then per
- * instruction: kind (0 unary, 1 binary), op code, register a, register b, destination register].
- * Registers 0 .. inputs-1 hold the inputs; instruction j writes register inputs + j. {@code params}
- * holds each instruction's alpha and beta. The result is the last instruction's.
+ * instruction: kind (0 unary, 1 binary), op code, register a, register b, destination register,
+ * then outputs, then each output's register]. Registers 0 .. inputs-1 hold the inputs; instruction
+ * j writes register inputs + j. {@code params} holds each instruction's alpha and beta. Output k
+ * receives its register's value, so a chain can also store intermediates other operators read.
  */
 public final class FusedKernels {
 
     public static final int MAX_INPUTS = 4;
     public static final int MAX_INSTRUCTIONS = 8;
+    public static final int MAX_OUTPUTS = 4;
     public static final int REGISTERS = MAX_INPUTS + MAX_INSTRUCTIONS;
     public static final int UNARY = 0;
     public static final int BINARY = 1;
@@ -25,7 +27,8 @@ public final class FusedKernels {
     private FusedKernels() {
     }
 
-    public static void fused(KernelContext kc, FloatArray i0, FloatArray i1, FloatArray i2, FloatArray i3, FloatArray out, IntArray meta, FloatArray params, int n) {
+    public static void fused(KernelContext kc, FloatArray i0, FloatArray i1, FloatArray i2, FloatArray i3, FloatArray out0, FloatArray out1, FloatArray out2, FloatArray out3,
+            IntArray meta, FloatArray params, int n) {
         float[] regs = kc.allocateFloatLocalArray(256 * REGISTERS);
         int i = kc.globalIdx;
         int base = kc.localIdx * REGISTERS;
@@ -58,7 +61,7 @@ public final class FusedKernels {
                 regs[base + 3] = i3.get(o3);
             }
             int p = 3 + rank + MAX_INPUTS * rank;
-            float r = 0.0f;
+            float r;
             for (int j = 0; j < instructions; j++) {
                 int kind = meta.get(p);
                 int op = meta.get(p + 1);
@@ -66,6 +69,7 @@ public final class FusedKernels {
                 float y = regs[base + meta.get(p + 3)];
                 float alpha = params.get(2 * j);
                 float beta = params.get(2 * j + 1);
+                r = 0.0f;
                 if (kind == UNARY) {
                     if (op >= ElementwiseKernels.IS_NAN) {
                         r = ElementwiseKernels.unaryNaN(op, x, alpha, beta);
@@ -90,7 +94,17 @@ public final class FusedKernels {
                 regs[base + meta.get(p + 4)] = r;
                 p += 5;
             }
-            out.set(i, r);
+            int outputs = meta.get(p);
+            out0.set(i, regs[base + meta.get(p + 1)]);
+            if (outputs > 1) {
+                out1.set(i, regs[base + meta.get(p + 2)]);
+            }
+            if (outputs > 2) {
+                out2.set(i, regs[base + meta.get(p + 3)]);
+            }
+            if (outputs > 3) {
+                out3.set(i, regs[base + meta.get(p + 4)]);
+            }
         }
     }
 }

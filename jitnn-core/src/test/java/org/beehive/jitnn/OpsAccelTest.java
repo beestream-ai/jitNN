@@ -467,6 +467,22 @@ class OpsAccelTest {
             Tensor e = Tensor.uniform(108, -1, 1, 7, 9, 1);
             return a.add(b).mul(c).relu().add(d).maximum(e).gelu().mul(2).add(Tensor.scalar(0.5f)).abs().sqrt();
         }));
+        same("fused chain, intermediates read again", () -> Grad.inference(() -> {
+            Tensor x = Tensor.uniform(111, -2, 2, 48, 30);
+            Tensor y = Tensor.uniform(112, -2, 2, 30);
+            Tensor a = x.mul(y).add(1);
+            Tensor b = a.tanh();
+            Tensor c = a.sigmoid();
+            Tensor d = b.mul(c).add(a);
+            return Tensor.cat(0, d.reshape(-1), b.reshape(-1), a.square().reshape(-1));
+        }));
+        same("fused training chains (forward values the backward reads)", () -> {
+            Tensor x = Tensor.uniform(113, -2, 2, 40, 24).requiresGrad(true);
+            Tensor w = Tensor.uniform(114, -1, 1, 24).requiresGrad(true);
+            Tensor h = x.mul(w).add(0.5f).tanh().mul(x.sigmoid()).gelu();
+            h.mul(h).sum().backward();
+            return Tensor.cat(0, h.reshape(-1), x.grad().reshape(-1), w.grad());
+        }, 1e-5, 1e-5);
         same("fused gradient chains", () -> {
             Tensor x = Tensor.uniform(109, -2, 2, 32, 40).requiresGrad(true);
             Tensor w = Tensor.uniform(110, -1, 1, 40).requiresGrad(true);

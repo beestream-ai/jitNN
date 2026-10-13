@@ -34,19 +34,22 @@ final class ElementwiseFused implements Op {
         for (int k = 0; k < FusedKernels.MAX_INPUTS; k++) {
             in[k] = e.f32(n.in(Math.min(k, inputs - 1)));
         }
-        FloatArray out = e.f32(n.out(0));
+        FloatArray[] out = new FloatArray[FusedKernels.MAX_OUTPUTS];
+        for (int k = 0; k < FusedKernels.MAX_OUTPUTS; k++) {
+            out[k] = e.f32(n.out(Math.min(k, n.outputs.length - 1)));
+        }
         IntArray meta = e.constant(n.iattr);
         FloatArray params = e.constantF32(n.fattr.length == 0 ? new float[2] : n.fattr);
         int count = n.out(0).numel();
         FloatArray i0 = in[0], i1 = in[1], i2 = in[2], i3 = in[3];
-        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, FusedKernels::fused, e.context(), i0, i1, i2, i3, out, meta, params, count));
+        FloatArray o0 = out[0], o1 = out[1], o2 = out[2], o3 = out[3];
+        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, FusedKernels::fused, e.context(), i0, i1, i2, i3, o0, o1, o2, o3, meta, params, count));
     }
 
     @Override
     public void reference(Node n) {
         int[] m = n.iattr;
         int inputs = m[0], instructions = m[1], rank = m[2];
-        FloatArray out = (FloatArray) n.out(0).storage().host();
         FloatArray[] in = new FloatArray[inputs];
         for (int k = 0; k < inputs; k++) {
             in[k] = (FloatArray) n.in(k).storage().host();
@@ -77,7 +80,9 @@ final class ElementwiseFused implements Op {
                 regs[m[p + 4]] = r;
                 p += 5;
             }
-            out.set(i, (float) r);
+            for (int k = 0; k < m[p]; k++) {
+                ((FloatArray) n.out(k).storage().host()).set(i, (float) regs[m[p + 1 + k]]);
+            }
         }
     }
 
