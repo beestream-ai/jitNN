@@ -22,6 +22,8 @@ final class CompiledTrace {
     /** Per slot: an intermediate whose buffer is reused inside the trace (stale after execution). */
     boolean[] recyclable;
     long intermediateBytes;
+    /** The arrays some task of the plan reads or writes (identity): only these have device copies. */
+    java.util.Set<Object> deviceArrays;
     /** TornadoExecutor's execution count at this plan's latest execution (idle eviction). */
     long lastUsed;
 

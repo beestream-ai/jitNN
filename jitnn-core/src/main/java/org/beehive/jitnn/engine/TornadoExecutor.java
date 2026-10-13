@@ -373,6 +373,8 @@ final class TornadoExecutor {
         }
 
         CompiledTrace ct = new CompiledTrace(key, name, kinds, arrays, written, bound, e.tasks.size());
+        ct.deviceArrays = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        ct.deviceArrays.addAll(owner.keySet());
         ct.recyclable = recyclable;
         ct.taskLabels = labels;
         ct.intermediateBytes = freshBytes;
@@ -590,7 +592,8 @@ final class TornadoExecutor {
                     s.hostValid = true;
                 }
                 s.validOn.remove(ct);
-            } else if (s.boundTrace == ct && !s.hostValid && !s.stale && ct.last != null) {
+            } else if (s.boundTrace == ct && !s.hostValid && !s.stale && ct.last != null && ct.deviceArrays.contains(s.array)) {
+                // (an array no task touched has no device copy; asking TornadoVM for it corrupts the plan's state)
                 // an output not read yet: keep its data on the host, as the plan's buffers go
                 ct.last.transferToHost(s.array);
                 TornadoNativeArray own = Storage.newArray(s.dtype, s.numel);
