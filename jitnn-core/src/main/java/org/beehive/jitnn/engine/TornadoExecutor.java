@@ -38,6 +38,8 @@ final class TornadoExecutor {
 
     private static final int CACHE_SIZE = Integer.getInteger("jitnn.plan.cache", 16);
     private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose");
+    /** Prints the cache key of every compiled plan (to find what makes a trace recompile). */
+    private static final boolean DEBUG_KEYS = Boolean.getBoolean("jitnn.debugKeys");
     private static final boolean PROFILE = Boolean.getBoolean("jitnn.profile");
     /**
      * Tasks per TornadoVM task graph before the trace is split into a chain of graphs. A graph's
@@ -157,6 +159,9 @@ final class TornadoExecutor {
         String k = key.toString();
         CompiledTrace ct = CACHE.get(k);
         if (ct == null) {
+            if (DEBUG_KEYS) {
+                System.err.println("[jitnn] key " + k);
+            }
             ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse);
             CACHE.put(k, ct);
             compiles++;
