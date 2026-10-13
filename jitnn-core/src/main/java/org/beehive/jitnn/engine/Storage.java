@@ -27,7 +27,9 @@ public final class Storage {
     final long id = IDS.incrementAndGet();
     final DType dtype;
     final int numel;
-    final boolean persistent;
+    boolean persistent;
+    /** Executions that read this storage as a host input (see TornadoExecutor's promotion of reused inputs). */
+    int inputUses;
 
     TornadoNativeArray array;
     boolean hostValid;

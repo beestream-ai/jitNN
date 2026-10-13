@@ -38,6 +38,8 @@ final class TornadoExecutor {
 
     private static final int CACHE_SIZE = Integer.getInteger("jitnn.plan.cache", 16);
     private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose");
+    /** Host inputs at least this large that are read again become persistent device storage. */
+    private static final long PROMOTE_BYTES = Long.getLong("jitnn.promoteInputBytes", 16L << 20);
     /** Prints the cache key of every compiled plan (to find what makes a trace recompile). */
     private static final boolean DEBUG_KEYS = Boolean.getBoolean("jitnn.debugKeys");
     private static final boolean PROFILE = Boolean.getBoolean("jitnn.profile");
@@ -102,6 +104,13 @@ final class TornadoExecutor {
         StringBuilder key = new StringBuilder(256).append(Devices.key()).append('|');
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
+            if (!s.persistent && !produced.contains(s) && ++s.inputUses >= 2 && (long) s.numel * 4 >= PROMOTE_BYTES) {
+                // a large host input read again (a dataset, a constant table): keep it on the device
+                // instead of copying it in on every execution
+                Engine.ensureHost(s);
+                s.persistent = true;
+                s.internal = false;
+            }
             if (s.persistent) {
                 kinds[i] = CompiledTrace.PERSISTENT;
                 written[i] = produced.contains(s);
