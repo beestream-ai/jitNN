@@ -126,6 +126,12 @@ public final class Workloads {
             SGD opt = new SGD(m.parameters(), 0.1f, 0.9f, 5e-4f, false);
             return training(m, opt, () -> F.crossEntropy(m.forward(images(64, 3, 32, 32)), labels(64, 10)));
         }));
+        // DJL's TrainResnetWithCifar10 at its shapes: ResNet-50 on 32x32 images, batch 32
+        w.add(new Workload("resnet50_cifar_train_b32", () -> {
+            Module m = ResNet.resnet50(3, 10, true, 1);
+            SGD opt = new SGD(m.parameters(), 0.1f, 0.9f, 5e-4f, false);
+            return training(m, opt, () -> F.crossEntropy(m.forward(images(32, 3, 32, 32)), labels(32, 10)));
+        }));
         w.add(new Workload("mobilenetv2_train_b64", () -> {
             Module m = MobileNetV2.mobilenetV2(3, 10, true, 0, 1);
             SGD opt = new SGD(m.parameters(), 0.1f, 0.9f, 5e-4f, false);
