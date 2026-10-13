@@ -360,7 +360,7 @@ final class TornadoExecutor {
                 e.registerGrid(scheduler, gname, spec);
                 if (labels != null) {
                     Node nd = nodes.get(spec.node());
-                    String shape = nd.op.name().equals("matmul") || nd.op.name().equals("linear") ? java.util.Arrays.toString(nd.iattr) : "";
+                    String shape = nd.op.name().equals("matmul") || nd.op.name().equals("linear") || nd.op.name().startsWith("conv2d") ? java.util.Arrays.toString(nd.iattr) : "";
                     labels.put(gname + "." + spec.id(), nd.op.name() + shape + "#" + perNode[spec.node()]++);
                 }
             }
