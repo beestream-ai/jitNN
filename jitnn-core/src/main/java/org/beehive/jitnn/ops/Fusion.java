@@ -140,6 +140,8 @@ public final class Fusion {
         /** Per instruction: kind, op code, operand a, operand b, as values (input index, or -1 - instruction index). */
         final List<int[]> instructions = new ArrayList<>();
         final List<float[]> params = new ArrayList<>();
+        /** The producer chains this one absorbed. */
+        final List<Chain> absorbed = new ArrayList<>();
         Tensor output;
     }
 
@@ -173,37 +175,16 @@ public final class Fusion {
                 order.add(n);
                 continue;
             }
-            Chain c = new Chain();
-            int[] operands = new int[n.inputs.length];
-            for (int k = 0; k < n.inputs.length; k++) {
-                Tensor in = n.inputs[k];
-                Chain prev = chainOf.get(in.storage());
-                if (prev != null && fusable(in, uses, wanted) && in.shape().equals(n.out(0).shape()) && !readsWritten(prev, writtenPersistent)
-                        && merged(c, prev) <= FusedKernels.MAX_INPUTS && c.instructions.size() + prev.instructions.size() + 1 <= FusedKernels.MAX_INSTRUCTIONS) {
-                    // absorb the producer's chain: its inputs and instructions, re-indexed
-                    int[] remapIn = new int[prev.inputs.size()];
-                    for (int q = 0; q < prev.inputs.size(); q++) {
-                        remapIn[q] = inputIndex(c, prev.inputs.get(q));
-                    }
-                    int shift = c.instructions.size();
-                    for (int q = 0; q < prev.instructions.size(); q++) {
-                        int[] ins = prev.instructions.get(q).clone();
-                        ins[2] = remap(ins[2], remapIn, shift);
-                        ins[3] = remap(ins[3], remapIn, shift);
-                        c.instructions.add(ins);
-                        c.params.add(prev.params.get(q));
-                    }
-                    operands[k] = -1 - (c.instructions.size() - 1);
-                    order.set(slot.get(prev), null);
-                    in.storage().markFused();
-                    any = true;
-                } else {
-                    operands[k] = inputIndex(c, in);
-                }
+            Chain c = build(n, chainOf, uses, wanted, writtenPersistent, true);
+            if (c.inputs.size() > FusedKernels.MAX_INPUTS) {
+                // absorbing producers left too many inputs: this operator starts its own chain
+                c = build(n, chainOf, uses, wanted, writtenPersistent, false);
             }
-            boolean unary = n.op == Unary.OP;
-            c.instructions.add(new int[] { unary ? FusedKernels.UNARY : FusedKernels.BINARY, n.iattr[0], operands[0], unary ? operands[0] : operands[1] });
-            c.params.add(new float[] { n.fattr[0], n.fattr[1] });
+            for (Chain prev : c.absorbed) {
+                order.set(slot.get(prev), null);
+                prev.output.storage().markFused();
+                any = true;
+            }
             c.output = n.out(0);
             chainOf.put(n.out(0).storage(), c);
             slot.put(c, order.size());
@@ -227,6 +208,44 @@ public final class Fusion {
             }
         }
         return out;
+    }
+
+    /** The chain of element-wise node n, absorbing its producers' chains when {@code absorb} and they qualify. */
+    private static Chain build(Node n, IdentityHashMap<Storage, Chain> chainOf, IdentityHashMap<Storage, Integer> uses, Set<Storage> wanted, Set<Storage> writtenPersistent,
+            boolean absorb) {
+        Chain c = new Chain();
+        int[] operands = new int[n.inputs.length];
+        for (int k = 0; k < n.inputs.length; k++) {
+            Tensor in = n.inputs[k];
+            Chain prev = absorb ? chainOf.get(in.storage()) : null;
+            // the producer's own output shape must be the consumer's (not a reshaped alias of it)
+            if (prev != null && fusable(in, uses, wanted) && prev.output.shape().equals(n.out(0).shape()) && in.shape().equals(n.out(0).shape())
+                    && !readsWritten(prev, writtenPersistent) && merged(c, prev) <= FusedKernels.MAX_INPUTS
+                    && c.instructions.size() + prev.instructions.size() + 1 <= FusedKernels.MAX_INSTRUCTIONS) {
+                    // absorb the producer's chain: its inputs and instructions, re-indexed
+                    int[] remapIn = new int[prev.inputs.size()];
+                    for (int q = 0; q < prev.inputs.size(); q++) {
+                        remapIn[q] = inputIndex(c, prev.inputs.get(q));
+                    }
+                    int shift = c.instructions.size();
+                    for (int q = 0; q < prev.instructions.size(); q++) {
+                        int[] ins = prev.instructions.get(q).clone();
+                        ins[2] = remap(ins[2], remapIn, shift);
+                        ins[3] = remap(ins[3], remapIn, shift);
+                        c.instructions.add(ins);
+                        c.params.add(prev.params.get(q));
+                    }
+                operands[k] = -1 - (c.instructions.size() - 1);
+                c.absorbed.add(prev);
+            } else {
+                operands[k] = inputIndex(c, in);
+            }
+        }
+        boolean unary = n.op == Unary.OP;
+        c.instructions.add(new int[] { unary ? FusedKernels.UNARY : FusedKernels.BINARY, n.iattr[0], operands[0], unary ? operands[0] : operands[1] });
+        c.params.add(new float[] { n.fattr[0], n.fattr[1] });
+        c.output = n.out(0);
+        return c;
     }
 
     private static boolean readsWritten(Chain c, Set<Storage> written) {
