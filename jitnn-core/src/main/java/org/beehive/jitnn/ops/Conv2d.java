@@ -112,6 +112,14 @@ public final class Conv2d implements Op {
         }
     }
 
+    /**
+     * The filter gradient's split over positions: enough slices to reach about WEIGHT_GROUPS
+     * work-groups ({@code -Djitnn.conv.weightGroups}), each of at least WEIGHT_MIN_CHUNK positions
+     * ({@code -Djitnn.conv.weightChunk}).
+     */
+    static final int WEIGHT_GROUPS = Integer.getInteger("jitnn.conv.weightGroups", 256);
+    static final int WEIGHT_MIN_CHUNK = Integer.getInteger("jitnn.conv.weightChunk", 256);
+
     /** Fewest output positions per image for a pointwise convolution to run as one GEMM per image. */
     static final int POINTWISE_MIN_PLANE = 256;
 
@@ -491,7 +499,7 @@ public final class Conv2d implements Op {
             int tilesN = Emitter.ceilDiv(kg, 64);
             int tilesM = Emitter.ceilDiv(cog, 64);
             int blocks = tilesN * tilesM * gr;
-            int splits = Math.max(1, Math.min(Emitter.ceilDiv(256, blocks), p / 256));
+            int splits = Math.max(1, Math.min(Emitter.ceilDiv(WEIGHT_GROUPS, blocks), p / WEIGHT_MIN_CHUNK));
             int chunk = Emitter.ceilDiv(Emitter.ceilDiv(p, splits), 16) * 16;
             int sp = Emitter.ceilDiv(p, chunk);
             FloatArray partial = sp > 1 ? e.scratch(weights * sp) : dw;
