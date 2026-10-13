@@ -22,6 +22,8 @@ final class CompiledTrace {
     /** Per slot: an intermediate whose buffer is reused inside the trace (stale after execution). */
     boolean[] recyclable;
     long intermediateBytes;
+    /** TornadoExecutor's execution count at this plan's latest execution (idle eviction). */
+    long lastUsed;
 
     /** "graph.task" keys of the profiler log and the operator each task belongs to (profiling only). */
     java.util.Map<String, String> taskLabels;

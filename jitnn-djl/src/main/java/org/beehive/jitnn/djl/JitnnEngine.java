@@ -42,11 +42,6 @@ public final class JitnnEngine extends Engine {
     private volatile boolean alternativeResolved;
 
     private JitnnEngine() {
-        // in-trace buffer reuse measured worse under DJL's training loops (MNIST step 1 ms -> 14 ms,
-        // ResNet-50 out of memory): off unless asked for
-        if (System.getProperty("jitnn.reuseBuffers") == null) {
-            System.setProperty("jitnn.reuseBuffers", "false");
-        }
         // DJL training loops run several distinct traces per step (data, forward and backward,
         // evaluators, optimiser updates): keep them all compiled
         if (System.getProperty("jitnn.plan.cache") == null) {

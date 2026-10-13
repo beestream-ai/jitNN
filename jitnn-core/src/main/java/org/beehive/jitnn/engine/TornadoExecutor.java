@@ -177,6 +177,8 @@ final class TornadoExecutor {
         } else {
             replays++;
         }
+        ct.lastUsed = ++executionsTotal;
+        evictIdle(ct);
         try {
             execute(ct, slots);
         } catch (uk.ac.manchester.tornado.api.exceptions.TornadoOutOfMemoryException oom) {
@@ -602,6 +604,35 @@ final class TornadoExecutor {
             ct.plan.close();
         } catch (TornadoExecutionPlanException e) {
             throw new IllegalStateException(e);
+        }
+    }
+
+    /** Executions of any plan so far; a plan's lastUsed is this count at its latest execution. */
+    private static long executionsTotal;
+
+    /**
+     * Plans holding at least this many bytes of intermediates are closed once IDLE_EXECUTIONS
+     * executions of other plans pass without them (a first step that is never repeated, a
+     * validation pass between epochs), freeing their device buffers. A closed plan that comes back
+     * is compiled again.
+     */
+    private static final long IDLE_BYTES = Long.getLong("jitnn.plan.idleBytes", 64L << 20);
+    private static final long IDLE_EXECUTIONS = Long.getLong("jitnn.plan.idleExecutions", 256);
+
+    private static void evictIdle(CompiledTrace running) {
+        if ((executionsTotal & 31) != 0) {
+            return;
+        }
+        var it = CACHE.values().iterator();
+        while (it.hasNext()) {
+            CompiledTrace ct = it.next();
+            if (ct != running && ct.intermediateBytes >= IDLE_BYTES && executionsTotal - ct.lastUsed > IDLE_EXECUTIONS) {
+                if (VERBOSE) {
+                    System.err.printf("[jitnn] closed idle plan %s (%.1f MB of intermediates)%n", ct.name, ct.intermediateBytes / 1e6);
+                }
+                close(ct);
+                it.remove();
+            }
         }
     }
 
