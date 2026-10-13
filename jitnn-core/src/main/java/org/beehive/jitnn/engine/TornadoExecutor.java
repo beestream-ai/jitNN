@@ -461,6 +461,8 @@ final class TornadoExecutor {
             if (ct.kinds[i] == CompiledTrace.INPUT) {
                 Storage s = slots.get(i);
                 Engine.ensureHost(s);
+                transfers[4]++;
+                transfers[5] += s.numel;
                 copy((TornadoNativeArray) s.array, (TornadoNativeArray) ct.arrays[i]);
             }
         }
@@ -471,6 +473,8 @@ final class TornadoExecutor {
                     fetch(s);
                 }
                 if (ct.executions > 0) {
+                    transfers[2]++;
+                    transfers[3] += s.numel;
                     ct.plan.transferToDevice(s.array);
                 }
             }
@@ -527,6 +531,8 @@ final class TornadoExecutor {
         if (s.hostValid) {
             return;
         }
+        transfers[0]++;
+        transfers[1] += s.numel;
         if (s.persistent) {
             if (s.validOn.isEmpty()) {
                 throw new IllegalStateException("persistent storage " + s.id + " has no valid copy");
@@ -652,6 +658,17 @@ final class TornadoExecutor {
     /** With -Djitnn.profile=true: [device kernel ns, TornadoVM total ns] of the last execution. */
     static synchronized long[] lastProfile() {
         return new long[] { lastKernelNanos, lastTotalNanos };
+    }
+
+    /**
+     * Host-device traffic the executor causes: [persistent or output fetches to the host,
+     * their elements, persistent re-uploads (a storage written by another plan), their elements,
+     * input copies, their elements].
+     */
+    private static final long[] transfers = new long[6];
+
+    static synchronized long[] transferStats() {
+        return transfers.clone();
     }
 
     /** Cumulative [jitNN host ns outside plan.execute, ns inside plan.execute] of run(). */

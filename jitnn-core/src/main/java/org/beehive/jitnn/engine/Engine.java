@@ -208,6 +208,15 @@ public final class Engine {
         return kernelSink;
     }
 
+    /**
+     * Host-device traffic of this JVM's plans so far: [fetches to the host, elements fetched,
+     * re-uploads of persistent storages written by another plan, elements re-uploaded, input
+     * copies, elements copied].
+     */
+    public static long[] transferStats() {
+        return TornadoExecutor.isLoaded() ? TornadoExecutor.transferStats() : new long[6];
+    }
+
     /** Closes every cached compiled plan, first saving persistent storages to the host. */
     public static void reset() {
         sync();

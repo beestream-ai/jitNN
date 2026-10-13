@@ -34,6 +34,11 @@ public final class Driver {
                     .forEach(e -> System.out.printf("[djlex]   %-44s %8d launches %10.1f ms%n", e.getKey(), e.getValue()[0], e.getValue()[1] / 1e6));
             long[] split = (long[]) engine.getMethod("timeSplit").invoke(null);
             System.out.printf("[djlex] host: jitNN executor %.1f ms, TornadoVM execute() %.1f ms%n", split[0] / 1e6, split[1] / 1e6);
+            long[] tr = (long[]) engine.getMethod("transferStats").invoke(null);
+            System.out.printf("[djlex] traffic: %d fetches (%.1f MB), %d persistent re-uploads (%.1f MB), %d input copies (%.1f MB)%n", tr[0], tr[1] * 4 / 1e6, tr[2],
+                    tr[3] * 4 / 1e6, tr[4], tr[5] * 4 / 1e6);
+            long[] st = (long[]) engine.getMethod("planStats").invoke(null);
+            System.out.printf("[djlex] plans: %d compiled, %d replays%n", st[0], st[1]);
         }
         System.exit(0);
     }
