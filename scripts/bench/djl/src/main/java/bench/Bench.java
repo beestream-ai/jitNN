@@ -28,6 +28,11 @@ public final class Bench {
     static final int VOCAB = 30522;
 
     public static void main(String[] args) throws Exception {
+        // --with-native: let jitNN call cuBLAS, cuDNN, ... (or MLX) where they are available
+        if (java.util.Arrays.asList(args).contains("--with-native")) {
+            System.setProperty("jitnn.withNative", "true");
+            args = java.util.Arrays.stream(args).filter(a -> !a.equals("--with-native")).toArray(String[]::new);
+        }
         String engine = args[0];
         Path file = Path.of(args[1]);
         boolean resnet = args[2].equals("resnet50");

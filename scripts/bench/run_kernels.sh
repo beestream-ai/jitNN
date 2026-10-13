@@ -1,11 +1,13 @@
 #!/bin/bash
 # The kernel benchmark on one device: three JVM runs of jitnn-bench (device times), interleaved with
 # the PyTorch baselines, a fourth run without the profiler (host times), then the summary. Run from the repository root on an idle GPU.
-#   scripts/bench/run_kernels.sh <device, e.g. 1:0> <out dir>
+#   scripts/bench/run_kernels.sh <device, e.g. 1:0> <out dir> [--with-native]
 # Environment: MVN (Maven command, default ./mvnw), PYTHON, KBENCH_EXTRA (more -D properties, e.g.
 # -Djitnn.kbench.workloads=mlp_train_b256 or -Djitnn.kbench.families=gemm,convolution), NO_BASELINE=1.
 set -e
 DEV=$1; OUT=$2; shift 2
+# --with-native as a third argument: jitNN calls cuBLAS, cuDNN, ... (or MLX) where available
+if [ "${1:-}" = "--with-native" ]; then KBENCH_EXTRA="$KBENCH_EXTRA -Djitnn.native=auto"; fi
 mkdir -p "$OUT"
 LABEL="jitnn-$(git rev-parse --short HEAD)"
 MVN=${MVN:-./mvnw}

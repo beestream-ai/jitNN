@@ -1,9 +1,11 @@
 #!/bin/bash
 # The end-to-end model profiles for step 2: one JVM with the profiler (per-operator device time),
 # one without it and with CUDA graphs as normal (wall time). Run from the repository root.
-#   scripts/bench/run_models.sh <device> <out dir>
+#   scripts/bench/run_models.sh <device> <out dir> [--with-native]
 set -e
 DEV=$1; OUT=$2
+# --with-native as a third argument: jitNN calls cuBLAS, cuDNN, ... (or MLX) where available
+if [ "${3:-}" = "--with-native" ]; then KBENCH_EXTRA="$KBENCH_EXTRA -Djitnn.native=auto"; fi
 mkdir -p "$OUT"
 MVN=${MVN:-./mvnw}
 LABEL="jitnn-$(git rev-parse --short HEAD)"

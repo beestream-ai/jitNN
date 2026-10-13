@@ -13,6 +13,11 @@ import ai.djl.training.TrainingResult;
 public final class Driver {
 
     public static void main(String[] args) throws Exception {
+        // --with-native: let jitNN call cuBLAS, cuDNN, ... (or MLX) where they are available
+        if (Arrays.asList(args).contains("--with-native")) {
+            System.setProperty("jitnn.withNative", "true");
+            args = Arrays.stream(args).filter(a -> !a.equals("--with-native")).toArray(String[]::new);
+        }
         String example = args[0];
         String[] rest = Arrays.copyOfRange(args, 1, args.length);
         System.out.println("[djlex] engine " + Engine.getInstance() + ", GPUs " + Engine.getInstance().getGpuCount());
