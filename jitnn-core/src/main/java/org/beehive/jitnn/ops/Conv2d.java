@@ -82,6 +82,33 @@ public final class Conv2d implements Op {
     /** 1x1 stride-1 convolutions as one GEMM per image unless {@code -Djitnn.conv1x1=implicit}. */
     static final boolean POINTWISE_GEMM = !"implicit".equals(System.getProperty("jitnn.conv1x1"));
 
+    /**
+     * The batched GEMM of 1x1 convolutions ({@code -Djitnn.conv1x1.gemm}): {@code 64} (64x64 tiles),
+     * {@code 128x64}, {@code 64x128}, {@code 128x16} (narrow, for 4x4 planes), or {@code auto}.
+     */
+    static final String POINTWISE_VARIANT = System.getProperty("jitnn.conv1x1.gemm", "auto");
+
+    /** Whether the 1x1 input gradient runs as one GEMM per image ({@code -Djitnn.conv1x1.backward=gemm}) instead of the implicit GEMM. */
+    static final boolean POINTWISE_BACKWARD = "gemm".equals(System.getProperty("jitnn.conv1x1.backward", "implicit"));
+
+    /**
+     * C[z] = op(A[z]) B[z] for z < batch as the chosen batched GEMM: A broadcast (stride 0) or
+     * strided, B at z * strideB, C contiguous [m, n] per z.
+     */
+    static void pointwiseGemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int ep, int strideA, int strideB, int batch) {
+        String v = POINTWISE_VARIANT.equals("auto") ? "64" : POINTWISE_VARIANT;
+        int bm = v.startsWith("128") ? 128 : 64;
+        int bn = v.equals("64x128") ? 128 : v.equals("128x16") ? 16 : 64;
+        int tilesY = Emitter.ceilDiv(m, bm);
+        uk.ac.manchester.tornado.api.WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, bn), tilesY * batch, 16, 16);
+        switch (v) {
+            case "128x64" -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128x64pdBatched, e.context(), a, b, c, bias, m, n, k, ta, 0, ep, strideA, strideB, tilesY));
+            case "64x128" -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64x128pdBatched, e.context(), a, b, c, bias, m, n, k, ta, 0, ep, strideA, strideB, tilesY));
+            case "128x16" -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm128x16pdBatched, e.context(), a, b, c, bias, m, n, k, ta, 0, ep, strideA, strideB, tilesY));
+            default -> e.task(grid, (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), a, b, c, bias, m, n, k, ta, 0, ep, strideA, strideB, tilesY));
+        }
+    }
+
     /** Fewest output positions per image for a pointwise convolution to run as one GEMM per image. */
     static final int POINTWISE_MIN_PLANE = 256;
 
@@ -95,7 +122,8 @@ public final class Conv2d implements Op {
      */
     static boolean pointwise(int[] a) {
         int plane = a[OH] * a[OW];
-        return POINTWISE_GEMM && a[K] == 1 && a[STRIDE] == 1 && a[PAD] == 0 && a[GROUPS] == 1 && (plane >= POINTWISE_MIN_PLANE || plane % GemmKernels.BN == 0)
+        boolean narrow = "128x16".equals(POINTWISE_VARIANT) && plane % 16 == 0;
+        return POINTWISE_GEMM && a[K] == 1 && a[STRIDE] == 1 && a[PAD] == 0 && a[GROUPS] == 1 && (plane >= POINTWISE_MIN_PLANE || plane % GemmKernels.BN == 0 || narrow)
                 && a[N] * Emitter.ceilDiv(a[COUT], GemmKernels.BM) * Emitter.ceilDiv(plane, GemmKernels.BN) >= 128;
     }
 
@@ -214,10 +242,8 @@ public final class Conv2d implements Op {
         if (pointwise(a)) {
             // out[n] = W [cout, cin] x[n] [cin, OH OW], written straight into NCHW
             int plane = oh * ow;
-            int tilesY = Emitter.ceilDiv(cout, GemmKernels.BM);
             int ep = (a[BIAS] != 0 ? GemmKernels.ROW_BIAS : 0) | (a[RELU] != 0 ? GemmKernels.RELU : 0);
-            e.task(Emitter.blocks2D(Emitter.ceilDiv(plane, GemmKernels.BN), tilesY * a[N], 16, 16),
-                    (g, id) -> g.task(id, GemmKernels::gemm64pdBatched, e.context(), w, x, out, bias, cout, plane, cin, 0, 0, ep, 0, cin * h * wd, tilesY));
+            pointwiseGemm(e, w, x, out, bias, cout, plane, cin, 0, ep, 0, cin * h * wd, a[N]);
             return;
         }
         if (winograd(a, oh, ow)) {
@@ -342,6 +368,12 @@ public final class Conv2d implements Op {
             if (winograd(a, h, wd)) {
                 // the input gradient is the 3x3 convolution of dy with the flipped, transposed filter
                 emitWinograd(e, dy, w, dx, e.dummyF32(), a[N], cout, oh, ow, cin, h, wd, 2 - pd, 1, 0);
+                return;
+            }
+            if (POINTWISE_BACKWARD && pointwise(a)) {
+                // dx[n] = W^T [cin, cout] dy[n] [cout, H W]
+                int plane = h * wd;
+                pointwiseGemm(e, w, dy, dx, e.dummyF32(), cin, plane, cout, 1, 0, 0, cout * plane, a[N]);
                 return;
             }
             long colFloats = (long) cin * k * k * a[N] * oh * ow;

@@ -431,4 +431,22 @@ class OpsAccelTest {
             same(what + " padded", run.apply(true), 2e-4, 2e-5);
         }
     }
+
+    /** 1x1 convolutions on small planes, forward and both gradients (the batched GEMM variants of -Djitnn.conv1x1.*). */
+    @Test
+    void pointwiseConvolutions() {
+        // N, Cin, H, Cout
+        int[][] shapes = { { 32, 256, 8, 1024 }, { 32, 1024, 8, 256 }, { 32, 512, 4, 2048 }, { 16, 64, 16, 256 }, { 8, 48, 4, 40 } };
+        for (int[] sh : shapes) {
+            int n = sh[0], cin = sh[1], hw = sh[2], cout = sh[3];
+            String what = "1x1 conv " + n + "x" + cin + "x" + hw + "x" + hw + " -> " + cout;
+            same(what, () -> {
+                Tensor x = Tensor.uniform(91, -1, 1, n, cin, hw, hw).requiresGrad(true);
+                Tensor w = Tensor.uniform(92, -0.1f, 0.1f, cout, cin, 1, 1).requiresGrad(true);
+                Tensor y = F.conv2d(x, w, Tensor.uniform(93, -1, 1, cout), 1, 0, 1, 1);
+                y.mul(Tensor.uniform(94, -1, 1, n, cout, hw, hw)).sum().backward();
+                return Tensor.cat(0, y.reshape(-1), x.grad().reshape(-1), w.grad().reshape(-1));
+            }, 1e-4, 1e-4);
+        }
+    }
 }
