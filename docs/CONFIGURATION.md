@@ -143,6 +143,7 @@ latter through `jitnn.test.extra`).
 | `jitnn.bench.shapes`, `jitnn.bench.tasks` | `false`, empty | with `jitnn.test.profile`, list the device time per GEMM shape, or per task of the operators whose name contains the given text |
 | `jitnn.bench.inference` | `false` | run `InferenceBenchAccelTest` (ResNet-50 and BERT-base latency) |
 | `jitnn.bench.models` | `resnet50,bert` | the models of `InferenceBenchAccelTest` |
+| `jitnn.bench.only` | empty | `InferenceBenchAccelTest`: time only the configurations whose name contains this text (`bert_b32_s128_fp16h`) |
 | `jitnn.bench.split` | `false` | `InferenceBenchAccelTest`: also print where a call's time goes (recording, execution, fetching the output, converting it to floats) |
 | `jitnn.bench.profileTasks` | `false` | `InferenceBenchAccelTest` with `jitnn.profile`: also print the device time of every task, not only per operator |
 | `jitnn.bench.warmup`, `jitnn.bench.runs` | 10, 50 | warm-up and timed calls of `InferenceBenchAccelTest` |

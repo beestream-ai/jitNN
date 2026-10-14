@@ -79,6 +79,9 @@ class InferenceBenchAccelTest {
      * converted to floats and saved.
      */
     private static void time(String name, int samples, Supplier<Tensor> forward) throws Exception {
+        if (!name.contains(System.getProperty("jitnn.bench.only", ""))) {
+            return;
+        }
         Supplier<Object> call = () -> {
             Tensor y = forward.get();
             Engine.sync(y);
@@ -117,13 +120,19 @@ class InferenceBenchAccelTest {
      */
     private static void split(String name, Supplier<Tensor> forward) {
         int n = RUNS;
-        double[][] t = new double[4][n];
+        double[][] t = new double[6][n];
         for (int i = 0; i < WARMUP + n; i++) {
             long t0 = System.nanoTime();
             Tensor y = forward.get();
             long t1 = System.nanoTime();
+            long[] before = Engine.timeSplit();
             Engine.sync();
+            long[] after = Engine.timeSplit();
             long t2 = System.nanoTime();
+            if (i >= WARMUP) {
+                t[4][i - WARMUP] = (after[0] - before[0]) / 1e6;
+                t[5][i - WARMUP] = (after[1] - before[1]) / 1e6;
+            }
             Engine.sync(y);
             long t3 = System.nanoTime();
             y.toFloatArray();
@@ -138,7 +147,8 @@ class InferenceBenchAccelTest {
         for (double[] a : t) {
             Arrays.sort(a);
         }
-        System.out.printf("[t1] split %-28s record %.3f  execute %.3f  fetch %.3f  convert %.3f ms (median)%n", name, t[0][n / 2], t[1][n / 2], t[2][n / 2], t[3][n / 2]);
+        System.out.printf("[t1] split %-28s record %.3f  execute %.3f (jitNN host %.3f, TornadoVM execute() %.3f)  fetch %.3f  convert %.3f ms (median)%n", name, t[0][n / 2], t[1][n / 2],
+                t[4][n / 2], t[5][n / 2], t[2][n / 2], t[3][n / 2]);
     }
 
     /** Device time and launches per call, by operator (with {@code -Djitnn.profile=true}; on CUDA also {@code -Djitnn.cudaGraph=false}). */
