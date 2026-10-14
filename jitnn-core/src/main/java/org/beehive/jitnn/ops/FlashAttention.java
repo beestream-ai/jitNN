@@ -130,11 +130,36 @@ public final class FlashAttention implements Op {
     }
 
     /**
-     * FP16 attention in inference ({@code -Djitnn.halfAttention}): {@code auto} takes CUTLASS's batched
-     * FP16 GEMMs when {@code -Djitnn.native} makes CUTLASS available, else the FP16 FlashAttention
-     * kernel; {@code cutlass} and {@code flash} force one.
+     * FP16 attention in inference ({@code -Djitnn.halfAttention}): {@code auto} takes cuDNN's fused
+     * attention, else CUTLASS's batched FP16 GEMMs, when {@code -Djitnn.native} makes them available
+     * (a cuDNN attention that builds no plan on the device falls back to CUTLASS), else the FP16
+     * FlashAttention kernel; {@code cudnn}, {@code cutlass} and {@code flash} force one.
      */
     private static final String HALF_ATTENTION = System.getProperty("jitnn.halfAttention", "auto");
+
+    private static boolean useCudnnAttention(int t, int s, int d, int causal) {
+        return (HALF_ATTENTION.equals("auto") || HALF_ATTENTION.equals("cudnn")) && d % 8 == 0 && d <= 256 && (causal == 0 || t == s)
+                && org.beehive.jitnn.natives.Libs.fusedAttentionAvailable();
+    }
+
+    /** q, k, v gathered per problem into FP16 [z, t, d] and [z, s, d] (BHSD), cuDNN's fused attention, O merged into the output's layout. */
+    private static void emitCudnnAttention(Emitter e, int[] a, uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray q,
+            uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray k, uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray v,
+            uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray o, float scale) {
+        int z = a[0], t = a[1], s = a[2], d = a[3], causal = a[4], heads = a[5];
+        int[] m = meta(a);
+        var qz = e.scratchF16(z * t * d);
+        var kz = e.scratchF16(z * s * d);
+        var vz = e.scratchF16(z * s * d);
+        var oz = e.scratchF16(z * t * d);
+        int qn = z * t * d;
+        int kn = z * s * d;
+        e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionHalfKernels::gather, e.context(), q, qz, heads, t, d, m[5], m[6], m[7], m[8], qn));
+        e.task(Emitter.grid1D(kn), (g, id) -> g.task(id, AttentionHalfKernels::gather, e.context(), k, kz, heads, s, d, m[9], m[10], m[11], m[12], kn));
+        e.task(Emitter.grid1D(kn), (g, id) -> g.task(id, AttentionHalfKernels::gather, e.context(), v, vz, heads, s, d, m[13], m[14], m[15], m[16], kn));
+        org.beehive.jitnn.natives.Libs.fusedAttention(e, qz, kz, vz, oz, z / heads, heads, t, s, d, scale, causal != 0);
+        e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionHalfKernels::mergeHalf, e.context(), oz, o, heads, t, d, m[17], m[18], m[19], m[20], qn));
+    }
 
     private static boolean useCutlassAttention(int z, int t, int s, int d) {
         return (HALF_ATTENTION.equals("auto") || HALF_ATTENTION.equals("cutlass")) && s % 4 == 0 && d % 4 == 0 && (long) z * t * s <= (256L << 20)
@@ -252,6 +277,10 @@ public final class FlashAttention implements Op {
             FloatArray mk = hm != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
             var oh = e.f16(n.out(0));
             if (hm == 0 && e.unread(n.out(1))) {
+                if (useCudnnAttention(t, s, d, causal)) {
+                    emitCudnnAttention(e, a, qh, kh, vh, oh, scale);
+                    return;
+                }
                 if (useCutlassAttention(z, t, s, d)) {
                     emitCutlassAttention(e, a, qh, kh, vh, oh, scale);
                     return;

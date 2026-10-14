@@ -77,6 +77,32 @@ public final class Native {
         if (!WANTED.contains(lib) || DISABLED.contains(feature(lib, function)) || Devices.backend() != lib.backend) {
             return false;
         }
+        if (!use(lib)) {
+            return false;
+        }
+        // functions with a probe of their own (cuDNN's fused attention builds no plan on some GPUs)
+        String key = Devices.key() + "/" + feature(lib, function);
+        Boolean fn = FUNCTIONS.get(key);
+        if (fn == null) {
+            String why;
+            try {
+                why = org.beehive.jitnn.natives.Libs.probeFunction(lib, function);
+            } catch (LinkageError | RuntimeException ex) {
+                why = ex.getClass().getSimpleName() + ": " + firstLine(ex);
+            }
+            fn = why == null;
+            if (why != null) {
+                System.err.printf("[jitnn] native %s: not available on %s (%s); using jitNN kernels%n", feature(lib, function), Devices.name(), why);
+            }
+            FUNCTIONS.put(key, fn);
+        }
+        return fn;
+    }
+
+    /** Per device and library function: whether its own probe ran (functions without one count as available). */
+    private static final Map<String, Boolean> FUNCTIONS = new java.util.HashMap<>();
+
+    private static synchronized boolean use(Lib lib) {
         Map<Lib, Boolean> perDevice = AVAILABLE.computeIfAbsent(Devices.key(), k -> new EnumMap<>(Lib.class));
         Boolean ok = perDevice.get(lib);
         if (ok == null) {

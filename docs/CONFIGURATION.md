@@ -71,7 +71,8 @@ See [NATIVE.md](NATIVE.md) for what each library takes and the fallback to jitNN
 | Property | Default | Meaning |
 |---|---|---|
 | `jitnn.native` | `off` | vendor libraries in place of jitNN kernels: `auto` uses every one available on the device, or a list of `cublas`, `cudnn`, `cufft`, `cusparse`, `cutlass`, `mlx`; anything missing falls back to jitNN kernels |
-| `jitnn.halfAttention` | `auto` | attention in FP16 inference (`Autocast.enableHalf`): `auto` uses CUTLASS's batched FP16 GEMMs when `jitnn.native` makes CUTLASS available, else the FP16 FlashAttention kernel; `cutlass` or `flash` forces one |
+| `jitnn.halfAttention` | `auto` | attention in FP16 inference (`Autocast.enableHalf`): `auto` uses cuDNN's fused attention, else CUTLASS's batched FP16 GEMMs, when `jitnn.native` makes them available, else the FP16 FlashAttention kernel; `cudnn`, `cutlass` or `flash` forces one |
+| `jitnn.cudnnGraphs` | `false` | capture plans that call cuDNN as CUDA graphs too; needs a TornadoVM with beehive-lab/TornadoVM#1238 (without it, such plans run without a CUDA graph) |
 | `jitnn.withNative` | `false` | `true` is `jitnn.native=auto`; the `--with-native` option of jitNN's tools sets it |
 | `jitnn.native.approximateGelu` | `true` | with the bias epilogue, exact GELU after an FP16 linear layer runs as cuBLASLt's tanh-approximated GELU (differences of at most about 5e-4, below FP16's rounding); `false` keeps the exact GELU as a separate kernel |
 | `jitnn.native.biasEpilogue` | `true` | FP16 linear layers in `Autocast.enableHalf` inference add their bias (and ReLU) in cuBLASLt's GEMM epilogue; `false` runs the bias as a separate kernel |

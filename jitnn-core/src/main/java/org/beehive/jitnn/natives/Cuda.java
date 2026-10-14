@@ -125,6 +125,32 @@ final class Cuda {
         e.library(Lib.CUTLASS, "gemm", (g, id) -> g.libraryTask(id, Cutlass::cutlassHgemmBatched, m, n, k, 1.0f, a, b, 0.0f, c, batch));
     }
 
+    /** Runs cuDNN's fused FP16 attention once on a small problem: null if it builds a plan and gives finite results. */
+    static String probeAttention() {
+        int b = 2, h = 4, t = 128, d = 64;
+        int n = b * h * t * d;
+        HalfFloatArray q = new HalfFloatArray(n);
+        HalfFloatArray k = new HalfFloatArray(n);
+        HalfFloatArray v = new HalfFloatArray(n);
+        for (int i = 0; i < n; i++) {
+            q.set(i, new uk.ac.manchester.tornado.api.types.HalfFloat((i % 7) * 0.1f));
+            k.set(i, new uk.ac.manchester.tornado.api.types.HalfFloat((i % 5) * 0.1f));
+            v.set(i, new uk.ac.manchester.tornado.api.types.HalfFloat((i % 3) * 0.5f));
+        }
+        HalfFloatArray o = new HalfFloatArray(n);
+        TaskGraph g = Native.probeGraph("SDPA").transferToDevice(DataTransferMode.EVERY_EXECUTION, q, k, v)
+                .libraryTask("t", CuDnn::sdpaForward, q, k, v, o, b, h, t, t, d, 0.125f, false).transferToHost(DataTransferMode.EVERY_EXECUTION, o);
+        Native.runProbe(g);
+        // v's rows repeat 0, 0.5, 1.0 down the keys, so every output lies in [0, 1]
+        for (int i = 0; i < n; i++) {
+            float x = o.get(i).getFloat32();
+            if (!(x >= -1e-3f && x <= 1.001f)) {
+                return "probe returned " + x;
+            }
+        }
+        return null;
+    }
+
     /** Runs one small call of {@code lib} on the current device: null if it works, otherwise why not. */
     static String probe(Lib lib) {
         // a missing native library (libcublas, libcudnn, ...) fails the probe's first execution

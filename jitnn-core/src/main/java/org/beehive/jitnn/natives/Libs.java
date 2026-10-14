@@ -19,6 +19,11 @@ public final class Libs {
     private Libs() {
     }
 
+    /** A probe of one library function on the current device (null when it works or has no probe of its own). */
+    public static String probeFunction(Lib lib, String function) {
+        return lib == Lib.CUDNN && function.equals("sdpa") ? Cuda.probeAttention() : null;
+    }
+
     /** Called by {@link Native} to probe a library on the current device: null when it works. */
     public static String probe(Lib lib) {
         return lib == Lib.MLX ? Mlx.probe() : Cuda.probe(lib);
@@ -251,6 +256,16 @@ public final class Libs {
             return true;
         }
         return false;
+    }
+
+    /** True when cuDNN's fused FP16 attention may be used (cuDNN available and its attention not turned off). */
+    public static boolean fusedAttentionAvailable() {
+        return Native.use("sdpa", Lib.CUDNN);
+    }
+
+    /** cuDNN's fused FP16 attention on contiguous q, o [b, h, t, d] and k, v [b, h, s, d] (inference). */
+    public static void fusedAttention(Emitter e, HalfFloatArray q, HalfFloatArray k, HalfFloatArray v, HalfFloatArray o, int b, int h, int t, int s, int d, float scale, boolean causal) {
+        Cuda.attentionF16(e, q, k, v, o, b, h, t, s, d, scale, causal);
     }
 
     /** True when CUTLASS's batched FP16 GEMM is available (FP16 attention on the tensor cores). */
