@@ -155,9 +155,11 @@ float acc = F.accuracy(model.forward(Tensor.of(testX, n, 784)), Tensor.of(testY,
 ## Mixed precision
 
 `Tensor.half()`, `bfloat16()` and `to(DType)` convert between FP32, FP16 and BF16 (round to
-nearest even, as PyTorch). Inside an autocast scope the GEMMs (`F.linear`, `matmul` and the two
-products of attention) run on half-precision operands with FP32 accumulation; their results and
-every other operator stay FP32. FP16 needs dynamic loss scaling, as with PyTorch's `GradScaler`:
+nearest even, as PyTorch). Inside an autocast scope the GEMMs (`F.linear`, `matmul`, and the two
+products of attention when it is not fused) run on half-precision operands with FP32
+accumulation; their results and every other operator stay FP32, including the fused attention
+kernels and the norms. In inference under FP16 autocast, linear weights are cast to FP16 once per
+version of the weight and cached. FP16 needs dynamic loss scaling, as with PyTorch's `GradScaler`:
 
 ```java
 GradScaler scaler = new GradScaler();
@@ -404,8 +406,15 @@ try (Model model = Model.newInstance("mlp")) {                     // jitNN is t
 }
 ```
 
-DJL's operators are recorded as jitNN traces, compiled at the first sync point (reading the loss,
-for example) and replayed on later steps of the same shape. `Model.load` reads ONNX files.
+The engine is named `jitNN` and has rank 0, so it is DJL's default whenever `jitnn-djl` is on the
+class path (`-Dai.djl.default_engine=PyTorch`, or naming the engine in `Model.newInstance`, picks
+another). DJL's operators are recorded as jitNN traces, compiled at the first sync point (reading
+the loss, for example) and replayed on later steps of the same shape. `Model.load` reads ONNX
+files. NDArrays follow DJL's types: integer division truncates, and an integer array with a
+floating scalar gives FLOAT32, as in PyTorch. Operators jitNN lacks run on the engine named by
+`-Djitnn.djl.fallback` when it is on the class path. DJL's own examples (`TrainMnist`,
+`TrainResnetWithCifar10`, `ImageClassification`, `YoloDetection`) run unchanged; see
+[PERFORMANCE.md](PERFORMANCE.md#against-pytorch-and-onnx-runtime-on-an-a10).
 
 ## Custom operators
 
@@ -475,6 +484,22 @@ printed again: `Engine.reset()` drops them.
 extern "C" __global__ void swish(...)
 ```
 
+## Vendor libraries
+
+By default every operator runs on jitNN's own kernels. With `-Djitnn.native=auto` (the
+`--with-native` option of jitNN's tools sets it), matrix products, convolutions, softmax,
+attention in inference, FFTs and sparse products call cuBLAS, cuDNN, cuFFT and cuSPARSE on CUDA,
+or MLX on Metal, as library tasks inside the same compiled plans:
+
+```bash
+java @$TORNADOVM_HOME/tornado-argfile -Djitnn.native=auto ...         # every library available
+java @$TORNADOVM_HOME/tornado-argfile -Djitnn.native=cublas,cudnn ...  # only these
+```
+
+A library that is missing or fails is reported once, and its operators keep jitNN's kernels.
+[NATIVE.md](NATIVE.md) lists what each library takes, the numerics (cuDNN convolutions use TF32 on
+Ampere unless `NVIDIA_TF32_OVERRIDE=0`) and the requirements.
+
 ## Backends
 
 `Engine.backend()` is `TORNADO` when a TornadoVM runtime is on the class path, else `REFERENCE`:
@@ -491,3 +516,5 @@ runs a block on the reference, which is how the tests compare the two.
 | `... -Djitnn.dist.devices=0:0,1:0` | runs the collective and data-parallel tests on these devices (default: two ranks on the test device) |
 | `... -Dtest=BaselineBenchAccelTest -Djitnn.test.profile=true` | kernel benchmarks |
 | `... -Dtest=InferenceBenchAccelTest -Djitnn.bench.inference=true` | ResNet-50 and BERT-base inference latency |
+| `... -Djitnn.test.extra=-Djitnn.native=auto` | runs the device tests with the vendor libraries, and adds `NativeAccelTest` (each library-backed operator against the reference, and the fallback) |
+| `scripts/bench/run_kernels.sh <device> <dir> [--with-native]`, `run_models.sh` | the kernel and model benchmarks of `jitnn-bench` |

@@ -19,7 +19,7 @@ they have not been run on Metal yet.
 | argmax | `ReduceKernels.argmaxThread` | none |
 | reshape | a view, no kernel | reshape back |
 | permute, transpose | `ElementwiseKernels.permute`, `transposeTiled32` | inverse permutation |
-| matmul with either transpose | `GemmKernels.gemm`, `gemm64`, `gemm128`, `gemmSimdgroup` | two GEMMs |
+| matmul with either transpose | `GemmKernels.gemm64pd` and the other padded, prefetching tiles (chosen per shape, see CONFIGURATION.md), `gemm64SplitK`, `gemm`, `gemmSimdgroup` on Metal | two GEMMs |
 | linear (+ bias, + ReLU, fused) | the GEMMs with an epilogue, `biasActivation` on Metal | GEMMs, ReLU mask, bias sum |
 | softmax, log-softmax (last axis) | `SoftmaxKernels.softmaxRowsCached`, `softmaxRows` | `softmaxBackwardRows` |
 | cross-entropy (fused, mean) | `crossEntropyRows` + mean | `crossEntropyBackwardRows` |
@@ -75,7 +75,7 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 | MSE; binary cross-entropy on probabilities (logs clamped at -100, as PyTorch) and on logits; Gaussian KL | `binary` codes `BCE`, `BCE_LOGITS`; MSE and KL composed | `BCE_DX`, `BCE_DY`, `BCE_LOGITS_DX`: finite at p = 0 and 1 |
 | Transposed 2-D convolution: stride, padding, output padding, dilation, groups, bias | the convolution kernels: forward is `conv2dBackwardData` of the matching convolution | data gradient by `conv2dForward`, weight gradient by `conv2dBackwardWeight` |
 | Nearest and bilinear upsampling (align_corners either way), by scale or to a size | `ResizeKernels.forward` | `ResizeKernels.backward`, one thread per input pixel gathering the outputs that read it (deterministic) |
-| LSTM and GRU layers (PyTorch's equations and gate order), any number of layers, initial states | input projection for the whole sequence as one GEMM, then `RnnKernels.lstmForward`/`gruForward`, one kernel per timestep | `lstmBackward`/`gruBackward` per timestep in reverse, dW_hh as one GEMM over the sequence |
+| LSTM and GRU layers (PyTorch's equations and gate order), any number of layers, initial states | input projection for the whole sequence as one GEMM, then for LSTM up to 512 hidden units and 256 rows `RnnKernels.lstmFusedForward`, the whole sequence in one launch (a work-group per batch row, W_hh transposed once); otherwise `lstmStep`/`gruStep`, one kernel per timestep | `lstmFusedBackward` in one launch, or per timestep in reverse; dW_hh as one GEMM over the sequence |
 | Random fills seeded from a tensor | `RandomKernels.philoxSeeded` | |
 
 `Tensor.uniform`/`normal` take the seed as an INT32 [2] tensor (`Tensor.seed(long)`), so noise drawn
@@ -120,9 +120,27 @@ the intermediate (inside `Grad.inference`, in autograd's temporaries, and in imp
 | linear, then exact GELU | GELU in the GEMM epilogue |
 | add, then ReLU | one element-wise kernel |
 
+Chains of FP32 element-wise operators (unary and binary, broadcasting included) whose
+intermediates nothing else can read (the same internal intermediates as above, including the
+backward pass's) run as one generated kernel (`ElementwiseFused`); an intermediate of a chain that
+another operator also reads is stored by the chain.
+
 Forward GEMMs and convolutions whose output tiles cannot fill the GPU split their reduction (K)
-into slices that are summed in order. `-Djitnn.fuse=false` and `-Djitnn.splitK=false` turn these
-off.
+into slices that are summed in order. `-Djitnn.fuse=false`, `-Djitnn.fuse.elementwise=false` and
+`-Djitnn.splitK=false` turn these off.
+
+## Convolution algorithms
+
+| Convolution | Algorithm |
+|---|---|
+| 3x3, stride 1, one group, at least 16 channels in and out | Winograd F(4x4, 3x3) (F(2x2, 3x3) when there are too few 4x4 tiles): input and filter transforms, one batched GEMM over the 36 (or 16) transformed positions, output transform. The input gradient runs the same way on the rotated filter, the filter gradient with F(2x2, 3x3) |
+| 1x1, stride 1, no padding, one group, large enough planes | one batched GEMM over the images (tile chosen by shape); the input gradient as a batched GEMM |
+| strided, input gradient | a GEMM into columns and a gather, or one implicit GEMM per stride phase |
+| everything else | implicit GEMM with padded local memory and prefetching; the filter gradient split over output positions |
+
+`-Djitnn.winograd`, `jitnn.conv1x1`, `jitnn.convPhases` and the other properties in
+[CONFIGURATION.md](CONFIGURATION.md#kernel-variants) select the other variants. With
+`-Djitnn.native`, cuDNN or cuBLAS take these instead (see [NATIVE.md](NATIVE.md)).
 
 ## Optimisers and losses
 
@@ -330,7 +348,7 @@ rejected at load with the list of operations.
 
 ## DJL (`jitnn-djl`)
 
-With `jitnn-djl` on the class path, jitNN is the Deep Java Library's default engine (rank 0;
+With `jitnn-djl` on the class path, jitNN is the Deep Java Library's default engine (named `jitNN`, rank 0;
 `-Dai.djl.default_engine=...` picks another). NDArrays are jitNN tensors, recorded lazily and
 compiled per step like any jitNN code. DJL's blocks (`Linear`, `Conv1d`/`2d`/`3d`, `Conv2dTranspose`,
 `BatchNorm`, `LayerNorm`, `Dropout`, the pooling blocks, `Embedding`, `PReLU`, `LSTM`, `GRU`,
@@ -339,7 +357,9 @@ compiled per step like any jitNN code. DJL's blocks (`Linear`, `Conv1d`/`2d`/`3d
 files through jitnn-onnx.
 
 Every numeric DJL type is held in FP32 (integers exactly up to 2^24) and tagged with its DJL type,
-which arithmetic results and host copies follow. Not supported: non-square pooling windows and
+which arithmetic results and host copies follow: integer division truncates, and an integer array
+with a floating scalar gives FLOAT32, as in PyTorch (so `uint8` pixels divided by `255.0` are not
+truncated). Not supported: non-square pooling windows and
 convolution strides, ceil-mode pooling, LP pooling, random image augmentation, the multibox
 operators, sparse arrays and strings. Operators jitNN lacks run on the engine named by
 `-Djitnn.djl.fallback` (for example `PyTorch`) when it is on the class path, else throw.
@@ -349,7 +369,10 @@ operators, sparse arrays and strings. Operators jitNN lacks run on the engine na
 - Conv1D and Conv3D with groups, grouped 1-D convolutions in ONNX models; NaN-propagating
   reductions.
 - General (non-symmetric) eigendecomposition; complex tensors outside the Fourier transforms.
-- FP16 convolutions; FP8 tensor-core instructions.
+- FP16 convolutions; FP16 end to end (activations, attention and norms in half precision:
+  autocast keeps them FP32); FP8 tensor-core instructions.
+- GGUF files: jitNN runs GGUF's quantised weights from their raw blocks (`Tensor.quantized`), but
+  has no reader for `.gguf` files; the blocks have to be read by the application.
 - Ranks running in parallel; NCCL.
 - Metal runs of the operators from "Generative and recurrent models" on.
 

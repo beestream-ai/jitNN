@@ -28,7 +28,15 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
   into several task graphs in one plan. Each array is owned by the first graph that uses it, which
   uploads and persists it; later graphs `consumeFromDevice` it.
 - **Rewrites before compilation**: `ops.Fusion` fuses a producer into its only consumer when the
-  intermediate is internal (convolution + BatchNorm folding, GELU and ReLU epilogues, add + ReLU).
+  intermediate is internal (convolution + BatchNorm folding, GELU and ReLU epilogues, add + ReLU),
+  then merges chains of FP32 element-wise operators into `ElementwiseFused` nodes, which
+  `FusedKernels` interprets from a small instruction list.
+- **Device residency**: a host input of at least `jitnn.promoteInputBytes` that is read by a
+  second execution becomes persistent; plans holding large intermediates that go unused for
+  `jitnn.plan.idleExecutions` executions are closed; an evicted plan fetches only the outputs its
+  tasks wrote. `Engine.transferStats()` counts the resulting traffic.
+- **Tuning tables**: `engine.Tuning` reads the per-device GEMM tables in
+  `jitnn-core/src/main/resources/tuning`, written by `scripts/bench/tune.py`.
 - **Devices per thread**: each thread records its own trace, and `Engine.onDevice` sets the device
   its plans compile for; the plan cache is keyed by device, so ranks on different devices (or
   backends) share one process.
@@ -40,20 +48,25 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 
 | Path | Contents |
 |---|---|
-| `jitnn-core/.../jitnn` | `Tensor`, `Shape`, `DType`, `F`, `Grad`, `Autograd`, `Autocast`, `Linalg`, `Fft`, `SparseMatrix` |
-| `jitnn-core/.../engine` | `Engine`, `Trace`, `Node`, `Op`, `Storage`, `TornadoExecutor`, `Emitter`, `Devices` |
+| `jitnn-core/.../jitnn` | `Tensor`, `Shape`, `DType`, `F`, `Grad`, `Autograd`, `Autocast`, `Linalg`, `Fft`, `SparseMatrix`, `CustomOp` |
+| `jitnn-core/.../engine` | `Engine`, `Trace`, `Node`, `Op`, `Storage`, `TornadoExecutor`, `Emitter`, `Devices`, `Tuning`, `Native` (library detection and fallback) |
 | `jitnn-core/.../ops` | one class per operator: emission, host reference, gradient; `Fusion` (inference fusion), `Fp8` |
 | `jitnn-core/.../kernels` | the KernelContext kernels; `jitllm/` and `jitrex/` hold kernels copied from those projects |
+| `jitnn-core/.../natives` | `Libs` (the entry point operators call), `Cuda` and `Mlx` (the library tasks) |
 | `jitnn-core/.../dist` | `Collective`, `HostCollective`, `ProcessGroup` |
 | `jitnn-nn/.../nn` | `Module` and the layers, `DataParallel`, `optim/`, `models/` (CNNs, transformers, generative and recurrent models, embedding models), `text/` (`Vocabulary`, `Corpus`) |
 | `jitnn-nn/.../ml` | the classical machine-learning estimators, `Lbfgs`, `Binner` and `TreeGrower` |
 | `jitnn-nn/.../data` | `Mnist`, `Blobs` |
 | `jitnn-onnx/.../onnx` | `Proto` (protobuf reader), `OnnxModel`, `OnnxSession`, `OnnxOps` (one jitNN mapping per ONNX operator), `Rewrites` (load-time pattern rewrites) |
+| `jitnn-tf/.../tf` | `TfModel`, `TfGraph`, `TfGraphs` (SavedModel and GraphDef parsing), `Inliner` (function calls), `TensorBundle` (checkpoint variables), `Translator` (TensorFlow operations to the ONNX importer's) |
+| `jitnn-djl/.../djl` | `JitnnEngine` and `JitnnEngineProvider` (registered through `META-INF/services`), `JitnnNDManager`, `JitnnNDArray`, `JitnnNDArrayEx`, `JitnnIndexer`, `JitnnGradientCollector`, `JitnnModel`, `JitnnSymbolBlock` |
+| `jitnn-bench/.../bench` | `Workloads` (the reference workloads, captured as traces), `KernelBench` (every distinct operator call, timed), `ModelProfile` (whole steps), `ClockMonitor` (GPU clock and throttle checks) |
 | `scripts/codegen` | GEMM, tensor-core GEMM, simdgroup GEMM, implicit-GEMM convolution, fused attention and multi-tensor optimiser generators (Java has no macros; accumulators must be scalars) |
 | `scripts/pytorch` | golden tensors, the MNIST, CNN, transformer, generative and recurrent reference runs, jitNN's Philox in numpy |
 | `scripts/sklearn` | scikit-learn references for the classical machine-learning estimators |
 | `scripts/onnx` | ONNX goldens (ONNX Runtime outputs) and the ONNX Runtime side of the inference comparison |
-| `scripts/bench` | the PyTorch and ONNX Runtime inference comparison, and the same through DJL in `djl/` |
+| `scripts/tf` | TensorFlow goldens (SavedModels, a frozen GraphDef and TensorFlow's outputs) |
+| `scripts/bench` | the PyTorch and ONNX Runtime inference comparison (`t1.py`), the same through DJL in `djl/`, DJL's own examples on any engine in `djl-examples/`, the kernel and model benchmark drivers (`run_kernels.sh`, `run_models.sh`), the PyTorch kernel baselines and `tune.py` |
 
 ## Adding an operator
 

@@ -53,6 +53,10 @@ Fourier transforms, sparse and graph operators, classical machine learning and a
 | Classical machine learning | k-means, kNN, PCA, linear and logistic regression, linear SVM, naive Bayes, decision trees, random forests, gradient boosting, t-SNE |
 | Several devices | collectives (all-reduce, broadcast, reduce-scatter, all-gather) and data-parallel training across any mix of devices and backends |
 | ONNX | `jitnn-onnx` loads ONNX files (about 110 operators) and runs them on jitNN's kernels, no third-party dependencies |
+| TensorFlow | `jitnn-tf` loads SavedModels and frozen GraphDefs through the ONNX importer's operators |
+| DJL | `jitnn-djl` is a Deep Java Library engine: DJL's NDArrays, blocks, `Trainer` and `Predictor` run on jitNN |
+| Custom operators | `CustomOp`: a `KernelContext` kernel in plain Java, with an optional host reference and gradient, compiled into the same plans as the built-in operators |
+| Vendor libraries | optional: with `--with-native`, products, convolutions, softmax, attention, FFTs and sparse products call cuBLAS, cuDNN, cuFFT, cuSPARSE or MLX inside the same plans |
 
 The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERATORS.md).
 
@@ -63,8 +67,9 @@ The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERAT
 | `jitnn-core` | tensors, autograd, the execution engine, every operator and kernel, `Linalg`, `Fft`, `SparseMatrix`, FP8, collectives |
 | `jitnn-nn` | modules and layers, optimisers, the models, embedding models and text sampling, the classical estimators (`org.beehive.jitnn.ml`), data-parallel training |
 | `jitnn-onnx` | the ONNX importer: `OnnxSession` |
-| `jitnn-djl` | a Deep Java Library engine: DJL code (NDArray, blocks, Trainer, Predictor) runs on jitNN |
+| `jitnn-djl` | a Deep Java Library engine, named `jitNN` (rank 0, so the default when on the class path): DJL code (NDArray, blocks, Trainer, Predictor) runs on jitNN |
 | `jitnn-tf` | the TensorFlow importer: SavedModels and frozen GraphDefs, `TfModel` |
+| `jitnn-bench` | kernel and model benchmarks: every operator call of the reference workloads, timed on a device |
 
 ## Where it runs
 
@@ -79,8 +84,8 @@ The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERAT
 
 ## Quick start
 
-You need JDK 22+ and a TornadoVM SDK built from `develop`, installed in your local Maven
-repository. The full guide is in [docs/INSTALL.md](docs/INSTALL.md).
+You need JDK 22+ and a TornadoVM SDK built from `develop` (7.2.1-dev or newer), installed in your
+local Maven repository. The full guide is in [docs/INSTALL.md](docs/INSTALL.md).
 
 ```bash
 source <TornadoVM>/setvars.sh                        # JAVA_HOME and TORNADOVM_HOME
@@ -122,6 +127,9 @@ Run it on the TornadoVM JVM, choosing the device:
 java @$TORNADOVM_HOME/tornado-argfile -cp <jitnn jars>:<your app> -Djitnn.device=1:0 your.Main
 ```
 
+Add `-Djitnn.native=auto` to let operators call cuBLAS, cuDNN, cuFFT and cuSPARSE (or MLX on Metal)
+where they are installed; everything else keeps jitNN's kernels ([docs/NATIVE.md](docs/NATIVE.md)).
+
 Tensors, autograd, sync points, modules, optimisers, and examples for every area above are in
 [docs/USAGE.md](docs/USAGE.md).
 
@@ -141,35 +149,46 @@ end (MNIST, Adam).
 | MobileNetV2 training, batch 64 | | 148 ms/step | 62 ms/step |
 | GPT-2 style training, 16 x 128 tokens, 0.84M parameters | 12.7 ms/step (A10; 6.7 with BF16) | 87 ms/step | |
 
-Inference latency at batch 1 on an A100 (CUDA, host input in and output out, median of 50 calls),
-in ms:
+Inference on an A10 against PyTorch 2.11 and ONNX Runtime 1.30 on the same model files (CUDA,
+median ms), jitNN with its own kernels and with vendor libraries (`--with-native`):
 
-| | jitNN | PyTorch 2.14 | ONNX Runtime 1.30 |
-|---|---|---|---|
-| ResNet-50, FP32, jitNN's model | 4.0 | 7.8 | 3.6 |
-| ResNet-50, FP32, from the ONNX file | 3.15 | | 3.58 |
-| BERT-base, seq 128, FP32, jitNN's model | 6.5 | 5.5 | 3.6 |
-| BERT-base, seq 128, FP16, jitNN's model | 4.2 | 6.3 | 2.8 |
+| Model | PyTorch | ONNX Runtime | jitNN kernels | jitNN `--with-native` |
+|---|---|---|---|---|
+| ResNet-50 b1 FP32 | 4.93 | 2.98 | 4.05 | 4.04 |
+| ResNet-50 b32 FP32 | 43.9 | 39.1 | 52.2 | 33.3 |
+| ResNet-50 b128 FP32 | 168.2 | 145.7 | 217.9 | 126.9 |
+| BERT-base b1 x 128 FP32 | 3.67 | 4.08 | 7.08 | 4.11 |
+| BERT-base b32 x 128 FP32 | 79.2 | 86.1 | 125.6 | 82.4 |
+| BERT-base b8 x 512 FP32 | 89.2 | 98.2 | 139.2 | 96.0 |
+| BERT-base b1 x 128 FP16 | 3.44 | 1.82 | 4.79 | 2.95 |
+| BERT-base b32 x 128 FP16 | 16.3 | 27.0 | 48.3 | 38.5 |
+| BERT-base b8 x 512 FP16 | 17.3 | 31.3 | 61.1 | 51.4 |
 
-At large batch jitNN is 2-3x behind ONNX Runtime in FP32, set by the speed of its convolution and
-GEMM kernels. On Apple GPUs a training step is dominated by TornadoVM's per-kernel dispatch cost
-(about 0.15 ms per kernel, 268 kernels in a ResNet-18 step), and the convolutions share the scalar
-GEMM's ~2 TFLOP/s ceiling. The RTX 5070 Ti ResNet-18 figure predates a TornadoVM fix for reading
-results from multi-graph plans; on an A10 with it, a ResNet-18 step takes 66 ms and a MobileNetV2
-step 47 ms. Method, all results and the remaining gaps are in
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+In FP32 with vendor libraries, ResNet-50 at batch 32 and 128 is ahead of both, and BERT-base is
+at or ahead of ONNX Runtime and within 8% of PyTorch. FP16 is behind:
+jitNN's FP16 is autocast (FP16 weights and products, FP32 activations, attention and norms), while
+PyTorch and ONNX Runtime run the whole model in half precision. On its own kernels jitNN is about
+1.5x behind ONNX Runtime at large batch in FP32, set by the speed of its convolution and GEMM
+kernels against cuDNN and cuBLAS.
+
+On Apple GPUs a training step is dominated by TornadoVM's per-kernel dispatch cost (about 0.15 ms
+per kernel, 268 kernels in a ResNet-18 step), and the convolutions share the scalar GEMM's
+~2 TFLOP/s ceiling. The RTX 5070 Ti ResNet-18 figure predates a TornadoVM fix for reading results
+from multi-graph plans; on an A10 with it, a ResNet-18 step takes 66 ms and a MobileNetV2 step
+47 ms. Method, all results (including the earlier A100 inference comparison) and the remaining
+gaps are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Documentation
 
 | Document | Contents |
 |---|---|
 | [INSTALL.md](docs/INSTALL.md) | TornadoVM SDK, building, test data, the Python environments for references |
-| [USAGE.md](docs/USAGE.md) | Tensors, lazy execution and sync points, autograd, modules, optimisers, the training loop, linear algebra, FFT, sparse, embeddings, classical ML, FP8, several devices, ONNX |
-| [CONFIGURATION.md](docs/CONFIGURATION.md) | Every `jitnn.*` option, kernel variants, test properties |
+| [USAGE.md](docs/USAGE.md) | Tensors, lazy execution and sync points, autograd, modules, optimisers, the training loop, linear algebra, FFT, sparse, embeddings, classical ML, FP8, several devices, ONNX, TensorFlow, DJL, custom operators, printing the kernels, vendor libraries |
+| [CONFIGURATION.md](docs/CONFIGURATION.md) | Every `jitnn.*` option: runtime, kernel variants, importers and DJL, vendor libraries, benchmark and test properties |
 | [NATIVE.md](docs/NATIVE.md) | `--with-native`: which operators call cuBLAS, cuDNN, cuFFT, cuSPARSE or MLX, and the fallback to jitNN kernels |
-| [OPERATORS.md](docs/OPERATORS.md) | Every operator and its kernels and gradient, the ONNX operators, what is not supported yet |
+| [OPERATORS.md](docs/OPERATORS.md) | Every operator and its kernels and gradient, the ONNX and TensorFlow operators, the DJL engine, what is not supported yet |
 | [VALIDATION.md](docs/VALIDATION.md) | Reference backend, finite differences, PyTorch, scikit-learn and ONNX Runtime references, the model gates |
-| [PERFORMANCE.md](docs/PERFORMANCE.md) | Per-kernel, training and inference results on CUDA, Metal and OpenCL, against vendor libraries |
+| [PERFORMANCE.md](docs/PERFORMANCE.md) | Per-kernel, training and inference results on CUDA, Metal and OpenCL, against PyTorch and ONNX Runtime, with and without vendor libraries |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Architecture, code layout, adding an operator, code generators, TornadoVM workarounds |
 
 ## License

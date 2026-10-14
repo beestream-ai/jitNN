@@ -27,7 +27,15 @@ Five layers of checks run on the host and on every device.
 4. **Other references.** `scripts/sklearn/ml_goldens.py` stores datasets and scikit-learn's
    results for the classical machine-learning estimators (`MlAccelTest`), and
    `scripts/onnx/onnx_goldens.py` builds ONNX models with ONNX Runtime's outputs for the ONNX
-   importer (`OnnxGoldenTest`, `OnnxGoldenAccelTest`).
+   importer (`OnnxGoldenTest`, `OnnxGoldenAccelTest`). `scripts/tf/tf_goldens.py` saves
+   TensorFlow models (an MLP, a CNN, a transformer block and an operator mix as SavedModels, and a
+   frozen GraphDef) with TensorFlow's outputs for the TensorFlow importer (`TfGoldenTest`,
+   `TfGoldenAccelTest`). The DJL engine runs DJL programs written as DJL users write them (MLPs
+   with Adam and SGD, a CNN with BatchNorm, an LSTM; NDArray semantics; ONNX models through
+   `Model.load`) on the reference (`DjlEngineTest`) and step by step against it on a device
+   (`DjlEngineAccelTest`). With `-Djitnn.native`, `NativeAccelTest` checks every operator that
+   calls a vendor library, forward and backward, against the reference, and the fallback to
+   jitNN's kernels on shapes the libraries cannot take.
 5. **Model parity.** Models start from bit-identical initial weights (`scripts/pytorch/jitnn_init.py`
    reimplements jitNN's Philox initialisation; `models.py` builds ResNet-18 and MobileNetV2 with the
    same seeds) and train on the same batches as PyTorch.

@@ -54,6 +54,8 @@ library tasks compiled into plans.
   - `brew install mlx`, for MLX's `mlx.metallib`; `-Dtornado.mlx.metallib` names another copy.
   - An Apple M4-class GPU or newer.
 
+  The MLX path has not been validated on hardware yet.
+
 ## Operators
 
 | Operator | CUDA | Metal (MLX) | Conditions |
@@ -94,7 +96,8 @@ Everything else runs on jitNN's kernels, mostly because TornadoVM has no binding
 
 ## CUDA graphs
 
-Plans that call cuDNN run without a CUDA graph. The reason is in TornadoVM:
+Plans that call cuDNN run without a CUDA graph until TornadoVM PR beehive-lab/TornadoVM#1238 is
+merged. The reason is in TornadoVM:
 - cuDNN's workspace is shared by all of a plan's task graphs.
 - It is reallocated when a later convolution needs more.
 - Graphs captured before that point would then use freed memory.
@@ -105,7 +108,8 @@ Smaller ones keep jitNN's kernels.
 
 ## Results
 
-A10 (kobol), TornadoVM develop e3381a277, medians.
+A10, TornadoVM develop e3381a277, medians. The same models against PyTorch and ONNX Runtime are in
+[PERFORMANCE.md](PERFORMANCE.md#against-pytorch-and-onnx-runtime-on-an-a10).
 
 | Workload | jitNN kernels | `--with-native` | Speedup |
 |---|---|---|---|
