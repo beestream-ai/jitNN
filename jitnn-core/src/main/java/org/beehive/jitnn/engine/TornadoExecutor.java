@@ -68,7 +68,8 @@ final class TornadoExecutor {
     private static final Map<String, CompiledTrace> CACHE = new LinkedHashMap<>(16, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, CompiledTrace> eldest) {
-            if (size() > CACHE_SIZE) {
+            // every concurrency slot compiles its own plans, so the cache holds CACHE_SIZE per slot
+            if (size() > CACHE_SIZE * Math.max(1, Integer.getInteger("jitnn.concurrency", 1)) && !eldest.getValue().busy) {
                 close(eldest.getValue());
                 return true;
             }
@@ -90,7 +91,45 @@ final class TornadoExecutor {
         return loaded;
     }
 
-    static synchronized void run(List<Node> recorded, Tensor[] wanted) {
+    /**
+     * The executor's lock: plan cache, storage bookkeeping and counters. It is released while
+     * TornadoVM runs a plan that writes no persistent storage, so threads in different slots run
+     * their plans at the same time.
+     */
+    private static final java.util.concurrent.locks.ReentrantLock LOCK = new java.util.concurrent.locks.ReentrantLock();
+
+    /**
+     * Concurrent executions ({@code -Djitnn.concurrency}, default 1): threads are spread over this
+     * many slots, each with its own compiled plans (and device buffers, weights included), so up
+     * to this many threads run plans on the device at once. Threads of the same slot take turns.
+     */
+    private static final int SLOTS = Math.max(1, Integer.getInteger("jitnn.concurrency", 1));
+    private static final java.util.concurrent.locks.ReentrantLock[] SLOT_LOCKS = new java.util.concurrent.locks.ReentrantLock[SLOTS];
+    private static final java.util.concurrent.atomic.AtomicInteger NEXT_SLOT = new java.util.concurrent.atomic.AtomicInteger();
+    private static final ThreadLocal<Integer> SLOT = ThreadLocal.withInitial(() -> NEXT_SLOT.getAndIncrement() % SLOTS);
+
+    static {
+        for (int i = 0; i < SLOTS; i++) {
+            SLOT_LOCKS[i] = new java.util.concurrent.locks.ReentrantLock();
+        }
+    }
+
+    static void run(List<Node> recorded, Tensor[] wanted) {
+        int slot = SLOT.get();
+        SLOT_LOCKS[slot].lock();
+        try {
+            LOCK.lock();
+            try {
+                runLocked(recorded, wanted, slot);
+            } finally {
+                LOCK.unlock();
+            }
+        } finally {
+            SLOT_LOCKS[slot].unlock();
+        }
+    }
+
+    private static void runLocked(List<Node> recorded, Tensor[] wanted, int slot) {
         long start = System.nanoTime();
         long before = executeNanos;
         loaded = true;
@@ -111,7 +150,8 @@ final class TornadoExecutor {
         int[] kinds = new int[slots.size()];
         boolean[] written = new boolean[slots.size()];
         String nativeTag = Native.keyTag();
-        StringBuilder key = new StringBuilder(256).append(Devices.key()).append('|').append(nativeTag);
+        String slotTag = SLOTS > 1 ? "S" + slot + "|" : "";
+        StringBuilder key = new StringBuilder(256).append(Devices.key()).append('|').append(slotTag).append(nativeTag);
         StringBuilder ids = new StringBuilder();
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
@@ -244,7 +284,7 @@ final class TornadoExecutor {
             closeQuietly(ct);
             Native.disable(ct.libraries, failure);
             String tag = Native.keyTag();
-            structure = Devices.key() + "|" + tag + structure.substring(Devices.key().length() + 1 + nativeTag.length());
+            structure = Devices.key() + "|" + slotTag + tag + structure.substring(Devices.key().length() + 1 + slotTag.length() + nativeTag.length());
             k = structure + "|P" + ids;
             ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread);
             ct.structure = structure;
@@ -284,7 +324,7 @@ final class TornadoExecutor {
             return null;
         }
         for (CompiledTrace c : candidates) {
-            boolean fits = !c.closed;
+            boolean fits = !c.closed && !c.busy;
             for (int i = 0; fits && i < kinds.length; i++) {
                 Storage s = slots.get(i);
                 Storage old = c.bound[i];
@@ -654,7 +694,28 @@ final class TornadoExecutor {
             ct.bound[i] = s;
         }
         long t0 = System.nanoTime();
-        ct.last = ct.printHeader != null ? executePrinting(ct) : ct.plan.execute();
+        boolean writes = false;
+        for (boolean w : ct.written) {
+            writes |= w;
+        }
+        if (writes || ct.printHeader != null) {
+            // persistent storages are written: other plans must not run on them meanwhile
+            ct.last = ct.printHeader != null ? executePrinting(ct) : ct.plan.execute();
+        } else {
+            ct.busy = true;
+            int holds = LOCK.getHoldCount();
+            for (int h = 0; h < holds; h++) {
+                LOCK.unlock();
+            }
+            try {
+                ct.last = ct.plan.execute();
+            } finally {
+                for (int h = 0; h < holds; h++) {
+                    LOCK.lock();
+                }
+                ct.busy = false;
+            }
+        }
         executeNanos += System.nanoTime() - t0;
         if (VERBOSE && ct.executions == 0) {
             System.err.printf("[jitnn] first execution of %s (kernel compilation): %.1f ms%n", ct.name, (System.nanoTime() - t0) / 1e6);
@@ -687,28 +748,40 @@ final class TornadoExecutor {
     }
 
     /** Brings the newest device contents of {@code s} to its host array. */
-    static synchronized void fetch(Storage s) {
-        if (s.hostValid) {
-            return;
-        }
-        transfers[0]++;
-        transfers[1] += s.numel;
-        if (s.persistent) {
-            if (s.validOn.isEmpty()) {
-                throw new IllegalStateException("persistent storage " + s.id + " has no valid copy");
+    static void fetch(Storage s) {
+        LOCK.lock();
+        try {
+            if (s.hostValid) {
+                return;
             }
-            CompiledTrace ct = s.validOn.iterator().next();
+            transfers[0]++;
+            transfers[1] += s.numel;
+            if (s.persistent) {
+                if (s.validOn.isEmpty()) {
+                    throw new IllegalStateException("persistent storage " + s.id + " has no valid copy");
+                }
+                CompiledTrace ct = s.validOn.iterator().next();
+                for (CompiledTrace c : s.validOn) {
+                    // a plan another thread is running is not read from
+                    if (!c.busy) {
+                        ct = c;
+                        break;
+                    }
+                }
+                ct.last.transferToHost(s.array);
+                s.hostValid = true;
+                return;
+            }
+            CompiledTrace ct = s.boundTrace;
+            if (ct == null || s.stale || ct.bound[indexOf(ct, s)] != s || s.boundExec != ct.executions) {
+                throw new IllegalStateException("tensor data was reused by a later execution of the same trace; "
+                        + "copy what you need (toFloatArray) before the next step");
+            }
             ct.last.transferToHost(s.array);
             s.hostValid = true;
-            return;
+        } finally {
+            LOCK.unlock();
         }
-        CompiledTrace ct = s.boundTrace;
-        if (ct == null || s.stale || ct.bound[indexOf(ct, s)] != s || s.boundExec != ct.executions) {
-            throw new IllegalStateException("tensor data was reused by a later execution of the same trace; "
-                    + "copy what you need (toFloatArray) before the next step");
-        }
-        ct.last.transferToHost(s.array);
-        s.hostValid = true;
     }
 
     private static int indexOf(CompiledTrace ct, Storage s) {
@@ -777,7 +850,7 @@ final class TornadoExecutor {
         var it = CACHE.values().iterator();
         while (it.hasNext()) {
             CompiledTrace ct = it.next();
-            if (ct != running && ct.intermediateBytes >= IDLE_BYTES && executionsTotal - ct.lastUsed > IDLE_EXECUTIONS) {
+            if (ct != running && !ct.busy && ct.intermediateBytes >= IDLE_BYTES && executionsTotal - ct.lastUsed > IDLE_EXECUTIONS) {
                 if (VERBOSE) {
                     System.err.printf("[jitnn] closed idle plan %s (%.1f MB of intermediates)%n", ct.name, ct.intermediateBytes / 1e6);
                 }
@@ -793,7 +866,7 @@ final class TornadoExecutor {
         var it = CACHE.values().iterator();
         while (it.hasNext()) {
             CompiledTrace ct = it.next();
-            if (ct != keep) {
+            if (ct != keep && !ct.busy) {
                 close(ct);
                 it.remove();
                 any = true;
@@ -802,11 +875,16 @@ final class TornadoExecutor {
         return any;
     }
 
-    static synchronized void closeAll() {
-        for (CompiledTrace ct : CACHE.values()) {
-            close(ct);
+    static void closeAll() {
+        LOCK.lock();
+        try {
+            for (CompiledTrace ct : CACHE.values()) {
+                close(ct);
+            }
+            CACHE.clear();
+        } finally {
+            LOCK.unlock();
         }
-        CACHE.clear();
     }
 
     private static final java.util.regex.Pattern TASK_TIME = java.util.regex.Pattern.compile(
@@ -840,15 +918,25 @@ final class TornadoExecutor {
     }
 
     /** With -Djitnn.profile=true: per operator task ("op#k"), [launches, device ns] since the last call; resets. */
-    static synchronized java.util.Map<String, long[]> kernelBreakdown() {
-        java.util.Map<String, long[]> copy = new java.util.TreeMap<>(BREAKDOWN);
-        BREAKDOWN.clear();
-        return copy;
+    static java.util.Map<String, long[]> kernelBreakdown() {
+        LOCK.lock();
+        try {
+            java.util.Map<String, long[]> copy = new java.util.TreeMap<>(BREAKDOWN);
+            BREAKDOWN.clear();
+            return copy;
+        } finally {
+            LOCK.unlock();
+        }
     }
 
     /** With -Djitnn.profile=true: [device kernel ns, TornadoVM total ns] of the last execution. */
-    static synchronized long[] lastProfile() {
-        return new long[] { lastKernelNanos, lastTotalNanos };
+    static long[] lastProfile() {
+        LOCK.lock();
+        try {
+            return new long[] { lastKernelNanos, lastTotalNanos };
+        } finally {
+            LOCK.unlock();
+        }
     }
 
     /**
@@ -858,17 +946,32 @@ final class TornadoExecutor {
      */
     private static final long[] transfers = new long[6];
 
-    static synchronized long[] transferStats() {
-        return transfers.clone();
+    static long[] transferStats() {
+        LOCK.lock();
+        try {
+            return transfers.clone();
+        } finally {
+            LOCK.unlock();
+        }
     }
 
     /** Cumulative [jitNN host ns outside plan.execute, ns inside plan.execute] of run(). */
-    static synchronized long[] timeSplit() {
-        return new long[] { hostNanos, executeNanos };
+    static long[] timeSplit() {
+        LOCK.lock();
+        try {
+            return new long[] { hostNanos, executeNanos };
+        } finally {
+            LOCK.unlock();
+        }
     }
 
     /** Compile and replay counts, for tests and benchmarks. */
-    static synchronized long[] stats() {
-        return new long[] { compiles, replays, reuses };
+    static long[] stats() {
+        LOCK.lock();
+        try {
+            return new long[] { compiles, replays, reuses };
+        } finally {
+            LOCK.unlock();
+        }
     }
 }

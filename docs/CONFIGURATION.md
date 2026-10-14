@@ -13,6 +13,7 @@ Sizes are in bytes.
 | `jitnn.plan.idleBytes` | `67108864` (64 MiB) | a plan holding at least this much intermediate memory is closed once `jitnn.plan.idleExecutions` executions of other plans pass without it (a first step that never repeats, an evaluation pass between epochs); it is compiled again if it comes back |
 | `jitnn.plan.idleExecutions` | `256` | executions of other plans before an idle large plan is closed (checked every 32 executions) |
 | `jitnn.promoteInputBytes` | `16777216` (16 MiB) | a host input at least this large that a later execution reads again (a dataset, a constant table) becomes persistent device storage instead of being copied in on every execution |
+| `jitnn.concurrency` | `1` | concurrent executions: threads are spread over this many slots, each with its own compiled plans and device buffers (weights included), so up to this many threads run plans on the device at once; plans that write parameters (training) still run one at a time. The plan cache holds `jitnn.plan.cache` plans per slot |
 | `jitnn.cudaGraph` | `true` | on CUDA, capture each plan as a CUDA graph and replay it (plans that call cuDNN run without one, see [NATIVE.md](NATIVE.md)) |
 | `jitnn.graph.maxTasks` | `40` | tasks per TornadoVM task graph; longer traces become a chain of graphs (a graph holds at most 256 tasks and 8 KiB of bytecode) |
 | `jitnn.reuseBuffers` | `true` | reuse dead backward-pass and inference buffers inside a compiled step |
@@ -145,6 +146,7 @@ latter through `jitnn.test.extra`).
 | `jitnn.bench.inference` | `false` | run `InferenceBenchAccelTest` (ResNet-50 and BERT-base latency) |
 | `jitnn.bench.models` | `resnet50,bert` | the models of `InferenceBenchAccelTest` |
 | `jitnn.bench.only` | empty | `InferenceBenchAccelTest`: time only the configurations whose name contains this text (`bert_b32_s128_fp16h`) |
+| `jitnn.bench.threads` | `1` | `InferenceBenchAccelTest`: also run this many threads at once and print the samples per second over all of them (with `jitnn.concurrency` slots) |
 | `jitnn.bench.split` | `false` | `InferenceBenchAccelTest`: also print where a call's time goes (recording, execution, fetching the output, converting it to floats) |
 | `jitnn.bench.profileTasks` | `false` | `InferenceBenchAccelTest` with `jitnn.profile`: also print the device time of every task, not only per operator |
 | `jitnn.bench.warmup`, `jitnn.bench.runs` | 10, 50 | warm-up and timed calls of `InferenceBenchAccelTest` |

@@ -14,6 +14,8 @@ final class CompiledTrace {
     /** The key without the identities of the persistent storages (see TornadoExecutor's plan reuse). */
     String structure;
     boolean closed;
+    /** Being run by a thread that released the executor's lock: not closed, evicted or reused meanwhile. */
+    volatile boolean busy;
     /** The vendor libraries its library tasks call (none for a plan of jitNN kernels only). */
     java.util.Set<String> libraries = java.util.Set.of();
     final String name;

@@ -111,6 +111,54 @@ class InferenceBenchAccelTest {
         if (profile) {
             printProfile(name, Engine.kernelBreakdown());
         }
+        int threads = Integer.getInteger("jitnn.bench.threads", 1);
+        if (threads > 1) {
+            throughput(name, samples, threads, call);
+        }
+    }
+
+    /**
+     * {@code threads} threads calling at once ({@code -Djitnn.bench.threads}, with
+     * {@code -Djitnn.concurrency} slots): samples per second over all of them, and the median latency
+     * of a call.
+     */
+    private static void throughput(String name, int samples, int threads, Supplier<Object> call) throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            // warm every slot: each compiles its own plans
+            java.util.List<java.util.concurrent.Future<?>> warm = new java.util.ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                warm.add(pool.submit(() -> {
+                    for (int i = 0; i < WARMUP; i++) {
+                        call.get();
+                    }
+                }));
+            }
+            for (var f : warm) {
+                f.get();
+            }
+            double[] ms = new double[threads * RUNS];
+            java.util.concurrent.atomic.AtomicInteger at = new java.util.concurrent.atomic.AtomicInteger();
+            long t0 = System.nanoTime();
+            java.util.List<java.util.concurrent.Future<?>> runs = new java.util.ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                runs.add(pool.submit(() -> {
+                    for (int i = 0; i < RUNS; i++) {
+                        long c0 = System.nanoTime();
+                        call.get();
+                        ms[at.getAndIncrement()] = (System.nanoTime() - c0) / 1e6;
+                    }
+                }));
+            }
+            for (var f : runs) {
+                f.get();
+            }
+            double wall = (System.nanoTime() - t0) / 1e9;
+            Arrays.sort(ms);
+            System.out.printf("[t1] jitnn %-28s %d threads: %10.1f samples/s, median latency %8.3f ms%n", name, threads, samples * (double) ms.length / wall, ms[ms.length / 2]);
+        } finally {
+            pool.shutdown();
+        }
     }
 
     /**
