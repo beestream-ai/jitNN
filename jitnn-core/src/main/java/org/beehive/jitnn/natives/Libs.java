@@ -73,6 +73,13 @@ public final class Libs {
         return true;
     }
 
+    /**
+     * Exact GELU after an FP16 product runs as cuBLASLt's tanh-approximated GELU epilogue unless
+     * {@code -Djitnn.native.approximateGelu=false} (the difference, at most about 5e-4, is below
+     * FP16's rounding of the outputs).
+     */
+    private static final boolean APPROXIMATE_GELU = !"false".equals(System.getProperty("jitnn.native.approximateGelu"));
+
     /** The bias of FP16 products in cuBLASLt's epilogue unless {@code -Djitnn.native.biasEpilogue=false}. */
     private static final boolean BIAS_EPILOGUE = !"false".equals(System.getProperty("jitnn.native.biasEpilogue"));
 
@@ -83,13 +90,18 @@ public final class Libs {
         }
         int bias1 = org.beehive.jitnn.kernels.GemmKernels.BIAS;
         int relu = org.beehive.jitnn.kernels.GemmKernels.RELU;
+        int gelu = org.beehive.jitnn.kernels.GemmKernels.GELU;
+        int geluTanh = org.beehive.jitnn.kernels.GemmKernels.GELU_TANH;
         if (BIAS_EPILOGUE && bias != null && ta == 0 && tb == 1 && (epilogue & bias1) != 0 && Native.use("gemmBias", Lib.CUBLAS)) {
-            // the bias (and ReLU) in cuBLASLt's epilogue, on an FP16 copy of the bias; GELU stays a separate pass
+            // the bias, and ReLU or GELU (tanh-approximated: the exact one too, unless
+            // -Djitnn.native.approximateGelu=false), in cuBLASLt's epilogue, on an FP16 copy of the bias
             HalfFloatArray bh = e.scratchF16(n);
             e.task(Emitter.grid1D(n), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LowPrecision::f32ToF16, e.context(), bias, bh, n));
-            int rest = epilogue & ~bias1 & ~relu;
-            Cuda.gemmHalfBias(e, a, b, c, bh, m, n, k, (epilogue & relu) != 0 && rest == 0);
-            int after = (epilogue & relu) != 0 && rest != 0 ? rest | relu : rest;
+            int act = epilogue & ~bias1;
+            boolean fuseGelu = act == geluTanh || (act == gelu && APPROXIMATE_GELU);
+            boolean fuseRelu = act == relu;
+            Cuda.gemmHalfBias(e, a, b, c, bh, m, n, k, fuseRelu, fuseGelu);
+            int after = fuseGelu || fuseRelu ? 0 : act;
             if (after != 0) {
                 int total = m * n;
                 FloatArray none = e.dummyF32();

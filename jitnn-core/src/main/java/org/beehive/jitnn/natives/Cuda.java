@@ -66,9 +66,11 @@ final class Cuda {
         e.library(Lib.CUBLAS, "gemm", (g, id) -> g.libraryTask(id, CuBlas::cublasGemmExFP16, opB, opA, n, m, k, 1.0f, b, ldb, a, lda, 0.0f, c, n));
     }
 
-    /** FP16 C [m, n] = A W^T + bias (+ ReLU) for FP16 A [m, k], W [n, k] and bias [n] (cuBLASLt epilogue). */
-    static void gemmHalfBias(Emitter e, HalfFloatArray a, HalfFloatArray w, HalfFloatArray c, HalfFloatArray bias, int m, int n, int k, boolean relu) {
-        if (relu) {
+    /** FP16 C [m, n] = A W^T + bias (+ ReLU, or tanh GELU) for FP16 A [m, k], W [n, k] and bias [n] (cuBLASLt epilogue). */
+    static void gemmHalfBias(Emitter e, HalfFloatArray a, HalfFloatArray w, HalfFloatArray c, HalfFloatArray bias, int m, int n, int k, boolean relu, boolean gelu) {
+        if (gelu) {
+            e.library(Lib.CUBLAS, "gemmBias", (g, id) -> g.libraryTask(id, CuBlasLt::ltMatmulGeluBiasFP16, OP_T, OP_N, n, m, k, 1.0f, w, k, a, k, 0.0f, c, n, bias));
+        } else if (relu) {
             e.library(Lib.CUBLAS, "gemmBias", (g, id) -> g.libraryTask(id, CuBlasLt::ltMatmulReluBiasFP16, OP_T, OP_N, n, m, k, 1.0f, w, k, a, k, 0.0f, c, n, bias));
         } else {
             e.library(Lib.CUBLAS, "gemmBias", (g, id) -> g.libraryTask(id, CuBlasLt::ltMatmulBiasFP16, OP_T, OP_N, n, m, k, 1.0f, w, k, a, k, 0.0f, c, n, bias));

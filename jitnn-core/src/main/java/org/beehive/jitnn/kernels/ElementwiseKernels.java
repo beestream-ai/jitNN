@@ -204,6 +204,11 @@ public final class ElementwiseKernels {
      * Overflow-free tanh, through exp(-2|x|) in (0, 1]. WORKAROUND(J18): Metal's tanh returns NaN
      * for large arguments (e.g. 66).
      */
+    /** GELU with the tanh approximation, 0.5 x (1 + tanh(sqrt(2 / pi) (x + 0.044715 x^3))). */
+    public static float geluTanh(float x) {
+        return 0.5f * x * (1.0f + tanh(SQRT_2_OVER_PI * (x + GELU_CUBIC * x * x * x)));
+    }
+
     public static float tanh(float x) {
         float e = TornadoMath.exp(-2.0f * TornadoMath.abs(x));
         float t = (1.0f - e) / (1.0f + e);

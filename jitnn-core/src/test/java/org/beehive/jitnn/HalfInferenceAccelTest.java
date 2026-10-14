@@ -81,6 +81,24 @@ class HalfInferenceAccelTest {
         }
     }
 
+    /** Linear layers followed by each activation the FP16 epilogues fuse: ReLU, exact GELU, tanh GELU. */
+    @Test
+    void fusedActivations() {
+        Supplier<Tensor> x = () -> Tensor.uniform(40, -1, 1, 96, 128);
+        java.util.function.Function<Integer, Supplier<Tensor>> layer = kind -> () -> {
+            Tensor y = F.linear(x.get(), Tensor.persistent(Tensor.uniform(41, -0.1f, 0.1f, 160, 128)), Tensor.persistent(Tensor.uniform(42, -1, 1, 160)));
+            return switch (kind) {
+                case 0 -> y.relu();
+                case 1 -> y.gelu();
+                default -> y.geluTanh();
+            };
+        };
+        String[] names = { "ReLU", "GELU", "tanh GELU" };
+        for (int kind = 0; kind < 3; kind++) {
+            close(run(Backend.REFERENCE, false, layer.apply(kind)), run(Backend.TORNADO, true, layer.apply(kind)), 1e-2, 1e-2, "linear + " + names[kind]);
+        }
+    }
+
     @Test
     void activationsStayHalf() {
         Engine.with(Backend.TORNADO, () -> Grad.inference(() -> {

@@ -73,6 +73,7 @@ See [NATIVE.md](NATIVE.md) for what each library takes and the fallback to jitNN
 | `jitnn.native` | `off` | vendor libraries in place of jitNN kernels: `auto` uses every one available on the device, or a list of `cublas`, `cudnn`, `cufft`, `cusparse`, `cutlass`, `mlx`; anything missing falls back to jitNN kernels |
 | `jitnn.halfAttention` | `auto` | attention in FP16 inference (`Autocast.enableHalf`): `auto` uses CUTLASS's batched FP16 GEMMs when `jitnn.native` makes CUTLASS available, else the FP16 FlashAttention kernel; `cutlass` or `flash` forces one |
 | `jitnn.withNative` | `false` | `true` is `jitnn.native=auto`; the `--with-native` option of jitNN's tools sets it |
+| `jitnn.native.approximateGelu` | `true` | with the bias epilogue, exact GELU after an FP16 linear layer runs as cuBLASLt's tanh-approximated GELU (differences of at most about 5e-4, below FP16's rounding); `false` keeps the exact GELU as a separate kernel |
 | `jitnn.native.biasEpilogue` | `true` | FP16 linear layers in `Autocast.enableHalf` inference add their bias (and ReLU) in cuBLASLt's GEMM epilogue; `false` runs the bias as a separate kernel |
 | `jitnn.native.tf32` | `false` | cuBLAS FP32 products on TF32 tensor cores |
 | `jitnn.native.convMinFlops` | `1073741824` (2^30) | fewest multiply-adds for a convolution to go to cuDNN; smaller ones keep jitNN's kernels, so that small-batch plans keep their CUDA graph |

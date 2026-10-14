@@ -24,6 +24,8 @@ public final class Linear implements Op {
     static final int NONE = 0;
     static final int RELU = 1;
     static final int GELU = 2;
+    /** tanh-approximated GELU; only for FP16 outputs (see Fusion). */
+    static final int GELU_TANH = 3;
 
     private Linear() {
     }
@@ -78,7 +80,8 @@ public final class Linear implements Op {
         int n = node.iattr[1];
         int k = node.iattr[2];
         int act = node.iattr[4];
-        int epilogue = (node.iattr[3] != 0 ? GemmKernels.BIAS : 0) | (act == RELU ? GemmKernels.RELU : 0) | (act == GELU ? GemmKernels.GELU : 0);
+        int epilogue = (node.iattr[3] != 0 ? GemmKernels.BIAS : 0) | (act == RELU ? GemmKernels.RELU : 0) | (act == GELU ? GemmKernels.GELU : 0)
+                | (act == GELU_TANH ? GemmKernels.GELU_TANH : 0);
         FloatArray bias = node.iattr[3] != 0 ? e.f32(node.in(2)) : null;
         if (node.out(0).dtype() == DType.F16) {
             // FP16 out: cuBLAS writes FP16, or the half GEMM into an FP32 buffer converted with the epilogue
@@ -123,7 +126,7 @@ public final class Linear implements Op {
                 for (int q = 0; q < k; q++) {
                     acc += (double) HostValues.get(x, i * k + q) * HostValues.get(w, j * k + q);
                 }
-                double v = act == RELU ? Math.max(acc, 0) : (act == GELU ? acc * RefMath.normalCdf(acc) : acc);
+                double v = act == RELU ? Math.max(acc, 0) : act == GELU ? acc * RefMath.normalCdf(acc) : act == GELU_TANH ? org.beehive.jitnn.kernels.ElementwiseKernels.geluTanh((float) acc) : acc;
                 HostValues.set(y, i * n + j, (float) v);
             }
         }

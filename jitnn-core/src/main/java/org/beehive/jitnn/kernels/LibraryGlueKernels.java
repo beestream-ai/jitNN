@@ -33,6 +33,9 @@ public final class LibraryGlueKernels {
             if ((epilogue & GemmKernels.GELU) != 0) {
                 r = r * ElementwiseKernels.normalCdf(r);
             }
+            if ((epilogue & GemmKernels.GELU_TANH) != 0) {
+                r = ElementwiseKernels.geluTanh(r);
+            }
             c.set(i, r);
         }
     }
@@ -56,6 +59,9 @@ public final class LibraryGlueKernels {
             if ((epilogue & GemmKernels.GELU) != 0) {
                 r = r * ElementwiseKernels.normalCdf(r);
             }
+            if ((epilogue & GemmKernels.GELU_TANH) != 0) {
+                r = ElementwiseKernels.geluTanh(r);
+            }
             c.set(i, new HalfFloat(r));
         }
     }
@@ -74,6 +80,9 @@ public final class LibraryGlueKernels {
             }
             if ((epilogue & GemmKernels.GELU) != 0) {
                 r = r * ElementwiseKernels.normalCdf(r);
+            }
+            if ((epilogue & GemmKernels.GELU_TANH) != 0) {
+                r = ElementwiseKernels.geluTanh(r);
             }
             y.set(i, new HalfFloat(r));
         }

@@ -1974,6 +1974,11 @@ public final class GemmKernels {
     public static final int GELU = 4;
     /** Epilogue bit of the batched kernels: add {@code bias[row]} (a 1x1 convolution's channel bias). */
     public static final int ROW_BIAS = 8;
+    /**
+     * Epilogue flag: tanh-approximated GELU after the bias. Only the FP16-output epilogues
+     * (LibraryGlueKernels) take it; the GEMM kernels do not.
+     */
+    public static final int GELU_TANH = 16;
 
     /**
      * Writes one output with the fused epilogue. TornadoVM specialises scalar arguments, so the

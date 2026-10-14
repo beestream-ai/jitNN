@@ -382,6 +382,13 @@ public final class Fusion {
             a[4] = Linear.GELU;
             return new Node(Linear.OP, p.inputs, c.outputs, a, p.fattr, true);
         }
+        if (p.op == Linear.OP && c.op == Unary.OP && c.iattr[0] == Unary.Kind.GELU_TANH.code && p.iattr[4] == Linear.NONE && p.out(0).dtype() == DType.F16
+                && c.out(0).dtype() == DType.F16) {
+            // tanh GELU in the epilogue of an FP16 linear layer (the FP16 epilogues take it)
+            int[] a = p.iattr.clone();
+            a[4] = Linear.GELU_TANH;
+            return new Node(Linear.OP, p.inputs, c.outputs, a, p.fattr, true);
+        }
         if (p.op == Binary.OP && p.iattr[0] == Binary.Kind.ADD.code && c.op == RowNorm.OP && p.out(0).dtype() == DType.F16 && c.out(0).dtype() == DType.F16
                 && c.iattr.length == 4 && c.in(0).storage() == p.out(0).storage() && p.in(0).dtype() == DType.F16 && p.in(1).dtype() == DType.F16) {
             // half-precision inference: LayerNorm(a + b) reads a and b, the sum never stored
