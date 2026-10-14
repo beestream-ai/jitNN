@@ -10,6 +10,7 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 import uk.ac.manchester.tornado.cublas.CuBlas;
+import uk.ac.manchester.tornado.cublas.CuBlasLt;
 import uk.ac.manchester.tornado.cudnn.CuDnn;
 import uk.ac.manchester.tornado.cufft.CuFft;
 import uk.ac.manchester.tornado.cusparse.Cusparse;
@@ -63,6 +64,15 @@ final class Cuda {
         int ldb = tb == 1 ? k : n;
         int lda = ta == 1 ? m : k;
         e.library(Lib.CUBLAS, "gemm", (g, id) -> g.libraryTask(id, CuBlas::cublasGemmExFP16, opB, opA, n, m, k, 1.0f, b, ldb, a, lda, 0.0f, c, n));
+    }
+
+    /** FP16 C [m, n] = A W^T + bias (+ ReLU) for FP16 A [m, k], W [n, k] and bias [n] (cuBLASLt epilogue). */
+    static void gemmHalfBias(Emitter e, HalfFloatArray a, HalfFloatArray w, HalfFloatArray c, HalfFloatArray bias, int m, int n, int k, boolean relu) {
+        if (relu) {
+            e.library(Lib.CUBLAS, "gemmBias", (g, id) -> g.libraryTask(id, CuBlasLt::ltMatmulReluBiasFP16, OP_T, OP_N, n, m, k, 1.0f, w, k, a, k, 0.0f, c, n, bias));
+        } else {
+            e.library(Lib.CUBLAS, "gemmBias", (g, id) -> g.libraryTask(id, CuBlasLt::ltMatmulBiasFP16, OP_T, OP_N, n, m, k, 1.0f, w, k, a, k, 0.0f, c, n, bias));
+        }
     }
 
     /** FP32 C [m, n] = op(A) op(B) for FP16 A and B (FP32 accumulation). */

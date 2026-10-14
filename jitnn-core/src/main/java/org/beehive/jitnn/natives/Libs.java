@@ -73,10 +73,29 @@ public final class Libs {
         return true;
     }
 
+    /** The bias of FP16 products in cuBLASLt's epilogue unless {@code -Djitnn.native.biasEpilogue=false}. */
+    private static final boolean BIAS_EPILOGUE = !"false".equals(System.getProperty("jitnn.native.biasEpilogue"));
+
     /** FP16 C [m, n] = op(A) op(B) (+ epilogue, applied in FP32) for FP16 A and B. */
     public static boolean gemmHalfOut(Emitter e, HalfFloatArray a, HalfFloatArray b, HalfFloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (!Native.use("gemm", Lib.CUBLAS)) {
             return false;
+        }
+        int bias1 = org.beehive.jitnn.kernels.GemmKernels.BIAS;
+        int relu = org.beehive.jitnn.kernels.GemmKernels.RELU;
+        if (BIAS_EPILOGUE && bias != null && ta == 0 && tb == 1 && (epilogue & bias1) != 0 && Native.use("gemmBias", Lib.CUBLAS)) {
+            // the bias (and ReLU) in cuBLASLt's epilogue, on an FP16 copy of the bias; GELU stays a separate pass
+            HalfFloatArray bh = e.scratchF16(n);
+            e.task(Emitter.grid1D(n), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LowPrecision::f32ToF16, e.context(), bias, bh, n));
+            int rest = epilogue & ~bias1 & ~relu;
+            Cuda.gemmHalfBias(e, a, b, c, bh, m, n, k, (epilogue & relu) != 0 && rest == 0);
+            int after = (epilogue & relu) != 0 && rest != 0 ? rest | relu : rest;
+            if (after != 0) {
+                int total = m * n;
+                FloatArray none = e.dummyF32();
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), c, none, m, n, total, after));
+            }
+            return true;
         }
         Cuda.gemmHalf(e, a, b, c, m, n, k, ta, tb);
         if (epilogue != 0) {

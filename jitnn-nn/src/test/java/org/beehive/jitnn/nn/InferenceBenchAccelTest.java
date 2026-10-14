@@ -72,10 +72,20 @@ class InferenceBenchAccelTest {
         Files.write(Path.of(dir, name + ".jitnn.f32"), b.array());
     }
 
-    /** Median milliseconds of {@code RUNS} calls after {@code WARMUP}; the first call's output is saved. */
-    private static void time(String name, int samples, Supplier<float[]> call) throws Exception {
+    /**
+     * Median milliseconds of {@code RUNS} calls after {@code WARMUP}. A call runs the forward pass and
+     * brings its output to the host in its own type (FP16 stays FP16), as PyTorch's
+     * {@code model(x).cpu().numpy()} and ONNX Runtime's {@code run} do; the first call's output is
+     * converted to floats and saved.
+     */
+    private static void time(String name, int samples, Supplier<Tensor> forward) throws Exception {
+        Supplier<Object> call = () -> {
+            Tensor y = forward.get();
+            Engine.sync(y);
+            return y;
+        };
         long c0 = System.nanoTime();
-        float[] first = call.get();
+        float[] first = forward.get().toFloatArray();
         double compile = (System.nanoTime() - c0) / 1e6;
         save(name, first);
         for (int i = 1; i < WARMUP; i++) {
@@ -98,6 +108,37 @@ class InferenceBenchAccelTest {
         if (profile) {
             printProfile(name, Engine.kernelBreakdown());
         }
+    }
+
+    /**
+     * Where the wall time of one call goes ({@code -Djitnn.bench.split=true}): recording the forward
+     * pass, executing it (the plan, with the output left on the device), fetching the output, and
+     * converting it to a float[]; medians of {@code RUNS} calls.
+     */
+    private static void split(String name, Supplier<Tensor> forward) {
+        int n = RUNS;
+        double[][] t = new double[4][n];
+        for (int i = 0; i < WARMUP + n; i++) {
+            long t0 = System.nanoTime();
+            Tensor y = forward.get();
+            long t1 = System.nanoTime();
+            Engine.sync();
+            long t2 = System.nanoTime();
+            Engine.sync(y);
+            long t3 = System.nanoTime();
+            y.toFloatArray();
+            long t4 = System.nanoTime();
+            if (i >= WARMUP) {
+                t[0][i - WARMUP] = (t1 - t0) / 1e6;
+                t[1][i - WARMUP] = (t2 - t1) / 1e6;
+                t[2][i - WARMUP] = (t3 - t2) / 1e6;
+                t[3][i - WARMUP] = (t4 - t3) / 1e6;
+            }
+        }
+        for (double[] a : t) {
+            Arrays.sort(a);
+        }
+        System.out.printf("[t1] split %-28s record %.3f  execute %.3f  fetch %.3f  convert %.3f ms (median)%n", name, t[0][n / 2], t[1][n / 2], t[2][n / 2], t[3][n / 2]);
     }
 
     /** Device time and launches per call, by operator (with {@code -Djitnn.profile=true}; on CUDA also {@code -Djitnn.cudaGraph=false}). */
@@ -133,7 +174,7 @@ class InferenceBenchAccelTest {
         model.train(false);
         for (int b : new int[] { 1, 32, 128 }) {
             float[] x = images(b * 3 * 224 * 224);
-            time("resnet50_b" + b + "_fp32", b, () -> Grad.inference(() -> model.forward(Tensor.of(x, b, 3, 224, 224))).toFloatArray());
+            time("resnet50_b" + b + "_fp32", b, () -> Grad.inference(() -> model.forward(Tensor.of(x, b, 3, 224, 224))));
         }
         Engine.reset();
     }
@@ -153,11 +194,18 @@ class InferenceBenchAccelTest {
                 int t = s[1];
                 int[] ids = tokens(b * t);
                 String name = "bert_b" + b + "_s" + t + "_" + mode;
+                if (Boolean.getBoolean("jitnn.bench.split")) {
+                    split(name, () -> Grad.inference(() -> {
+                        try (Grad.Scope ignored = mode.equals("fp16") ? Autocast.enable(DType.F16) : mode.equals("fp16h") ? Autocast.enableHalf() : null) {
+                            return model.forward(Tensor.of(ids, b, t));
+                        }
+                    }));
+                }
                 time(name, b, () -> Grad.inference(() -> {
                     try (Grad.Scope ignored = mode.equals("fp16") ? Autocast.enable(DType.F16) : mode.equals("fp16h") ? Autocast.enableHalf() : null) {
                         return model.forward(Tensor.of(ids, b, t));
                     }
-                }).toFloatArray());
+                }));
             }
         }
         Engine.reset();

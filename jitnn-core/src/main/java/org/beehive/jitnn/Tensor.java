@@ -368,9 +368,11 @@ public final class Tensor {
         }
         if (storage.dtype() == DType.F16) {
             uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray h = (uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray) storage.host();
+            // the raw FP16 bits in one copy, converted without a HalfFloat object per element
+            short[] bits = h.toShortArray();
             float[] out = new float[numel()];
             for (int i = 0; i < out.length; i++) {
-                out[i] = h.get(i).getFloat32();
+                out[i] = Float.float16ToFloat(bits[i]);
             }
             return out;
         }

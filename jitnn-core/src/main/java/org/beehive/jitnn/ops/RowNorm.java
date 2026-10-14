@@ -72,7 +72,12 @@ public final class RowNorm implements Op {
             var yh = e.f16(n.out(0));
             FloatArray mh = e.f32(n.out(1));
             FloatArray rh = e.f32(n.out(2));
-            if (n.in(0).dtype() == DType.F16) {
+            if (n.iattr.length > 4 && n.iattr[4] != 0) {
+                // x + residual (an add fused into the norm by Fusion), both FP16
+                var xh = e.f16(n.in(0));
+                var res = e.f16(n.in(n.inputs.length - 1));
+                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardHalfAdd, e.context(), xh, res, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+            } else if (n.in(0).dtype() == DType.F16) {
                 var xh = e.f16(n.in(0));
                 e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardHalf, e.context(), xh, w, b, yh, mh, rh, cols, eps, mode, hasBias));
             } else {
@@ -109,7 +114,14 @@ public final class RowNorm implements Op {
         boolean layer = n.iattr[2] == NormKernels.LAYER;
         boolean hasBias = n.iattr[3] != 0;
         double eps = n.fattr[0];
-        Object x = n.in(0).storage().host();
+        Object xIn = n.in(0).storage().host();
+        Object res = n.iattr.length > 4 && n.iattr[4] != 0 ? n.in(n.inputs.length - 1).storage().host() : null;
+        int len = rows * cols;
+        float[] xs = new float[len];
+        for (int i = 0; i < len; i++) {
+            xs[i] = HostValues.get(xIn, i) + (res != null ? HostValues.get(res, i) : 0.0f);
+        }
+        FloatArray x = FloatArray.fromArray(xs);
         FloatArray w = (FloatArray) n.in(1).storage().host();
         FloatArray b = hasBias ? (FloatArray) n.in(2).storage().host() : null;
         Object y = n.out(0).storage().host();
@@ -119,18 +131,18 @@ public final class RowNorm implements Op {
             double mu = 0;
             if (layer) {
                 for (int c = 0; c < cols; c++) {
-                    mu += HostValues.get(x, r * cols + c);
+                    mu += x.get(r * cols + c);
                 }
                 mu /= cols;
             }
             double sq = 0;
             for (int c = 0; c < cols; c++) {
-                double d = HostValues.get(x, r * cols + c) - mu;
+                double d = x.get(r * cols + c) - mu;
                 sq += d * d;
             }
             double is = 1 / Math.sqrt(sq / cols + eps);
             for (int c = 0; c < cols; c++) {
-                double v = (HostValues.get(x, r * cols + c) - mu) * is * w.get(c) + (hasBias ? b.get(c) : 0);
+                double v = (x.get(r * cols + c) - mu) * is * w.get(c) + (hasBias ? b.get(c) : 0);
                 HostValues.set(y, r * cols + c, (float) v);
             }
             mean.set(r, (float) mu);

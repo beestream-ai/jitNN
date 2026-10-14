@@ -70,7 +70,7 @@ library tasks compiled into plans.
 | `softmax` (not the log form) | cuDNN `softmax` | `softmaxRows` | |
 | `layerNorm`, `rmsNorm` in inference | – | `layerNorm`, `rmsNorm` | statistics not needed (`Grad.inference`), LayerNorm with a bias |
 | FP16 attention in `Autocast.enableHalf` inference | CUTLASS batched FP16 GEMMs (S = q k^T, O = P v) around jitNN's softmax | – | no mask tensor, log-sum-exp not needed, key length and head dimension multiples of 4 |
-| FP16 linear layers in `Autocast.enableHalf` inference | cuBLAS `GemmEx`, FP16 output | – | |
+| FP16 linear layers in `Autocast.enableHalf` inference | cuBLASLt with the bias (and ReLU) in its epilogue; cuBLAS `GemmEx` without a bias | – | GELU runs as a separate FP16 kernel |
 | Attention in inference | cuDNN fused SDPA (FP16), with `-Djitnn.native.attentionFp16=true`; on the A10 with cuDNN 9.27 it builds no plan, and falls back | `scaledDotProductAttention` | no mask tensor, [B, H, T, D] layout, log-sum-exp not needed. MLX: head dimension 64/72/80/96/128 (decode: 64/96/128/256). cuDNN: head dimension a multiple of 8, at most 256. Causal only with T = S |
 | FFT: complex to complex, real to complex | cuFFT | – | full length, contiguous rows |
 | Sparse × dense (`SparseMatrix.mm`) | cuSPARSE `SpMM` | – | |

@@ -260,6 +260,59 @@ public final class NormKernels {
         }
     }
 
+    /** {@link #rowNormForwardHalf} of x + res (a residual add fused into the norm). */
+    public static void rowNormForwardHalfAdd(KernelContext kc, HalfFloatArray x, HalfFloatArray res, FloatArray w, FloatArray b, HalfFloatArray y, FloatArray mean, FloatArray rstd, int cols, float eps, int mode, int hasBias) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int row = kc.groupIdx;
+        int l = kc.localIdx;
+        int base = row * cols;
+        float mu = 0.0f;
+        if (mode == LAYER) {
+            float sum = 0.0f;
+            for (int c = l; c < cols; c += GROUP) {
+                sum += (x.get(base + c).getFloat32() + res.get(base + c).getFloat32());
+            }
+            buf[l] = sum;
+            kc.localBarrier();
+            for (int s = GROUP / 2; s > 0; s = s / 2) {
+                if (l < s) {
+                    buf[l] = buf[l] + buf[l + s];
+                }
+                kc.localBarrier();
+            }
+            float total = buf[0];
+            kc.localBarrier();
+            mu = total / cols;
+        }
+        float sq = 0.0f;
+        for (int c = l; c < cols; c += GROUP) {
+            float d = (x.get(base + c).getFloat32() + res.get(base + c).getFloat32()) - mu;
+            sq += d * d;
+        }
+        buf[l] = sq;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        float sqTotal = buf[0];
+        kc.localBarrier();
+        float r = 1.0f / TornadoMath.sqrt(sqTotal / cols + eps);
+        for (int c = l; c < cols; c += GROUP) {
+            float v = ((x.get(base + c).getFloat32() + res.get(base + c).getFloat32()) - mu) * r * w.get(c);
+            if (hasBias != 0) {
+                v += b.get(c);
+            }
+            y.set(base + c, new HalfFloat(v));
+        }
+        if (l == 0) {
+            mean.set(row, mu);
+            rstd.set(row, r);
+        }
+    }
+
     /** {@link #rowNormForward} with an FP32 x and an FP16 y. */
     public static void rowNormForwardToHalf(KernelContext kc, FloatArray x, FloatArray w, FloatArray b, HalfFloatArray y, FloatArray mean, FloatArray rstd, int cols, float eps, int mode, int hasBias) {
         float[] buf = kc.allocateFloatLocalArray(GROUP);

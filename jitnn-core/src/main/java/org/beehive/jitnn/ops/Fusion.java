@@ -382,6 +382,16 @@ public final class Fusion {
             a[4] = Linear.GELU;
             return new Node(Linear.OP, p.inputs, c.outputs, a, p.fattr, true);
         }
+        if (p.op == Binary.OP && p.iattr[0] == Binary.Kind.ADD.code && c.op == RowNorm.OP && p.out(0).dtype() == DType.F16 && c.out(0).dtype() == DType.F16
+                && c.iattr.length == 4 && c.in(0).storage() == p.out(0).storage() && p.in(0).dtype() == DType.F16 && p.in(1).dtype() == DType.F16) {
+            // half-precision inference: LayerNorm(a + b) reads a and b, the sum never stored
+            Tensor[] in = java.util.Arrays.copyOf(c.inputs, c.inputs.length + 1);
+            in[0] = p.in(0);
+            in[c.inputs.length] = p.in(1);
+            int[] a = java.util.Arrays.copyOf(c.iattr, 5);
+            a[4] = 1;
+            return new Node(RowNorm.OP, in, c.outputs, a, c.fattr, true);
+        }
         if (p.op == Binary.OP && p.iattr[0] == Binary.Kind.ADD.code && c.op == Unary.OP && c.iattr[0] == Unary.Kind.RELU.code) {
             int[] a = p.iattr.clone();
             a[0] = Binary.Kind.ADD_RELU.code;
