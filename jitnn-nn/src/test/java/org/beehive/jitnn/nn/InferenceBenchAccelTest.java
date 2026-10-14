@@ -102,6 +102,11 @@ class InferenceBenchAccelTest {
 
     /** Device time and launches per call, by operator (with {@code -Djitnn.profile=true}; on CUDA also {@code -Djitnn.cudaGraph=false}). */
     private static void printProfile(String name, java.util.Map<String, long[]> perTask) {
+        if (Boolean.getBoolean("jitnn.bench.profileTasks")) {
+            // every task of the plan, not grouped by operator
+            perTask.entrySet().stream().sorted((x, y) -> Long.compare(y.getValue()[1], x.getValue()[1])).limit(20)
+                    .forEach(en -> System.out.printf("[t1]   task %-44s %8.3f ms  %4d launches%n", en.getKey(), en.getValue()[1] / 1e6 / RUNS, en.getValue()[0] / RUNS));
+        }
         java.util.Map<String, long[]> perOp = new java.util.TreeMap<>();
         long total = 0;
         long launches = 0;

@@ -125,6 +125,18 @@
             </dependency>
             <dependency>
                 <groupId>io.github.beehive-lab</groupId>
+                <artifactId>tornado-cutlass</artifactId>
+                <version>${tornadovm.version}</version>
+                <scope>provided</scope>
+                <exclusions>
+                    <exclusion>
+                        <groupId>*</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>io.github.beehive-lab</groupId>
                 <artifactId>jitnn-core</artifactId>
                 <version>${project.version}</version>
             </dependency>

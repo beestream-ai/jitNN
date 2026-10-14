@@ -69,6 +69,8 @@ library tasks compiled into plans.
 | Bias and activation after any of the above | jitNN kernel | jitNN kernel | |
 | `softmax` (not the log form) | cuDNN `softmax` | `softmaxRows` | |
 | `layerNorm`, `rmsNorm` in inference | – | `layerNorm`, `rmsNorm` | statistics not needed (`Grad.inference`), LayerNorm with a bias |
+| FP16 attention in `Autocast.enableHalf` inference | CUTLASS batched FP16 GEMMs (S = q k^T, O = P v) around jitNN's softmax | – | no mask tensor, log-sum-exp not needed, key length and head dimension multiples of 4 |
+| FP16 linear layers in `Autocast.enableHalf` inference | cuBLAS `GemmEx`, FP16 output | – | |
 | Attention in inference | cuDNN fused SDPA (FP16), with `-Djitnn.native.attentionFp16=true`; on the A10 with cuDNN 9.27 it builds no plan, and falls back | `scaledDotProductAttention` | no mask tensor, [B, H, T, D] layout, log-sum-exp not needed. MLX: head dimension 64/72/80/96/128 (decode: 64/96/128/256). cuDNN: head dimension a multiple of 8, at most 256. Causal only with T = S |
 | FFT: complex to complex, real to complex | cuFFT | – | full length, contiguous rows |
 | Sparse × dense (`SparseMatrix.mm`) | cuSPARSE `SpMM` | – | |
@@ -82,7 +84,7 @@ Everything else runs on jitNN's kernels, mostly because TornadoVM has no binding
 | Random numbers (cuRAND) | jitNN's Philox streams must match the host and regenerate dropout masks in the backward pass |
 | Linear algebra (LU, QR, SVD, ...), SDDMM | no cuSOLVER binding, no SDDMM in cuSPARSE's binding |
 | BF16 products | jitNN holds BF16 in `ShortArray`; the bindings take `BFloat16Array` |
-| cuBLASLt and CUTLASS fused epilogues | FP16 outputs; jitNN's products write FP32 |
+| cuBLASLt and CUTLASS fused epilogues | not used yet: they write FP16, which only `Autocast.enableHalf` products do, and their GELU is the tanh approximation; the bias and activation run as a separate jitNN kernel |
 | NCCL | jitNN's ranks run one at a time in the executor |
 
 ## Numerics

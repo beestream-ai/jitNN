@@ -182,6 +182,29 @@ The scale is uploaded with each step and overflows are detected on the device, s
 one compiled plan. BF16 needs TornadoVM with float-bit reinterpretation (TornadoVM#1141, in
 `develop` since 2026-10-02) on OpenCL and Metal.
 
+### FP16 inference
+
+`Autocast.enableHalf()` runs inference in half precision end to end, like a model converted to FP16.
+
+- **FP16 operators.** Linear layers, element-wise operators, LayerNorm and RMSNorm, and attention
+  take and return FP16 tensors and compute in FP32 inside. Activations therefore stay FP16 between
+  them, with half the memory traffic of autocast.
+- **Other operators** take FP32 copies of FP16 inputs and return FP32.
+- **Weights** are cast to FP16 once per version, as with `Autocast.enable`.
+- **With `-Djitnn.native`**, the products go to cuBLAS, and attention goes to CUTLASS's batched FP16
+  GEMMs; see [NATIVE.md](NATIVE.md).
+
+```java
+Tensor logits = Grad.inference(() -> {
+    try (var half = Autocast.enableHalf()) {
+        return model.forward(ids);                    // FP16 activations
+    }
+});
+float[] out = logits.toFloatArray();                  // FP16 results read as floats
+```
+
+It needs gradients off; with gradients on, the scope behaves as `Autocast.enable(DType.F16)`.
+
 ## Inference and memory
 
 ```java

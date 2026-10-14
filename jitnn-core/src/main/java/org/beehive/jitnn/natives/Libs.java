@@ -222,6 +222,16 @@ public final class Libs {
         return false;
     }
 
+    /** True when CUTLASS's batched FP16 GEMM is available (FP16 attention on the tensor cores). */
+    public static boolean hgemmBatchedAvailable() {
+        return Native.use("gemm", Lib.CUTLASS);
+    }
+
+    /** FP16 C[z] = A[z] B[z], contiguous [batch, m, k] x [batch, k, n] (n and k multiples of 4): CUTLASS. */
+    public static void hgemmBatched(Emitter e, HalfFloatArray a, HalfFloatArray b, HalfFloatArray c, int m, int n, int k, int batch) {
+        Cuda.hgemmBatched(e, a, b, c, m, n, k, batch);
+    }
+
     /** out [rows, n] = A dense for a CSR matrix A [rows, k] of nnz values and a dense row-major [k, n]. */
     public static boolean spmm(Emitter e, IntArray ptr, IntArray col, FloatArray val, FloatArray dense, FloatArray out, int rows, int k, int n, int nnz) {
         if (!Native.use("spmm", Lib.CUSPARSE)) {

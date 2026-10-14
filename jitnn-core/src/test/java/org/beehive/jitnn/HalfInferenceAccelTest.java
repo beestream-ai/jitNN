@@ -68,6 +68,19 @@ class HalfInferenceAccelTest {
         close(expected, actual, 2e-2, 2e-2, "two encoder blocks in FP16");
     }
 
+    /** Attention alone: lengths that are not multiples of the 32-wide tensor-core tiles, causal and not. */
+    @Test
+    void attention() {
+        for (boolean causal : new boolean[] { false, true }) {
+            Supplier<Tensor> model = () -> {
+                Tensor x = Tensor.uniform(30, -1, 1, 3, 200, 192);
+                return F.multiHeadAttention(x, Tensor.persistent(Tensor.uniform(31, -0.08f, 0.08f, 576, 192)), Tensor.persistent(Tensor.uniform(32, -0.1f, 0.1f, 576)),
+                        Tensor.persistent(Tensor.uniform(33, -0.08f, 0.08f, 192, 192)), Tensor.persistent(Tensor.uniform(34, -0.1f, 0.1f, 192)), 3, null, causal);
+            };
+            close(run(Backend.REFERENCE, false, model), run(Backend.TORNADO, true, model), 2e-2, 2e-2, "attention t200 d64 causal " + causal);
+        }
+    }
+
     @Test
     void activationsStayHalf() {
         Engine.with(Backend.TORNADO, () -> Grad.inference(() -> {

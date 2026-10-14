@@ -15,7 +15,7 @@ import uk.ac.manchester.tornado.api.enums.TornadoVMBackendType;
  *
  * <p>Off by default. {@code -Djitnn.native=auto} (or {@code -Djitnn.withNative=true}, which the
  * {@code --with-native} option of jitNN's tools sets) uses every library that is available on the
- * plan's device; a comma-separated list ({@code cublas,cudnn,cufft,cusparse,mlx}) restricts it.
+ * plan's device; a comma-separated list ({@code cublas,cudnn,cufft,cusparse,cutlass,mlx}) restricts it.
  * A library is available when TornadoVM's module for it is loaded and a one-task probe plan runs on
  * the device; one that is missing, or that fails later, is left to the JIT kernels.
  */
@@ -23,7 +23,8 @@ public final class Native {
 
     /** The libraries jitNN can call. */
     public enum Lib {
-        CUBLAS(TornadoVMBackendType.CUDA), CUDNN(TornadoVMBackendType.CUDA), CUFFT(TornadoVMBackendType.CUDA), CUSPARSE(TornadoVMBackendType.CUDA), MLX(
+        CUBLAS(TornadoVMBackendType.CUDA), CUDNN(TornadoVMBackendType.CUDA), CUFFT(TornadoVMBackendType.CUDA), CUSPARSE(TornadoVMBackendType.CUDA), CUTLASS(
+                TornadoVMBackendType.CUDA), MLX(
                 TornadoVMBackendType.METAL);
 
         final TornadoVMBackendType backend;

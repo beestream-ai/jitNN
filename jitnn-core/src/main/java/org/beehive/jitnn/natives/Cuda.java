@@ -13,6 +13,7 @@ import uk.ac.manchester.tornado.cublas.CuBlas;
 import uk.ac.manchester.tornado.cudnn.CuDnn;
 import uk.ac.manchester.tornado.cufft.CuFft;
 import uk.ac.manchester.tornado.cusparse.Cusparse;
+import uk.ac.manchester.tornado.cutlass.Cutlass;
 
 /**
  * cuBLAS, cuDNN, cuFFT and cuSPARSE calls as TornadoVM library tasks. jitNN's matrices are
@@ -107,6 +108,11 @@ final class Cuda {
         e.library(Lib.CUSPARSE, "spmm", (g, id) -> g.libraryTask(id, Cusparse::cusparseSpMM, rows, k, n, nnz, ptr, col, val, dense, out));
     }
 
+    /** FP16 C[z] [m, n] = A[z] [m, k] B[z] [k, n] for z < batch, all contiguous (CUTLASS; n and k multiples of 4). */
+    static void hgemmBatched(Emitter e, HalfFloatArray a, HalfFloatArray b, HalfFloatArray c, int m, int n, int k, int batch) {
+        e.library(Lib.CUTLASS, "gemm", (g, id) -> g.libraryTask(id, Cutlass::cutlassHgemmBatched, m, n, k, 1.0f, a, b, 0.0f, c, batch));
+    }
+
     /** Runs one small call of {@code lib} on the current device: null if it works, otherwise why not. */
     static String probe(Lib lib) {
         // a missing native library (libcublas, libcudnn, ...) fails the probe's first execution
@@ -134,6 +140,25 @@ final class Cuda {
                 out = new FloatArray(8);
                 g.transferToDevice(DataTransferMode.EVERY_EXECUTION, x).libraryTask("t", CuFft::cufftForwardC2C, x, out, 4, 1);
                 expected = new float[] { 1, 0, 1, 0, 1, 0, 1, 0 };
+            }
+            case CUTLASS -> {
+                // a 4 x 4 identity times B gives B, in FP16
+                HalfFloatArray a = new HalfFloatArray(16);
+                HalfFloatArray b = new HalfFloatArray(16);
+                for (int i = 0; i < 16; i++) {
+                    a.set(i, new uk.ac.manchester.tornado.api.types.HalfFloat(i % 5 == 0 ? 1 : 0));
+                    b.set(i, new uk.ac.manchester.tornado.api.types.HalfFloat(i));
+                }
+                HalfFloatArray c = new HalfFloatArray(16);
+                g.transferToDevice(DataTransferMode.EVERY_EXECUTION, a, b).libraryTask("t", Cutlass::cutlassHgemm, 4, 4, 4, 1.0f, a, b, 0.0f, c).transferToHost(DataTransferMode.EVERY_EXECUTION,
+                        c);
+                Native.runProbe(g);
+                for (int i = 0; i < 16; i++) {
+                    if (c.get(i).getFloat32() != i) {
+                        return "probe returned " + c.get(i).getFloat32() + " for " + i;
+                    }
+                }
+                return null;
             }
             default -> {
                 // [[2, 0], [0, 3]] (CSR) times [[1], [1]]

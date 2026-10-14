@@ -11,6 +11,7 @@ import org.beehive.jitnn.kernels.FlashKernels32;
 import org.beehive.jitnn.kernels.FlashKernels64;
 import org.beehive.jitnn.kernels.FlashTiled64;
 import org.beehive.jitnn.kernels.FlashTiled64Half;
+import org.beehive.jitnn.kernels.AttentionHalfKernels;
 
 import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
@@ -128,6 +129,47 @@ public final class FlashAttention implements Op {
         return o;
     }
 
+    /**
+     * FP16 attention in inference ({@code -Djitnn.halfAttention}): {@code auto} takes CUTLASS's batched
+     * FP16 GEMMs when {@code -Djitnn.native} makes CUTLASS available, else the FP16 FlashAttention
+     * kernel; {@code cutlass} and {@code flash} force one.
+     */
+    private static final String HALF_ATTENTION = System.getProperty("jitnn.halfAttention", "auto");
+
+    private static boolean useCutlassAttention(int z, int t, int s, int d) {
+        return (HALF_ATTENTION.equals("auto") || HALF_ATTENTION.equals("cutlass")) && s % 4 == 0 && d % 4 == 0 && (long) z * t * s <= (256L << 20)
+                && org.beehive.jitnn.natives.Libs.hgemmBatchedAvailable();
+    }
+
+    /**
+     * q, v gathered per problem into FP16 [z, t, d] and [z, s, d], k into k^T [z, d, s]; S = q k^T and
+     * O = P v as CUTLASS batched FP16 GEMMs; P = softmax(scale S) one warp per row; O merged into the
+     * output's layout. No log-sum-exp (inference) and no mask tensor.
+     */
+    private static void emitCutlassAttention(Emitter e, int[] a, uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray q,
+            uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray k, uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray v,
+            uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray o, float scale) {
+        int z = a[0], t = a[1], s = a[2], d = a[3], causal = a[4], heads = a[5];
+        int[] m = meta(a);
+        var qz = e.scratchF16(z * t * d);
+        var kt = e.scratchF16(z * s * d);
+        var vz = e.scratchF16(z * s * d);
+        var scores = e.scratchF16(z * t * s);
+        var p = e.scratchF16(z * t * s);
+        var oz = e.scratchF16(z * t * d);
+        int qn = z * t * d;
+        int kn = z * s * d;
+        int rows = z * t;
+        e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionHalfKernels::gather, e.context(), q, qz, heads, t, d, m[5], m[6], m[7], m[8], qn));
+        e.task(Emitter.grid1D(kn), (g, id) -> g.task(id, AttentionHalfKernels::gatherTransposed, e.context(), k, kt, heads, s, d, m[9], m[10], m[11], m[12], kn));
+        e.task(Emitter.grid1D(kn), (g, id) -> g.task(id, AttentionHalfKernels::gather, e.context(), v, vz, heads, s, d, m[13], m[14], m[15], m[16], kn));
+        org.beehive.jitnn.natives.Libs.hgemmBatched(e, qz, kt, scores, t, s, d, z);
+        e.task(Emitter.blocks1D(Emitter.ceilDiv(rows, 8), 256),
+                (g, id) -> g.task(id, AttentionHalfKernels::softmaxHalfWarp, e.context(), scores, p, rows, s, scale, causal, t));
+        org.beehive.jitnn.natives.Libs.hgemmBatched(e, p, vz, oz, t, d, s, z);
+        e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionHalfKernels::mergeHalf, e.context(), oz, o, heads, t, d, m[17], m[18], m[19], m[20], qn));
+    }
+
     /** [heads, the mask strides, then the (offset, batch, head, token) strides of q, k, v and o]. */
     static int[] meta(int[] a) {
         int t = a[1];
@@ -209,6 +251,12 @@ public final class FlashAttention implements Op {
             int hm = n.inputs.length > qkvCount ? 1 : 0;
             FloatArray mk = hm != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
             var oh = e.f16(n.out(0));
+            if (hm == 0 && e.unread(n.out(1))) {
+                if (useCutlassAttention(z, t, s, d)) {
+                    emitCutlassAttention(e, a, qh, kh, vh, oh, scale);
+                    return;
+                }
+            }
             FloatArray lh = e.f32(n.out(1));
             WorkerGrid tiled = Emitter.blocks2D(z * Emitter.ceilDiv(t, FlashTiled64.BQ), 1, 16, 16);
             e.task(tiled, (g, id) -> g.task(id, FlashTiled64Half::forward, e.context(), qh, kh, vh, mk, oh, lh, t, s, d, scale, causal, hm, meta));
