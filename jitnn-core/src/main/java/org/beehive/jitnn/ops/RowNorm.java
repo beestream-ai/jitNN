@@ -39,7 +39,9 @@ public final class RowNorm implements Op {
         if (weight.numel() != cols || (bias != null && bias.numel() != cols)) {
             throw new IllegalArgumentException("norm over " + cols + " features with weight " + weight.shape() + (bias != null ? " and bias " + bias.shape() : ""));
         }
-        Tensor y = Tensor.result(x.shape(), DType.F32);
+        // half-precision inference: FP16 out (from an FP16 or FP32 input); statistics stay FP32
+        boolean half = org.beehive.jitnn.Autocast.halfActivations();
+        Tensor y = Tensor.result(x.shape(), half ? DType.F16 : DType.F32);
         Tensor mean = Tensor.result(Shape.of(rows), DType.F32);
         Tensor rstd = Tensor.result(Shape.of(rows), DType.F32);
         Tensor[] in = bias != null ? new Tensor[] { x, weight, bias } : new Tensor[] { x, weight };
@@ -53,15 +55,33 @@ public final class RowNorm implements Op {
     }
 
     @Override
+    public boolean acceptsHalf() {
+        return true;
+    }
+
+    @Override
     public void emit(Emitter e, Node n) {
         int rows = n.iattr[0];
         int cols = n.iattr[1];
         int mode = n.iattr[2];
         int hasBias = n.iattr[3];
         float eps = n.fattr[0];
-        FloatArray x = e.f32(n.in(0));
         FloatArray w = e.f32(n.in(1));
         FloatArray b = hasBias != 0 ? e.f32(n.in(2)) : e.dummyF32();
+        if (n.out(0).dtype() == DType.F16) {
+            var yh = e.f16(n.out(0));
+            FloatArray mh = e.f32(n.out(1));
+            FloatArray rh = e.f32(n.out(2));
+            if (n.in(0).dtype() == DType.F16) {
+                var xh = e.f16(n.in(0));
+                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardHalf, e.context(), xh, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+            } else {
+                FloatArray xf = e.f32(n.in(0));
+                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardToHalf, e.context(), xf, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+            }
+            return;
+        }
+        FloatArray x = e.f32(n.in(0));
         FloatArray y = e.f32(n.out(0));
         if (e.unread(n.out(1)) && e.unread(n.out(2))
                 && org.beehive.jitnn.natives.Libs.rowNorm(e, x, w, hasBias != 0 ? b : null, y, rows, cols, eps, mode == NormKernels.LAYER)) {
@@ -89,29 +109,29 @@ public final class RowNorm implements Op {
         boolean layer = n.iattr[2] == NormKernels.LAYER;
         boolean hasBias = n.iattr[3] != 0;
         double eps = n.fattr[0];
-        FloatArray x = (FloatArray) n.in(0).storage().host();
+        Object x = n.in(0).storage().host();
         FloatArray w = (FloatArray) n.in(1).storage().host();
         FloatArray b = hasBias ? (FloatArray) n.in(2).storage().host() : null;
-        FloatArray y = (FloatArray) n.out(0).storage().host();
+        Object y = n.out(0).storage().host();
         FloatArray mean = (FloatArray) n.out(1).storage().host();
         FloatArray rstd = (FloatArray) n.out(2).storage().host();
         for (int r = 0; r < rows; r++) {
             double mu = 0;
             if (layer) {
                 for (int c = 0; c < cols; c++) {
-                    mu += x.get(r * cols + c);
+                    mu += HostValues.get(x, r * cols + c);
                 }
                 mu /= cols;
             }
             double sq = 0;
             for (int c = 0; c < cols; c++) {
-                double d = x.get(r * cols + c) - mu;
+                double d = HostValues.get(x, r * cols + c) - mu;
                 sq += d * d;
             }
             double is = 1 / Math.sqrt(sq / cols + eps);
             for (int c = 0; c < cols; c++) {
-                double v = (x.get(r * cols + c) - mu) * is * w.get(c) + (hasBias ? b.get(c) : 0);
-                y.set(r * cols + c, (float) v);
+                double v = (HostValues.get(x, r * cols + c) - mu) * is * w.get(c) + (hasBias ? b.get(c) : 0);
+                HostValues.set(y, r * cols + c, (float) v);
             }
             mean.set(r, (float) mu);
             rstd.set(r, (float) is);

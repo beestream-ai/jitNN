@@ -11,6 +11,14 @@ public interface Op {
     /** A stable name; it is part of the compiled-trace cache key. */
     String name();
 
+    /**
+     * True when the operator takes FP16 tensors in half-precision inference
+     * ({@code Autocast.enableHalf}); other operators get FP32 copies of FP16 inputs.
+     */
+    default boolean acceptsHalf() {
+        return false;
+    }
+
     /** Adds the device tasks for {@code node} to the graph being built. */
     void emit(Emitter e, Node node);
 

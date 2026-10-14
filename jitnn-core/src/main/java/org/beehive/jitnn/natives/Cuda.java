@@ -55,6 +55,15 @@ final class Cuda {
         e.library(Lib.CUBLAS, "gemm", (g, id) -> g.libraryTask(id, CuBlas::cublasSgemmStridedBatched, opB, opA, n, m, k, 1.0f, b, ldb, sb, a, lda, sa, 0.0f, c, n, sc, batch));
     }
 
+    /** FP16 C [m, n] = op(A) op(B) for FP16 A and B. */
+    static void gemmHalf(Emitter e, HalfFloatArray a, HalfFloatArray b, HalfFloatArray c, int m, int n, int k, int ta, int tb) {
+        int opB = tb == 1 ? OP_T : OP_N;
+        int opA = ta == 1 ? OP_T : OP_N;
+        int ldb = tb == 1 ? k : n;
+        int lda = ta == 1 ? m : k;
+        e.library(Lib.CUBLAS, "gemm", (g, id) -> g.libraryTask(id, CuBlas::cublasGemmExFP16, opB, opA, n, m, k, 1.0f, b, ldb, a, lda, 0.0f, c, n));
+    }
+
     /** FP32 C [m, n] = op(A) op(B) for FP16 A and B (FP32 accumulation). */
     static void gemmF16(Emitter e, HalfFloatArray a, HalfFloatArray b, FloatArray c, int m, int n, int k, int ta, int tb) {
         int opB = tb == 1 ? OP_T : OP_N;

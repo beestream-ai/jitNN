@@ -1,6 +1,8 @@
 package org.beehive.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;
+import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
+import uk.ac.manchester.tornado.api.types.HalfFloat;
 import uk.ac.manchester.tornado.api.math.TornadoMath;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
@@ -198,6 +200,112 @@ public final class NormKernels {
                 v += b.get(c);
             }
             y.set(base + c, v);
+        }
+        if (l == 0) {
+            mean.set(row, mu);
+            rstd.set(row, r);
+        }
+    }
+
+    /** {@link #rowNormForward} with FP16 x and y (statistics in FP32). */
+    public static void rowNormForwardHalf(KernelContext kc, HalfFloatArray x, FloatArray w, FloatArray b, HalfFloatArray y, FloatArray mean, FloatArray rstd, int cols, float eps, int mode, int hasBias) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int row = kc.groupIdx;
+        int l = kc.localIdx;
+        int base = row * cols;
+        float mu = 0.0f;
+        if (mode == LAYER) {
+            float sum = 0.0f;
+            for (int c = l; c < cols; c += GROUP) {
+                sum += x.get(base + c).getFloat32();
+            }
+            buf[l] = sum;
+            kc.localBarrier();
+            for (int s = GROUP / 2; s > 0; s = s / 2) {
+                if (l < s) {
+                    buf[l] = buf[l] + buf[l + s];
+                }
+                kc.localBarrier();
+            }
+            float total = buf[0];
+            kc.localBarrier();
+            mu = total / cols;
+        }
+        float sq = 0.0f;
+        for (int c = l; c < cols; c += GROUP) {
+            float d = x.get(base + c).getFloat32() - mu;
+            sq += d * d;
+        }
+        buf[l] = sq;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        float sqTotal = buf[0];
+        kc.localBarrier();
+        float r = 1.0f / TornadoMath.sqrt(sqTotal / cols + eps);
+        for (int c = l; c < cols; c += GROUP) {
+            float v = (x.get(base + c).getFloat32() - mu) * r * w.get(c);
+            if (hasBias != 0) {
+                v += b.get(c);
+            }
+            y.set(base + c, new HalfFloat(v));
+        }
+        if (l == 0) {
+            mean.set(row, mu);
+            rstd.set(row, r);
+        }
+    }
+
+    /** {@link #rowNormForward} with an FP32 x and an FP16 y. */
+    public static void rowNormForwardToHalf(KernelContext kc, FloatArray x, FloatArray w, FloatArray b, HalfFloatArray y, FloatArray mean, FloatArray rstd, int cols, float eps, int mode, int hasBias) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int row = kc.groupIdx;
+        int l = kc.localIdx;
+        int base = row * cols;
+        float mu = 0.0f;
+        if (mode == LAYER) {
+            float sum = 0.0f;
+            for (int c = l; c < cols; c += GROUP) {
+                sum += x.get(base + c);
+            }
+            buf[l] = sum;
+            kc.localBarrier();
+            for (int s = GROUP / 2; s > 0; s = s / 2) {
+                if (l < s) {
+                    buf[l] = buf[l] + buf[l + s];
+                }
+                kc.localBarrier();
+            }
+            float total = buf[0];
+            kc.localBarrier();
+            mu = total / cols;
+        }
+        float sq = 0.0f;
+        for (int c = l; c < cols; c += GROUP) {
+            float d = x.get(base + c) - mu;
+            sq += d * d;
+        }
+        buf[l] = sq;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        float sqTotal = buf[0];
+        kc.localBarrier();
+        float r = 1.0f / TornadoMath.sqrt(sqTotal / cols + eps);
+        for (int c = l; c < cols; c += GROUP) {
+            float v = (x.get(base + c) - mu) * r * w.get(c);
+            if (hasBias != 0) {
+                v += b.get(c);
+            }
+            y.set(base + c, new HalfFloat(v));
         }
         if (l == 0) {
             mean.set(row, mu);

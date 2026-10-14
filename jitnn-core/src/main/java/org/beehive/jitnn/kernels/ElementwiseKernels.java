@@ -1,6 +1,8 @@
 package org.beehive.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;
+import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
+import uk.ac.manchester.tornado.api.types.HalfFloat;
 import uk.ac.manchester.tornado.api.math.TornadoMath;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
@@ -719,6 +721,45 @@ public final class ElementwiseKernels {
                 r = unaryBase(op, v, alpha, beta);
             }
             out.set(i, r);
+        }
+    }
+
+    /** {@link #unary} on FP16 x and out (computed in FP32). */
+    public static void unaryHalf(KernelContext kc, HalfFloatArray x, HalfFloatArray out, int op, float alpha, float beta, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            float v = x.get(i).getFloat32();
+            float r;
+            if (op >= IS_NAN) {
+                r = unaryNaN(op, v, alpha, beta);
+            } else if (op >= SIN) {
+                r = unaryMath(op, v, alpha, beta);
+            } else if (op >= ELU) {
+                r = unaryActivation(op, v, alpha, beta);
+            } else {
+                r = unaryBase(op, v, alpha, beta);
+            }
+            out.set(i, new HalfFloat(r));
+        }
+    }
+
+    /** {@link #binary} on FP16 a, b and out of the same shape (computed in FP32). */
+    public static void binaryHalf(KernelContext kc, HalfFloatArray a, HalfFloatArray b, HalfFloatArray out, int op, float alpha, float beta, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            float x = a.get(i).getFloat32();
+            float y = b.get(i).getFloat32();
+            float r;
+            if (op >= MAXIMUM) {
+                r = binaryNaN(op, x, y, alpha, beta);
+            } else if (op >= ATAN2) {
+                r = binaryMath(op, x, y, alpha, beta);
+            } else if (op >= ELU_GRAD) {
+                r = binaryActivationGrad(op, x, y, alpha, beta);
+            } else {
+                r = binaryBase(op, x, y, alpha, beta);
+            }
+            out.set(i, new HalfFloat(r));
         }
     }
 

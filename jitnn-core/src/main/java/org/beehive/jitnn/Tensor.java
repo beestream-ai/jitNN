@@ -202,6 +202,15 @@ public final class Tensor {
      * input does; the node is traced (run at the next sync) unless {@code traced} is false.
      */
     public static void record(Op op, Tensor[] inputs, Tensor[] outputs, int[] iattr, float[] fattr, boolean traced) {
+        if (traced && !op.acceptsHalf() && Autocast.halfActivations()) {
+            // half-precision inference: an operator without an FP16 form reads FP32 copies
+            for (int i = 0; i < inputs.length; i++) {
+                if (inputs[i] != null && inputs[i].dtype() == DType.F16) {
+                    inputs = inputs.clone();
+                    inputs[i] = inputs[i].to(DType.F32);
+                }
+            }
+        }
         Node node = new Node(op, inputs, outputs, iattr, fattr, traced);
         if (Grad.isEnabled()) {
             boolean needs = false;

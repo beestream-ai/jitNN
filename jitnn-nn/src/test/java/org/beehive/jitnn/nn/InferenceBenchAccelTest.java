@@ -141,14 +141,15 @@ class InferenceBenchAccelTest {
         Bert model = new Bert(BERT_VOCAB, 512, 768, 12, 12, 1);
         model.train(false);
         int[][] shapes = { { 1, 128 }, { 32, 128 }, { 8, 512 } };
-        for (DType dt : new DType[] { null, DType.F16 }) {
+        // fp32; fp16: autocast (FP16 weights and products, FP32 activations); fp16h: FP16 activations too
+        for (String mode : new String[] { "fp32", "fp16", "fp16h" }) {
             for (int[] s : shapes) {
                 int b = s[0];
                 int t = s[1];
                 int[] ids = tokens(b * t);
-                String name = "bert_b" + b + "_s" + t + (dt == null ? "_fp32" : "_fp16");
+                String name = "bert_b" + b + "_s" + t + "_" + mode;
                 time(name, b, () -> Grad.inference(() -> {
-                    try (Grad.Scope ignored = dt != null ? Autocast.enable(dt) : null) {
+                    try (Grad.Scope ignored = mode.equals("fp16") ? Autocast.enable(DType.F16) : mode.equals("fp16h") ? Autocast.enableHalf() : null) {
                         return model.forward(Tensor.of(ids, b, t));
                     }
                 }).toFloatArray());

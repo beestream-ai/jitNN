@@ -13,6 +13,7 @@ package org.beehive.jitnn;
 public final class Autocast {
 
     private static final ThreadLocal<DType> TYPE = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> HALF = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private Autocast() {
     }
@@ -25,6 +26,29 @@ public final class Autocast {
         DType previous = TYPE.get();
         TYPE.set(dtype);
         return () -> TYPE.set(previous);
+    }
+
+    /**
+     * Half-precision inference, as a model converted to FP16: inside the scope (and with gradients
+     * off), linear layers, element-wise operators, LayerNorm and RMSNorm and attention take and
+     * return FP16 tensors (computing in FP32 inside), so activations stay FP16 between them, with
+     * half the memory traffic. Operators without an FP16 form take FP32 copies of FP16 inputs and
+     * return FP32. Weights are cast to FP16 once per weight version, as with {@link #enable}.
+     */
+    public static Grad.Scope enableHalf() {
+        DType previousType = TYPE.get();
+        boolean previousHalf = HALF.get();
+        TYPE.set(DType.F16);
+        HALF.set(Boolean.TRUE);
+        return () -> {
+            TYPE.set(previousType);
+            HALF.set(previousHalf);
+        };
+    }
+
+    /** True inside {@link #enableHalf()} with gradients off: FP16-capable operators return FP16. */
+    public static boolean halfActivations() {
+        return HALF.get() && !Grad.isEnabled();
     }
 
     /** The active autocast type, or null. */

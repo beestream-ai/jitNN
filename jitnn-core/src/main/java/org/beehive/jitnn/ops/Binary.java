@@ -100,7 +100,13 @@ public final class Binary implements Op {
 
     static Tensor apply(Kind kind, Tensor a, Tensor b, Shape outShape, float alpha, float beta) {
         Checks.f32(a, b);
-        Tensor out = Tensor.result(outShape, DType.F32);
+        // half-precision inference: FP16 operands of the output's shape give FP16; others are computed in FP32
+        boolean half = a.dtype() == DType.F16 && b.dtype() == DType.F16 && a.shape().equals(outShape) && b.shape().equals(outShape);
+        if (!half) {
+            a = a.dtype() == DType.F16 ? a.to(DType.F32) : a;
+            b = b.dtype() == DType.F16 ? b.to(DType.F32) : b;
+        }
+        Tensor out = Tensor.result(outShape, half ? DType.F16 : DType.F32);
         Tensor.record(OP, new Tensor[] { a, b }, new Tensor[] { out }, new int[] { kind.code }, new float[] { alpha, beta }, true);
         return out;
     }
@@ -154,6 +160,11 @@ public final class Binary implements Op {
     }
 
     @Override
+    public boolean acceptsHalf() {
+        return true;
+    }
+
+    @Override
     public void emit(Emitter e, Node n) {
         Tensor a = n.in(0);
         Tensor b = n.in(1);
@@ -162,6 +173,13 @@ public final class Binary implements Op {
         float alpha = n.fattr[0];
         float beta = n.fattr[1];
         int count = out.numel();
+        if (out.dtype() == DType.F16) {
+            var ha = e.f16(a);
+            var hb = e.f16(b);
+            var ho = e.f16(out);
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::binaryHalf, e.context(), ha, hb, ho, code, alpha, beta, count));
+            return;
+        }
         FloatArray fa = e.f32(a);
         FloatArray fb = e.f32(b);
         FloatArray fo = e.f32(out);
@@ -197,9 +215,9 @@ public final class Binary implements Op {
     public void reference(Node n) {
         Tensor out = n.out(0);
         int[] meta = broadcastMeta(n.in(0).shape(), n.in(1).shape(), out.shape());
-        FloatArray a = (FloatArray) n.in(0).storage().host();
-        FloatArray b = (FloatArray) n.in(1).storage().host();
-        FloatArray o = (FloatArray) out.storage().host();
+        Object a = n.in(0).storage().host();
+        Object b = n.in(1).storage().host();
+        Object o = out.storage().host();
         int r = meta[0];
         for (int i = 0; i < out.numel(); i++) {
             int rem = i;
@@ -211,7 +229,7 @@ public final class Binary implements Op {
                 ai += c * meta[1 + r + d];
                 bi += c * meta[1 + 2 * r + d];
             }
-            o.set(i, (float) RefMath.binary(n.iattr[0], a.get(ai), b.get(bi), n.fattr[0], n.fattr[1]));
+            HostValues.set(o, i, (float) RefMath.binary(n.iattr[0], HostValues.get(a, ai), HostValues.get(b, bi), n.fattr[0], n.fattr[1]));
         }
     }
 

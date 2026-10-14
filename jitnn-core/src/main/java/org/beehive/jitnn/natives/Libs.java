@@ -73,6 +73,20 @@ public final class Libs {
         return true;
     }
 
+    /** FP16 C [m, n] = op(A) op(B) (+ epilogue, applied in FP32) for FP16 A and B. */
+    public static boolean gemmHalfOut(Emitter e, HalfFloatArray a, HalfFloatArray b, HalfFloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        if (!Native.use("gemm", Lib.CUBLAS)) {
+            return false;
+        }
+        Cuda.gemmHalf(e, a, b, c, m, n, k, ta, tb);
+        if (epilogue != 0) {
+            FloatArray bb = bias != null ? bias : e.dummyF32();
+            int total = m * n;
+            e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), c, bb, m, n, total, epilogue));
+        }
+        return true;
+    }
+
     /** FP32 C [m, n] = op(A) op(B) (+ epilogue) for FP16 A and B. */
     public static boolean gemmF16(Emitter e, HalfFloatArray a, HalfFloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (!Native.use("gemm", Lib.CUBLAS)) {

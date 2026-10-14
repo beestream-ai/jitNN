@@ -88,7 +88,8 @@ public final class Unary implements Op {
 
     public static Tensor apply(Kind kind, Tensor x, float alpha, float beta) {
         Checks.f32(x);
-        Tensor out = Tensor.result(x.shape(), DType.F32);
+        // half-precision inference: FP16 in, FP16 out
+        Tensor out = Tensor.result(x.shape(), x.dtype() == DType.F16 ? DType.F16 : DType.F32);
         Tensor.record(OP, new Tensor[] { x }, new Tensor[] { out }, new int[] { kind.code }, new float[] { alpha, beta }, true);
         return out;
     }
@@ -99,7 +100,22 @@ public final class Unary implements Op {
     }
 
     @Override
+    public boolean acceptsHalf() {
+        return true;
+    }
+
+    @Override
     public void emit(Emitter e, Node n) {
+        if (n.out(0).dtype() == DType.F16) {
+            var xh = e.f16(n.in(0));
+            var oh = e.f16(n.out(0));
+            int code = n.iattr[0];
+            float alpha = n.fattr[0];
+            float beta = n.fattr[1];
+            int count = n.out(0).numel();
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::unaryHalf, e.context(), xh, oh, code, alpha, beta, count));
+            return;
+        }
         FloatArray x = e.f32(n.in(0));
         FloatArray out = e.f32(n.out(0));
         int code = n.iattr[0];
@@ -111,10 +127,10 @@ public final class Unary implements Op {
 
     @Override
     public void reference(Node n) {
-        FloatArray x = (FloatArray) n.in(0).storage().host();
-        FloatArray o = (FloatArray) n.out(0).storage().host();
+        Object x = n.in(0).storage().host();
+        Object o = n.out(0).storage().host();
         for (int i = 0; i < n.out(0).numel(); i++) {
-            o.set(i, (float) RefMath.unary(n.iattr[0], x.get(i), n.fattr[0], n.fattr[1]));
+            HostValues.set(o, i, (float) RefMath.unary(n.iattr[0], HostValues.get(x, i), n.fattr[0], n.fattr[1]));
         }
     }
 

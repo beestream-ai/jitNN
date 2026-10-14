@@ -377,7 +377,7 @@ public final class Fusion {
         if (p.op == Conv2d.OP && c.op == BatchNorm2d.OP) {
             return convBatchNorm(p, c, producer, folds);
         }
-        if (p.op == Linear.OP && c.op == Unary.OP && c.iattr[0] == Unary.Kind.GELU.code && p.iattr[4] == Linear.NONE && p.out(0).dtype() == DType.F32) {
+        if (p.op == Linear.OP && c.op == Unary.OP && c.iattr[0] == Unary.Kind.GELU.code && p.iattr[4] == Linear.NONE && p.out(0).dtype() == c.out(0).dtype()) {
             int[] a = p.iattr.clone();
             a[4] = Linear.GELU;
             return new Node(Linear.OP, p.inputs, c.outputs, a, p.fattr, true);

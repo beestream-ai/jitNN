@@ -10,6 +10,7 @@ import org.beehive.jitnn.kernels.FlashKernels128;
 import org.beehive.jitnn.kernels.FlashKernels32;
 import org.beehive.jitnn.kernels.FlashKernels64;
 import org.beehive.jitnn.kernels.FlashTiled64;
+import org.beehive.jitnn.kernels.FlashTiled64Half;
 
 import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
@@ -41,6 +42,11 @@ public final class FlashAttention implements Op {
     static final FlashAttention OP = new FlashAttention();
     static final Backward BACKWARD = new Backward();
 
+    @Override
+    public boolean acceptsHalf() {
+        return true;
+    }
+
     private FlashAttention() {
     }
 
@@ -62,6 +68,9 @@ public final class FlashAttention implements Op {
     /** Self-attention on a packed projection qkv [B, T, 3 * heads * d]: o [B, T, heads * d]. */
     public static Tensor packed(Tensor qkv, int heads, Tensor mask, boolean causal, float scale) {
         Checks.f32(qkv);
+        if (qkv.dtype() == DType.F16 && !halfKernel(qkv.dim(2) / 3 / heads)) {
+            qkv = qkv.to(DType.F32);
+        }
         Checks.rank(qkv, 3);
         int b = qkv.dim(0);
         int t = qkv.dim(1);
@@ -84,7 +93,26 @@ public final class FlashAttention implements Op {
         return record(new Tensor[] { q, k, v }, q.shape(), q.dim(0) * heads, q.dim(1), k.dim(1), q.dim(3), heads, mask, causal, scale, BTHD);
     }
 
+    /**
+     * True when half-precision inference runs FP16 q, k, v through the FP16 kernel (head dimensions
+     * up to 64, on a device); otherwise they are converted to FP32.
+     */
+    private static boolean halfKernel(int d) {
+        return d <= FlashKernels64.D && d > FlashKernels32.D && TILED && org.beehive.jitnn.Autocast.halfActivations()
+                && org.beehive.jitnn.engine.Engine.backend() == org.beehive.jitnn.engine.Engine.Backend.TORNADO;
+    }
+
     private static Tensor record(Tensor[] qkv, Shape outShape, int z, int t, int s, int d, int heads, Tensor mask, boolean causal, float scale, int layout) {
+        boolean half = qkv[0].dtype() == DType.F16 && halfKernel(d);
+        for (int i = 0; i < qkv.length; i++) {
+            if (qkv[i].dtype() == DType.F16 && !half) {
+                qkv = qkv.clone();
+                qkv[i] = qkv[i].to(DType.F32);
+            }
+        }
+        if (mask != null && mask.dtype() == DType.F16) {
+            mask = mask.to(DType.F32);
+        }
         int[] strides = { 0, 0, 0, 0 };
         Tensor[] in = qkv;
         if (mask != null) {
@@ -93,7 +121,7 @@ public final class FlashAttention implements Op {
             in = java.util.Arrays.copyOf(qkv, qkv.length + 1);
             in[qkv.length] = mask;
         }
-        Tensor o = Tensor.result(outShape, DType.F32);
+        Tensor o = Tensor.result(outShape, half ? DType.F16 : DType.F32);
         Tensor lse = Tensor.result(Shape.of(z * t), DType.F32);
         int[] iattr = { z, t, s, d, causal ? 1 : 0, heads, strides[0], strides[1], strides[2], strides[3], layout };
         Tensor.record(OP, in, new Tensor[] { o, lse }, iattr, new float[] { scale }, true);
@@ -174,6 +202,18 @@ public final class FlashAttention implements Op {
         IntArray meta = e.constant(meta(a));
         boolean packed = a[10] == PACKED;
         int qkvCount = packed ? 1 : 3;
+        if (n.out(0).dtype() == DType.F16) {
+            var qh = e.f16(n.in(0));
+            var kh = packed ? qh : e.f16(n.in(1));
+            var vh = packed ? qh : e.f16(n.in(2));
+            int hm = n.inputs.length > qkvCount ? 1 : 0;
+            FloatArray mk = hm != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
+            var oh = e.f16(n.out(0));
+            FloatArray lh = e.f32(n.out(1));
+            WorkerGrid tiled = Emitter.blocks2D(z * Emitter.ceilDiv(t, FlashTiled64.BQ), 1, 16, 16);
+            e.task(tiled, (g, id) -> g.task(id, FlashTiled64Half::forward, e.context(), qh, kh, vh, mk, oh, lh, t, s, d, scale, causal, hm, meta));
+            return;
+        }
         FloatArray q = e.f32(n.in(0));
         FloatArray k = packed ? q : e.f32(n.in(1));
         FloatArray v = packed ? q : e.f32(n.in(2));

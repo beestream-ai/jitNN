@@ -10,7 +10,8 @@ final class Checks {
 
     static void f32(Tensor... ts) {
         for (Tensor t : ts) {
-            if (t.dtype() != DType.F32) {
+            // in half-precision inference FP16 inputs are converted when the operator is recorded
+            if (t.dtype() != DType.F32 && !(t.dtype() == DType.F16 && org.beehive.jitnn.Autocast.halfActivations())) {
                 throw new IllegalArgumentException("expected an F32 tensor, got " + t);
             }
         }

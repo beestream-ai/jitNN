@@ -23,6 +23,11 @@ public final class Cast implements Op {
 
     static final Cast OP = new Cast();
 
+    @Override
+    public boolean acceptsHalf() {
+        return true;
+    }
+
     private Cast() {
     }
 

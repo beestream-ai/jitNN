@@ -13,6 +13,15 @@ final class HostValues {
     private HostValues() {
     }
 
+    /** Stores v into a host FloatArray or HalfFloatArray. */
+    static void set(Object array, int i, float v) {
+        if (array instanceof uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray h) {
+            h.set(i, new uk.ac.manchester.tornado.api.types.HalfFloat(v));
+        } else {
+            ((FloatArray) array).set(i, v);
+        }
+    }
+
     static float get(Object array, int i) {
         if (array instanceof FloatArray f) {
             return f.get(i);

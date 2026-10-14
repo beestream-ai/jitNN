@@ -44,7 +44,7 @@ public final class F {
     private static Tensor linear(Tensor x, Tensor weight, Tensor bias, boolean relu) {
         Tensor x2 = x.rank() <= 2 ? x : x.reshape(-1, x.dim(-1));
         Tensor y;
-        if (Autocast.current() == DType.F16 && !Grad.isEnabled() && x2.dtype() == DType.F32 && weight.dtype() == DType.F32
+        if (Autocast.current() == DType.F16 && !Grad.isEnabled() && !Autocast.halfActivations() && x2.dtype() == DType.F32 && weight.dtype() == DType.F32
                 && Linear.readsFp32Input(x2.dim(0), weight.dim(0), x2.dim(1))) {
             // FP16 inference on the tensor cores: the FP32 input is rounded as the kernel stages it
             y = Linear.apply(x2, Autocast.weight(weight), bias, relu);
