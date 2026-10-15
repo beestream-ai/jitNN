@@ -95,6 +95,20 @@ public final class NormKernels {
         }
     }
 
+    /** {@link #batchApplyRunning} on FP16 x and y (half-precision inference), in FP32 inside. */
+    public static void batchApplyRunningHalf(KernelContext kc, HalfFloatArray x, HalfFloatArray y, FloatArray runMean, FloatArray runVar, FloatArray gamma, FloatArray beta, int c, int hw,
+            int total, float eps, int relu) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int ch = (i / hw) % c;
+            float v = (x.get(i).getFloat32() - runMean.get(ch)) / TornadoMath.sqrt(runVar.get(ch) + eps) * gamma.get(ch) + beta.get(ch);
+            if (relu != 0) {
+                v = v > 0.0f ? v : 0.0f;
+            }
+            y.set(i, new HalfFloat(v));
+        }
+    }
+
     /** Per channel: dbeta = sum(dy), dgamma = sum(dy * xhat). */
     public static void batchBackwardReduce(KernelContext kc, FloatArray dy, FloatArray x, FloatArray mean, FloatArray invstd, FloatArray dgamma, FloatArray dbeta, int n, int c, int hw) {
         float[] bufA = kc.allocateFloatLocalArray(GROUP);

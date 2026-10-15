@@ -232,9 +232,21 @@ class InferenceBenchAccelTest {
         Module model = ResNet.resnet50(3, 1000, false, 1);
         System.out.printf("[t1] build resnet50: %.0f ms%n", (System.nanoTime() - m0) / 1e6);
         model.train(false);
-        for (int b : new int[] { 1, 32, 128 }) {
-            float[] x = images(b * 3 * 224 * 224);
-            time("resnet50_b" + b + "_fp32", b, () -> Grad.inference(() -> model.forward(Tensor.of(x, b, 3, 224, 224))));
+        // fp32; fp16h: FP16 activations, convolutions on cuDNN in FP16 (needs -Djitnn.native)
+        for (String mode : new String[] { "fp32", "fp16h" }) {
+            for (int b : new int[] { 1, 32, 128 }) {
+                float[] x = images(b * 3 * 224 * 224);
+                String name = "resnet50_b" + b + "_" + mode;
+                Supplier<Tensor> forward = () -> Grad.inference(() -> {
+                    try (Grad.Scope ignored = mode.equals("fp16h") ? Autocast.enableHalf() : null) {
+                        return model.forward(Tensor.of(x, b, 3, 224, 224));
+                    }
+                });
+                if (Boolean.getBoolean("jitnn.bench.split")) {
+                    split(name, forward);
+                }
+                time(name, b, forward);
+            }
         }
         Engine.reset();
     }

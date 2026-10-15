@@ -448,7 +448,9 @@ public final class Fusion {
         if (f == null || !f.current()) {
             if (f == null) {
                 // host arrays: nothing may be recorded while the executor runs
-                f = new Folded(Tensor.persistent(Tensor.of(new float[w.numel()], w.shape().dims())), Tensor.persistent(Tensor.of(new float[a[4]], a[4])),
+                // an FP16 weight (half-precision inference) folds into an FP16 weight
+                Tensor wf = w.dtype() == DType.F16 ? Tensor.persistentHalf(new float[w.numel()], w.shape().dims()) : Tensor.persistent(Tensor.of(new float[w.numel()], w.shape().dims()));
+                f = new Folded(wf, Tensor.persistent(Tensor.of(new float[a[4]], a[4])),
                         new Storage[sources.length], new long[sources.length]);
                 FOLDED.put(key, f);
             }
@@ -479,15 +481,21 @@ public final class Fusion {
             int per = n.iattr[1];
             int hasBias = n.iattr[2];
             int o = hasBias;
-            FloatArray w = e.f32(n.in(0));
             FloatArray bias = hasBias != 0 ? e.f32(n.in(1)) : e.dummyF32();
             FloatArray gamma = e.f32(n.in(1 + o));
             FloatArray beta = e.f32(n.in(2 + o));
             FloatArray mean = e.f32(n.in(3 + o));
             FloatArray var = e.f32(n.in(4 + o));
-            FloatArray wOut = e.f32(n.out(0));
             FloatArray bOut = e.f32(n.out(1));
             float eps = n.fattr[0];
+            if (n.in(0).dtype() == DType.F16) {
+                var wh = e.f16(n.in(0));
+                var wOutH = e.f16(n.out(0));
+                e.task(Emitter.grid1D(cout * per), (g, id) -> g.task(id, FoldKernels::batchNormHalf, e.context(), wh, bias, gamma, beta, mean, var, wOutH, bOut, cout, per, hasBias, eps));
+                return;
+            }
+            FloatArray w = e.f32(n.in(0));
+            FloatArray wOut = e.f32(n.out(0));
             e.task(Emitter.grid1D(cout * per), (g, id) -> g.task(id, FoldKernels::batchNorm, e.context(), w, bias, gamma, beta, mean, var, wOut, bOut, cout, per, hasBias, eps));
         }
 
@@ -496,18 +504,18 @@ public final class Fusion {
             int cout = n.iattr[0];
             int per = n.iattr[1];
             int o = n.iattr[2];
-            FloatArray w = (FloatArray) n.in(0).storage().host();
+            Object w = n.in(0).storage().host();
             FloatArray bias = o != 0 ? (FloatArray) n.in(1).storage().host() : null;
             FloatArray gamma = (FloatArray) n.in(1 + o).storage().host();
             FloatArray beta = (FloatArray) n.in(2 + o).storage().host();
             FloatArray mean = (FloatArray) n.in(3 + o).storage().host();
             FloatArray var = (FloatArray) n.in(4 + o).storage().host();
-            FloatArray wOut = (FloatArray) n.out(0).storage().host();
+            Object wOut = n.out(0).storage().host();
             FloatArray bOut = (FloatArray) n.out(1).storage().host();
             for (int co = 0; co < cout; co++) {
                 double s = gamma.get(co) / Math.sqrt((double) var.get(co) + n.fattr[0]);
                 for (int j = 0; j < per; j++) {
-                    wOut.set(co * per + j, (float) (w.get(co * per + j) * s));
+                    HostValues.set(wOut, co * per + j, (float) (HostValues.get(w, co * per + j) * s));
                 }
                 double b = bias == null ? 0 : bias.get(co);
                 bOut.set(co, (float) (beta.get(co) + (b - mean.get(co)) * s));

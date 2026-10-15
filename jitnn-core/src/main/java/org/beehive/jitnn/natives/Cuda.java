@@ -91,6 +91,11 @@ final class Cuda {
         e.library(Lib.CUDNN, "conv", (g, id) -> g.libraryTask(id, CuDnn::cudnnConv2d, x, w, out, n, c, h, wd, cout, r, r, pad, stride));
     }
 
+    /** cuDNN FP16 convolution (FP32 accumulation, tensor cores): as {@link #conv2d} on FP16 tensors. */
+    static void conv2dHalf(Emitter e, HalfFloatArray x, HalfFloatArray w, HalfFloatArray out, int n, int c, int h, int wd, int cout, int r, int pad, int stride) {
+        e.library(Lib.CUDNN, "convHalf", (g, id) -> g.libraryTask(id, CuDnn::cudnnConv2dFP16, x, w, out, n, c, h, wd, cout, r, r, pad, stride));
+    }
+
     /** FP16 attention (cuDNN's fused SDPA, inference): q [b, h, t, d], k and v [b, h, s, d], all FP16. */
     static void attentionF16(Emitter e, HalfFloatArray q, HalfFloatArray k, HalfFloatArray v, HalfFloatArray o, int b, int h, int t, int s, int d, float scale, boolean causal) {
         e.library(Lib.CUDNN, "sdpa", (g, id) -> g.libraryTask(id, CuDnn::sdpaForward, q, k, v, o, b, h, t, s, d, scale, causal));
@@ -149,6 +154,25 @@ final class Cuda {
             }
         }
         return null;
+    }
+
+    /**
+     * One small FP16 convolution: null when it works (a TornadoVM without the FP16 convolution fails
+     * here, as does a cuDNN that has no FP16 algorithm for the device).
+     */
+    static String probeConvHalf() {
+        int c = 8, h = 8, k = 8;
+        HalfFloatArray x = new HalfFloatArray(c * h * h);
+        HalfFloatArray w = new HalfFloatArray(k * c * 9);
+        x.init(new uk.ac.manchester.tornado.api.types.HalfFloat(1.0f));
+        w.init(new uk.ac.manchester.tornado.api.types.HalfFloat(0.125f));
+        HalfFloatArray o = new HalfFloatArray(k * h * h);
+        TaskGraph g = Native.probeGraph("ConvHalf").transferToDevice(DataTransferMode.EVERY_EXECUTION, x, w)
+                .libraryTask("t", CuDnn::cudnnConv2dFP16, x, w, o, 1, c, h, h, k, 3, 3, 1, 1).transferToHost(DataTransferMode.EVERY_EXECUTION, o);
+        Native.runProbe(g);
+        // an interior output sums 8 channels x 9 taps of 0.125
+        float centre = o.get(h * h / 2 + h / 2).getFloat32();
+        return Math.abs(centre - 9.0f) < 1e-2f ? null : "probe returned " + centre;
     }
 
     /** Runs one small call of {@code lib} on the current device: null if it works, otherwise why not. */

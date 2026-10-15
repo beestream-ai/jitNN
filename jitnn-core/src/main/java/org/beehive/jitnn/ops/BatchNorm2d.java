@@ -9,6 +9,7 @@ import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.NormKernels;
 
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 
 /**
  * BatchNorm over the channels of an NCHW tensor, PyTorch semantics. In training it normalises
@@ -41,7 +42,12 @@ public final class BatchNorm2d implements Op {
         if (!runMean.storage().isPersistent() || !runVar.storage().isPersistent()) {
             throw new IllegalArgumentException("batch norm running statistics must be persistent");
         }
-        Tensor y = Tensor.result(x.shape(), DType.F32);
+        // half-precision inference: an FP16 input gives an FP16 output (statistics stay FP32)
+        boolean half = x.dtype() == DType.F16 && !training && org.beehive.jitnn.Autocast.halfActivations();
+        if (x.dtype() == DType.F16 && !half) {
+            x = x.to(DType.F32);
+        }
+        Tensor y = Tensor.result(x.shape(), half ? DType.F16 : DType.F32);
         int[] a = { n, c, hw, training ? 1 : 0, relu ? 1 : 0 };
         float[] f = { eps, momentum };
         Tensor[] in = { x, gamma, beta, runMean, runVar };
@@ -61,8 +67,26 @@ public final class BatchNorm2d implements Op {
     }
 
     @Override
+    public boolean acceptsHalf() {
+        return true;
+    }
+
+    @Override
     public void emit(Emitter e, Node node) {
         int[] a = node.iattr;
+        if (node.out(0).dtype() == DType.F16) {
+            int total = a[0] * a[1] * a[2];
+            HalfFloatArray xh = e.f16(node.in(0));
+            HalfFloatArray yh = e.f16(node.out(0));
+            FloatArray gamma = e.f32(node.in(1));
+            FloatArray beta = e.f32(node.in(2));
+            FloatArray rm = e.f32(node.in(3));
+            FloatArray rv = e.f32(node.in(4));
+            int c = a[1], hw = a[2], relu = a[4];
+            float eps = node.fattr[0];
+            e.task(Emitter.grid1D(total), (g, id) -> g.task(id, NormKernels::batchApplyRunningHalf, e.context(), xh, yh, rm, rv, gamma, beta, c, hw, total, eps, relu));
+            return;
+        }
         int n = a[0];
         int c = a[1];
         int hw = a[2];
@@ -95,12 +119,12 @@ public final class BatchNorm2d implements Op {
         boolean relu = a[4] != 0;
         double eps = node.fattr[0];
         double momentum = node.fattr[1];
-        FloatArray x = (FloatArray) node.in(0).storage().host();
+        Object x = node.in(0).storage().host();
         FloatArray gamma = (FloatArray) node.in(1).storage().host();
         FloatArray beta = (FloatArray) node.in(2).storage().host();
         FloatArray rm = (FloatArray) node.in(3).storage().host();
         FloatArray rv = (FloatArray) node.in(4).storage().host();
-        FloatArray y = (FloatArray) node.out(0).storage().host();
+        Object y = node.out(0).storage().host();
         int count = n * hw;
         for (int ch = 0; ch < c; ch++) {
             double mu;
@@ -109,14 +133,14 @@ public final class BatchNorm2d implements Op {
                 double s = 0;
                 for (int b = 0; b < n; b++) {
                     for (int j = 0; j < hw; j++) {
-                        s += x.get((b * c + ch) * hw + j);
+                        s += HostValues.get(x, (b * c + ch) * hw + j);
                     }
                 }
                 mu = s / count;
                 double sq = 0;
                 for (int b = 0; b < n; b++) {
                     for (int j = 0; j < hw; j++) {
-                        double d = x.get((b * c + ch) * hw + j) - mu;
+                        double d = HostValues.get(x, (b * c + ch) * hw + j) - mu;
                         sq += d * d;
                     }
                 }
@@ -134,8 +158,8 @@ public final class BatchNorm2d implements Op {
             for (int b = 0; b < n; b++) {
                 for (int j = 0; j < hw; j++) {
                     int at = (b * c + ch) * hw + j;
-                    double v = (x.get(at) - mu) * is * gamma.get(ch) + beta.get(ch);
-                    y.set(at, (float) (relu ? Math.max(v, 0) : v));
+                    double v = (HostValues.get(x, at) - mu) * is * gamma.get(ch) + beta.get(ch);
+                    HostValues.set(y, at, (float) (relu ? Math.max(v, 0) : v));
                 }
             }
         }

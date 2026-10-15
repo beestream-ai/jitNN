@@ -21,7 +21,10 @@ public final class Libs {
 
     /** A probe of one library function on the current device (null when it works or has no probe of its own). */
     public static String probeFunction(Lib lib, String function) {
-        return lib == Lib.CUDNN && function.equals("sdpa") ? Cuda.probeAttention() : null;
+        if (lib == Lib.CUDNN && function.equals("sdpa")) {
+            return Cuda.probeAttention();
+        }
+        return lib == Lib.CUDNN && function.equals("convHalf") ? Cuda.probeConvHalf() : null;
     }
 
     /** Called by {@link Native} to probe a library on the current device: null when it works. */
@@ -393,6 +396,36 @@ public final class Libs {
             int rows = n * oh * ow;
             e.task(Emitter.grid1D(ny), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), out, b, rows, cout, ny, epilogue));
         }
+    }
+
+    /**
+     * Whether a convolution of this form runs as an FP16 cuDNN convolution in half-precision
+     * inference: one group, no dilation, cuDNN available with its FP16 convolution. Decided when
+     * the convolution is recorded, as it sets the output type.
+     */
+    public static boolean conv2dHalfAvailable(int groups, int dil) {
+        return groups == 1 && dil == 1 && Native.use("convHalf", Lib.CUDNN);
+    }
+
+    /**
+     * FP16 out [n, cout, oh, ow] = conv(x [n, cin, h, w], w [cout, cin, r, r]) (+ per-channel FP32
+     * bias, ReLU) with FP32 accumulation; false when cuDNN's FP16 convolution is off.
+     */
+    public static boolean conv2dHalf(Emitter e, HalfFloatArray x, HalfFloatArray w, HalfFloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow,
+            int r, int stride, int pad, int epilogue) {
+        if (!Native.use("convHalf", Lib.CUDNN)) {
+            return false;
+        }
+        Cuda.conv2dHalf(e, x, w, out, n, cin, h, wd, cout, r, pad, stride);
+        if (epilogue != 0) {
+            int rowEpilogue = ((epilogue & org.beehive.jitnn.kernels.GemmKernels.BIAS) != 0 ? org.beehive.jitnn.kernels.GemmKernels.ROW_BIAS : 0)
+                    | (epilogue & ~org.beehive.jitnn.kernels.GemmKernels.BIAS);
+            FloatArray b = bias != null ? bias : e.dummyF32();
+            int plane = oh * ow;
+            int total = n * cout * plane;
+            e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), out, b, cout, plane, total, rowEpilogue));
+        }
+        return true;
     }
 
     /** y = softmax(x) over the rows of x [rows, cols] (not the log form). */

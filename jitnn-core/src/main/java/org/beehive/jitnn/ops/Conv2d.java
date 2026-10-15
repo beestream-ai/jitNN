@@ -8,9 +8,11 @@ import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.ConvKernels;
 import org.beehive.jitnn.kernels.GemmKernels;
+import org.beehive.jitnn.kernels.LowPrecision;
 import org.beehive.jitnn.kernels.ReduceKernels;
 
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 
 /**
  * 2-D convolution, PyTorch semantics and layout: x [N, Cin, H, W], weight [Cout, Cin/groups, K, K],
@@ -59,11 +61,30 @@ public final class Conv2d implements Op {
                 throw new IllegalArgumentException("conv2d: bias " + bias.shape() + " for " + cout + " channels");
             }
         }
-        Tensor out = Tensor.result(Shape.of(n, cout, oh, ow), DType.F32);
+        // half-precision inference: FP16 out where cuDNN runs the convolution in FP16; otherwise FP32
+        boolean half = halfPath(groups, dil);
+        if (!half) {
+            x = x.dtype() == DType.F16 ? x.to(DType.F32) : x;
+            w = w.dtype() == DType.F16 ? w.to(DType.F32) : w;
+        }
+        Tensor out = Tensor.result(Shape.of(n, cout, oh, ow), half ? DType.F16 : DType.F32);
         int[] a = { n, cin, h, wd, cout, oh, ow, k, stride, pad, dil, groups, bias == null ? 0 : 1, relu ? 1 : 0 };
         Tensor[] in = bias == null ? new Tensor[] { x, w } : new Tensor[] { x, w, bias };
         Tensor.record(OP, in, new Tensor[] { out }, a, null, true);
         return out;
+    }
+
+    /**
+     * Whether a convolution recorded now returns FP16: in half-precision inference, when cuDNN's FP16
+     * convolution covers it. The caller then passes the weight as FP16 ({@link org.beehive.jitnn.F}).
+     */
+    public static boolean halfPath(int groups, int dil) {
+        return org.beehive.jitnn.Autocast.halfActivations() && org.beehive.jitnn.natives.Libs.conv2dHalfAvailable(groups, dil);
+    }
+
+    @Override
+    public boolean acceptsHalf() {
+        return true;
     }
 
     static boolean depthwise(int[] a) {
@@ -248,11 +269,61 @@ public final class Conv2d implements Op {
     @Override
     public void emit(Emitter e, Node node) {
         int[] a = node.iattr;
-        FloatArray x = e.f32(node.in(0));
-        FloatArray w = e.f32(node.in(1));
-        FloatArray out = e.f32(node.out(0));
         FloatArray bias = a[BIAS] != 0 ? e.f32(node.in(2)) : e.dummyF32();
         int epilogue = (a[BIAS] != 0 ? GemmKernels.BIAS : 0) | (a[RELU] != 0 ? GemmKernels.RELU : 0);
+        if (node.out(0).dtype() == DType.F16) {
+            emitHalf(e, node, bias, epilogue);
+            return;
+        }
+        emitF32(e, a, e.f32(node.in(0)), e.f32(node.in(1)), e.f32(node.out(0)), bias, epilogue);
+    }
+
+    /**
+     * FP16 out: cuDNN's FP16 convolution on FP16 operands (an FP32 input, as the first layer's image,
+     * is rounded first), or, when that is off on this device, the FP32 kernels on converted copies.
+     */
+    private static void emitHalf(Emitter e, Node node, FloatArray bias, int epilogue) {
+        int[] a = node.iattr;
+        HalfFloatArray out = e.f16(node.out(0));
+        int outSize = a[N] * a[COUT] * a[OH] * a[OW];
+        if (org.beehive.jitnn.natives.Libs.conv2dHalfAvailable(a[GROUPS], a[DIL])) {
+            HalfFloatArray xh = half(e, node.in(0));
+            HalfFloatArray wh = half(e, node.in(1));
+            if (org.beehive.jitnn.natives.Libs.conv2dHalf(e, xh, wh, out, a[BIAS] != 0 ? bias : null, a[N], a[CIN], a[H], a[W], a[COUT], a[OH], a[OW], a[K], a[STRIDE], a[PAD],
+                    epilogue)) {
+                return;
+            }
+        }
+        FloatArray of = e.scratch(outSize);
+        emitF32(e, a, single(e, node.in(0)), single(e, node.in(1)), of, bias, epilogue);
+        e.task(Emitter.grid1D(outSize), (g, id) -> g.task(id, LowPrecision::f32ToF16, e.context(), of, out, outSize));
+    }
+
+    /** t as FP16: its own storage, or an FP16 copy of an FP32 tensor. */
+    private static HalfFloatArray half(Emitter e, Tensor t) {
+        if (t.dtype() == DType.F16) {
+            return e.f16(t);
+        }
+        FloatArray f = e.f32(t);
+        int count = t.numel();
+        HalfFloatArray h = e.scratchF16(count);
+        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, LowPrecision::f32ToF16, e.context(), f, h, count));
+        return h;
+    }
+
+    /** t as FP32: its own storage, or an FP32 copy of an FP16 tensor. */
+    private static FloatArray single(Emitter e, Tensor t) {
+        if (t.dtype() == DType.F32) {
+            return e.f32(t);
+        }
+        HalfFloatArray h = e.f16(t);
+        int count = t.numel();
+        FloatArray f = e.scratch(count);
+        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, LowPrecision::f16ToF32, e.context(), h, f, count));
+        return f;
+    }
+
+    private static void emitF32(Emitter e, int[] a, FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int epilogue) {
         int cin = a[CIN], h = a[H], wd = a[W], cout = a[COUT], oh = a[OH], ow = a[OW], k = a[K], st = a[STRIDE], pd = a[PAD], dl = a[DIL], gr = a[GROUPS];
         if (depthwise(a)) {
             int total = a[N] * cout * oh * ow;
@@ -309,10 +380,11 @@ public final class Conv2d implements Op {
     @Override
     public void reference(Node node) {
         int[] a = node.iattr;
-        FloatArray x = (FloatArray) node.in(0).storage().host();
-        FloatArray w = (FloatArray) node.in(1).storage().host();
+        // FP16 or FP32 storage (half-precision inference)
+        Object x = node.in(0).storage().host();
+        Object w = node.in(1).storage().host();
         FloatArray b = a[BIAS] != 0 ? (FloatArray) node.in(2).storage().host() : null;
-        FloatArray out = (FloatArray) node.out(0).storage().host();
+        Object out = node.out(0).storage().host();
         int cg = a[CIN] / a[GROUPS];
         int cog = a[COUT] / a[GROUPS];
         int k = a[K];
@@ -333,11 +405,11 @@ public final class Conv2d implements Op {
                                     if (iw < 0 || iw >= a[W]) {
                                         continue;
                                     }
-                                    acc += (double) x.get(((n * a[CIN] + g * cg + ci) * a[H] + ih) * a[W] + iw) * w.get(((co * cg + ci) * k + kh) * k + kw);
+                                    acc += (double) HostValues.get(x, ((n * a[CIN] + g * cg + ci) * a[H] + ih) * a[W] + iw) * HostValues.get(w, ((co * cg + ci) * k + kh) * k + kw);
                                 }
                             }
                         }
-                        out.set(((n * a[COUT] + co) * a[OH] + oh) * a[OW] + ow, (float) (a[RELU] != 0 ? Math.max(acc, 0) : acc));
+                        HostValues.set(out, ((n * a[COUT] + co) * a[OH] + oh) * a[OW] + ow, (float) (a[RELU] != 0 ? Math.max(acc, 0) : acc));
                     }
                 }
             }

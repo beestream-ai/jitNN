@@ -99,6 +99,59 @@ class HalfInferenceAccelTest {
         }
     }
 
+    /** A persistent tensor of host values in [lo, hi): constant to the trace, so convolution + BatchNorm fold. */
+    private static Tensor constant(int seed, float lo, float hi, int... dims) {
+        java.util.Random r = new java.util.Random(seed);
+        int n = 1;
+        for (int d : dims) {
+            n *= d;
+        }
+        float[] v = new float[n];
+        for (int i = 0; i < n; i++) {
+            v[i] = lo + (hi - lo) * r.nextFloat();
+        }
+        return Tensor.persistent(Tensor.of(v, dims));
+    }
+
+    private static Tensor convBn(Tensor x, int cout, int k, int stride, int seed, boolean relu) {
+        int cin = x.dim(1);
+        float bound = (float) (1.5 / Math.sqrt(cin * k * k));
+        Tensor w = constant(seed, -bound, bound, cout, cin, k, k);
+        Tensor y = F.conv2d(x, w, null, stride, k / 2, 1, 1);
+        Tensor mean = constant(seed + 1, -0.1f, 0.1f, cout);
+        Tensor var = constant(seed + 2, 0.5f, 1.5f, cout);
+        Tensor g = constant(seed + 3, 0.8f, 1.2f, cout);
+        Tensor b = constant(seed + 4, -0.1f, 0.1f, cout);
+        return relu ? F.batchNormRelu(y, mean, var, g, b, false, 0.1f, 1e-5f) : F.batchNorm(y, mean, var, g, b, false, 0.1f, 1e-5f);
+    }
+
+    /**
+     * A ResNet bottleneck: convolutions (FP16 on cuDNN, FP32 kernels otherwise), batch norms, the
+     * residual add, from an FP32 image through a strided stem.
+     */
+    @Test
+    void convolutionBlock() {
+        Supplier<Tensor> model = () -> {
+            Tensor x = convBn(Tensor.uniform(50, -1, 1, 2, 3, 32, 32), 64, 7, 2, 51, true);
+            Tensor y = convBn(x, 32, 1, 1, 60, true);
+            y = convBn(y, 32, 3, 1, 70, true);
+            y = convBn(y, 64, 1, 1, 80, false);
+            return x.add(y).relu();
+        };
+        close(run(Backend.REFERENCE, false, model), run(Backend.TORNADO, true, model), 2e-2, 2e-2, "conv + batch norm block in FP16");
+    }
+
+    /** Grouped convolutions have no FP16 form: they read FP32 copies. */
+    @Test
+    void groupedConvolution() {
+        Supplier<Tensor> model = () -> {
+            Tensor x = Tensor.uniform(52, -1, 1, 2, 16, 12, 12);
+            Tensor w = Tensor.persistent(Tensor.uniform(53, -0.3f, 0.3f, 16, 4, 3, 3));
+            return F.conv2d(F.conv2d(x, Tensor.persistent(Tensor.uniform(54, -0.2f, 0.2f, 16, 16, 3, 3)), null, 1, 1, 1, 1), w, null, 1, 1, 1, 4);
+        };
+        close(run(Backend.REFERENCE, false, model), run(Backend.TORNADO, true, model), 2e-2, 2e-2, "grouped convolution after an FP16 one");
+    }
+
     @Test
     void activationsStayHalf() {
         Engine.with(Backend.TORNADO, () -> Grad.inference(() -> {
