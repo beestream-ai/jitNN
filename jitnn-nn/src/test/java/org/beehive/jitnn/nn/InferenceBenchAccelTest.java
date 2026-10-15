@@ -228,7 +228,9 @@ class InferenceBenchAccelTest {
         if (!enabled("resnet50")) {
             return;
         }
+        long m0 = System.nanoTime();
         Module model = ResNet.resnet50(3, 1000, false, 1);
+        System.out.printf("[t1] build resnet50: %.0f ms%n", (System.nanoTime() - m0) / 1e6);
         model.train(false);
         for (int b : new int[] { 1, 32, 128 }) {
             float[] x = images(b * 3 * 224 * 224);
@@ -242,7 +244,9 @@ class InferenceBenchAccelTest {
         if (!enabled("bert")) {
             return;
         }
+        long m0 = System.nanoTime();
         Bert model = new Bert(BERT_VOCAB, 512, 768, 12, 12, 1);
+        System.out.printf("[t1] build bert: %.0f ms%n", (System.nanoTime() - m0) / 1e6);
         model.train(false);
         int[][] shapes = { { 1, 128 }, { 32, 128 }, { 8, 512 } };
         // fp32; fp16: autocast (FP16 weights and products, FP32 activations); fp16h: FP16 activations too

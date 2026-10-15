@@ -372,6 +372,16 @@ final class TornadoExecutor {
         return null;
     }
 
+    /** The sum of every {@code "field": "n"} in TornadoVM's profiler log (nanoseconds). */
+    private static long sumField(String log, String field) {
+        long sum = 0;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"" + field + "\"\\s*:\\s*\"?(\\d+)").matcher(log == null ? "" : log);
+        while (m.find()) {
+            sum += Long.parseLong(m.group(1));
+        }
+        return sum;
+    }
+
     /** Releases a plan that failed before it ran (nothing of it is on the host to save). */
     private static void closeQuietly(CompiledTrace ct) {
         try {
@@ -721,7 +731,13 @@ final class TornadoExecutor {
         }
         executeNanos += System.nanoTime() - t0;
         if (VERBOSE && ct.executions == 0) {
-            System.err.printf("[jitnn] first execution of %s (kernel compilation): %.1f ms%n", ct.name, (System.nanoTime() - t0) / 1e6);
+            String split = "";
+            if (PROFILE) {
+                // TornadoVM's per-task compile times: Graal (Java to PTX/OpenCL C) and the driver (to binary)
+                String log = ct.last.getProfilerResult().getProfileLog();
+                split = String.format(" (Graal %.1f ms, driver %.1f ms)", sumField(log, "TASK_COMPILE_GRAAL_TIME") / 1e6, sumField(log, "TASK_COMPILE_DRIVER_TIME") / 1e6);
+            }
+            System.err.printf("[jitnn] first execution of %s (kernel compilation): %.1f ms%s%n", ct.name, (System.nanoTime() - t0) / 1e6, split);
         }
         if (ct.executions == 0 && !ct.libraries.isEmpty()) {
             Native.proven(ct.libraries);

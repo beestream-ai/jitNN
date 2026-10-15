@@ -21,6 +21,20 @@ final class Trace {
         return nodes;
     }
 
+    /** Takes {@code node} out of this thread's pending operators if it is the last one recorded; true when it did. */
+    static boolean removeLast(Node node) {
+        List<Node> nodes = PENDING.get();
+        if (!nodes.isEmpty() && nodes.get(nodes.size() - 1) == node) {
+            nodes.remove(nodes.size() - 1);
+            return true;
+        }
+        return false;
+    }
+
+    static List<Node> pending() {
+        return PENDING.get();
+    }
+
     static int size() {
         return PENDING.get().size();
     }

@@ -99,6 +99,27 @@ public final class Engine {
         }
     }
 
+    /**
+     * Computes {@code t} on the host when it is the output of the last recorded operator and that
+     * operator draws uniform random values from a seed ({@code Tensor.uniform(long, ...)}): the
+     * operator leaves the trace, so no device plan is compiled for it. Returns true when it did.
+     * Initial weights use this: the host's uniform stream equals the device's bit for bit (normal
+     * draws are left to the device, whose transcendentals are FP32).
+     */
+    public static boolean generateOnHost(Tensor t) {
+        java.util.List<Node> pending = Trace.pending();
+        if (pending.isEmpty()) {
+            return false;
+        }
+        Node last = pending.get(pending.size() - 1);
+        if (last.inputs.length != 0 || last.outputs.length != 1 || last.outputs[0].storage() != t.storage() || !last.op.name().equals("philox")
+                || last.iattr[3] != 0 || !Trace.removeLast(last)) {
+            return false;
+        }
+        ReferenceExecutor.run(last);
+        return true;
+    }
+
     /** Runs everything recorded on this thread, fetching {@code wanted} to the host. */
     public static void sync(Tensor... wanted) {
         List<Node> nodes = Trace.drain();

@@ -75,13 +75,21 @@ public final class RandomFill implements Op {
             seedLo = seed.get(0);
             seedHi = seed.get(1);
         }
-        float[] block = new float[4];
-        for (int t = 0; t * 4 < count; t++) {
-            generate(t, seedLo, seedHi, n.iattr[2], n.iattr[3], n.fattr[0], n.fattr[1], block);
-            for (int j = 0; j < 4 && t * 4 + j < count; j++) {
-                out.set(t * 4 + j, block[j]);
+        int lo = seedLo;
+        int hi = seedHi;
+        int blocks = (count + 3) / 4;
+        // Philox is counter-based: blocks are independent, so large fills use every core (same values)
+        java.util.stream.IntStream range = java.util.stream.IntStream.range(0, (blocks + 4095) / 4096);
+        (blocks > 65536 ? range.parallel() : range).forEach(chunk -> {
+            float[] block = new float[4];
+            int end = Math.min(blocks, (chunk + 1) * 4096);
+            for (int t = chunk * 4096; t < end; t++) {
+                generate(t, lo, hi, n.iattr[2], n.iattr[3], n.fattr[0], n.fattr[1], block);
+                for (int j = 0; j < 4 && t * 4 + j < count; j++) {
+                    out.set(t * 4 + j, block[j]);
+                }
             }
-        }
+        });
     }
 
     /** Host Philox, the same bit-level algorithm as the kernel; transcendentals in double. */
