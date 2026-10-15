@@ -61,6 +61,7 @@ working around a backend problem.
 | Property | Default | Meaning |
 |---|---|---|
 | `jitnn.onnx.rewrite` | `true` | `jitnn-onnx` (and `jitnn-tf`, which goes through it): rewrite MatMul by a constant (+ bias) into linear layers, the erf GELU chain into GELU and attention chains into one attention operator at load |
+| `jitnn.onnx.buckets` | empty | shape buckets for every ONNX session (`1,2,4,8,...`): symbolic batch and masked sequence dimensions are padded to the smallest bucket, so a server compiles one plan per bucket (see `OnnxSession.withBuckets`) |
 | `jitnn.onnx.fusedAttentionRows` | `32` | `jitnn-onnx`: rewritten attention uses the fused kernel when batch x heads is at most this, else batched GEMMs and a fused scale-softmax |
 | `jitnn.djl.fallback` | empty | `jitnn-djl`: a DJL engine (for example `PyTorch`) that runs the operators jitNN lacks, when it is on the class path; empty: those operators throw |
 | `jitnn.djl.persistentBytes` | `4194304` (4 MiB) | `jitnn-djl`: arrays created from host data at least this large (datasets) are kept in persistent device storage, uploaded once instead of by every step that reads them |

@@ -69,13 +69,16 @@ final class TornadoExecutor {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, CompiledTrace> eldest) {
             // every concurrency slot compiles its own plans, so the cache holds CACHE_SIZE per slot
-            if (size() > CACHE_SIZE * Math.max(1, Integer.getInteger("jitnn.concurrency", 1)) && !eldest.getValue().busy) {
+            if (size() > Math.max(CACHE_SIZE, RESERVED.get()) * Math.max(1, Integer.getInteger("jitnn.concurrency", 1)) && !eldest.getValue().busy) {
                 close(eldest.getValue());
                 return true;
             }
             return false;
         }
     };
+
+    /** Plan cache room reserved by users that need many plans at once (Engine.reservePlans: shape buckets). */
+    static final java.util.concurrent.atomic.AtomicInteger RESERVED = new java.util.concurrent.atomic.AtomicInteger();
 
     /** Cached plans by structure (the key without persistent storage identities), for plan reuse. */
     private static final Map<String, List<CompiledTrace>> BY_STRUCTURE = new java.util.HashMap<>();

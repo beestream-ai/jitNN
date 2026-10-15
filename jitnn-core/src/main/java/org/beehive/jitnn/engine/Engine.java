@@ -169,6 +169,15 @@ public final class Engine {
      * Cumulative nanoseconds spent in jitNN's executor outside TornadoVM ({@code [0]}, tracing
      * excluded) and inside {@code TornadoExecutionPlan.execute()} ({@code [1]}).
      */
+    /**
+     * Makes room for at least {@code plans} more compiled plans in the plan cache (per concurrency
+     * slot), beyond {@code jitnn.plan.cache}: for callers that cycle through many shapes, as shape
+     * buckets do, so their plans are not evicted and compiled again.
+     */
+    public static void reservePlans(int plans) {
+        TornadoExecutor.RESERVED.addAndGet(Math.max(0, plans));
+    }
+
     public static long[] timeSplit() {
         return TornadoExecutor.isLoaded() ? TornadoExecutor.timeSplit() : new long[2];
     }

@@ -205,6 +205,39 @@ float[] out = logits.toFloatArray();                  // FP16 results read as fl
 
 It needs gradients off; with gradients on, the scope behaves as `Autocast.enable(DType.F16)`.
 
+## Serving
+
+**Concurrent requests.** `-Djitnn.concurrency=N` lets up to N threads run plans on the device at
+once.
+- Each of N slots has its own compiled plans and device buffers, weights included, so memory
+  grows with N.
+- Threads in the same slot take turns.
+- Plans that write parameters (training) still run one at a time.
+- On an A100 with 4 threads and 4 slots, throughput is 2.1-2.7x at batch 1 and 1.1-1.35x at large
+  batch.
+
+**Request shapes.** jitNN compiles one plan per shape: kernels are specialised on their sizes, so
+a new batch size or sequence length costs a compilation (seconds). `OnnxSession.withBuckets`
+pads requests to a few shapes instead. On the A100, 40 encoder requests of random batch sizes and
+lengths took 0.06 s with buckets, against 6-14 s compiling one plan per shape:
+
+```java
+OnnxSession session = OnnxSession.load(Path.of("encoder.onnx")).withBuckets(1, 2, 4, 8, 16, 32, 64, 128, 256, 512);
+Map<String, Tensor> out = session.run(Map.of("input_ids", ids, "attention_mask", mask));   // any [batch, length]
+```
+
+- **What is padded:** the model's symbolic dimensions, to the smallest bucket that holds them. A
+  size beyond the largest bucket runs as it is.
+- **Only where padding is safe:**
+  - a dimension that is the first axis of every input it appears in (the batch);
+  - a dimension of an input whose name contains `mask` (a masked sequence).
+- **Results:** inputs are padded with zeros and outputs cut back to the request's sizes, so they
+  equal unpadded runs.
+- **First use:** each bucket compiles on first use, so send one request per bucket at start-up.
+- **Plan cache:** `withBuckets` reserves room in the plan cache for its buckets.
+- **Any ONNX session:** `-Djitnn.onnx.buckets=1,2,4,...` gives every ONNX session buckets,
+  DJL's and TensorFlow's included.
+
 ## Inference and memory
 
 ```java

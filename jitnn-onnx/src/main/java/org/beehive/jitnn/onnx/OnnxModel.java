@@ -119,8 +119,15 @@ public final class OnnxModel {
         }
     }
 
-    /** A graph input or output: name, element type and dims (-1 for a symbolic dimension). */
-    public record ValueInfo(String name, int elemType, long[] dims) {
+    /**
+     * A graph input or output: name, element type and dims (-1 for a symbolic dimension), with the
+     * symbolic dimensions' names ({@code dim_param}, null where a dimension has none or dims is null).
+     */
+    public record ValueInfo(String name, int elemType, long[] dims, String[] dimNames) {
+
+        public ValueInfo(String name, int elemType, long[] dims) {
+            this(name, elemType, dims, null);
+        }
     }
 
     public record Graph(String name, List<Node> nodes, Map<String, TensorData> initializers, List<ValueInfo> inputs, List<ValueInfo> outputs) {
@@ -270,6 +277,7 @@ public final class OnnxModel {
         String name = "";
         int elem = 0;
         List<Long> dims = new ArrayList<>();
+        List<String> names = new ArrayList<>();
         while (p.next()) {
             switch (p.field()) {
                 case 1 -> name = p.string();
@@ -287,14 +295,18 @@ public final class OnnxModel {
                                             if (shape.field() == 1) {
                                                 Proto dim = shape.message();
                                                 long v = -1;
+                                                String param = null;
                                                 while (dim.next()) {
                                                     if (dim.field() == 1) {
                                                         v = dim.varint();
+                                                    } else if (dim.field() == 2) {
+                                                        param = dim.string();
                                                     } else {
                                                         dim.skip();
                                                     }
                                                 }
                                                 dims.add(v);
+                                                names.add(v < 0 ? param : null);
                                             } else {
                                                 shape.skip();
                                             }
@@ -311,7 +323,7 @@ public final class OnnxModel {
                 default -> p.skip();
             }
         }
-        return new ValueInfo(name, elem, dims.stream().mapToLong(Long::longValue).toArray());
+        return new ValueInfo(name, elem, dims.stream().mapToLong(Long::longValue).toArray(), names.toArray(new String[0]));
     }
 
     static TensorData tensor(Proto p, Path dir, Map<String, ByteBuffer> external) throws IOException {

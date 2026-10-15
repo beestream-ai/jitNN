@@ -74,12 +74,23 @@ public final class OnnxSession implements AutoCloseable {
      * operands with FP32 accumulation, and the linear layers' weights are stored in FP16.
      */
     public static OnnxSession load(Path file, boolean halfPrecision) throws IOException {
-        return new OnnxSession(OnnxModel.load(file), halfPrecision);
+        return of(OnnxModel.load(file), halfPrecision);
     }
 
     /** A session over a model built in memory (see {@link OnnxModel#of}). */
+    /** Buckets for every session ({@code -Djitnn.onnx.buckets=1,2,4,8,...}, see {@link #withBuckets}), or none. */
+    private static final int[] DEFAULT_BUCKETS = parseBuckets(System.getProperty("jitnn.onnx.buckets", ""));
+
+    private static int[] parseBuckets(String s) {
+        if (s.isBlank()) {
+            return null;
+        }
+        return java.util.Arrays.stream(s.split(",")).map(String::trim).filter(x -> !x.isEmpty()).mapToInt(Integer::parseInt).toArray();
+    }
+
     public static OnnxSession of(OnnxModel model, boolean halfPrecision) {
-        return new OnnxSession(model, halfPrecision);
+        OnnxSession session = new OnnxSession(model, halfPrecision);
+        return DEFAULT_BUCKETS != null ? session.withBuckets(DEFAULT_BUCKETS) : session;
     }
 
     public OnnxModel model() {
@@ -131,6 +142,201 @@ public final class OnnxSession implements AutoCloseable {
      * lazy jitNN tensors (read them with toFloatArray, or keep computing with them).
      */
     public Map<String, Tensor> run(Map<String, Tensor> inputs) {
+        if (buckets == null) {
+            return runExact(inputs);
+        }
+        // pad the symbolic dimensions that may be padded to their bucket, run, and cut the outputs back
+        Map<String, Integer> actual = new HashMap<>();
+        Map<String, Integer> padded = new HashMap<>();
+        for (OnnxModel.ValueInfo vi : model.graph().inputs()) {
+            Tensor t = inputs.get(vi.name());
+            if (t == null || vi.dimNames() == null) {
+                continue;
+            }
+            for (int a = 0; a < vi.dimNames().length && a < t.rank(); a++) {
+                String d = vi.dimNames()[a];
+                if (d != null && paddable.contains(d)) {
+                    actual.put(d, t.dim(a));
+                    padded.put(d, bucket(t.dim(a)));
+                }
+            }
+        }
+        Map<String, Tensor> in = new HashMap<>(inputs);
+        for (OnnxModel.ValueInfo vi : model.graph().inputs()) {
+            Tensor t = in.get(vi.name());
+            if (t == null || vi.dimNames() == null) {
+                continue;
+            }
+            for (int a = 0; a < vi.dimNames().length && a < t.rank(); a++) {
+                String d = vi.dimNames()[a];
+                Integer b = d == null ? null : padded.get(d);
+                if (b != null && b > t.dim(a)) {
+                    int[] dims = t.shape().dims();
+                    dims[a] = b - t.dim(a);
+                    t = t.dtype() == DType.I32 ? padIntsWithZeros(t, a, b) : Tensor.cat(a, t, Tensor.zeros(dims).to(t.dtype()));
+                }
+            }
+            in.put(vi.name(), t);
+        }
+        // where each padded dimension sits in the inputs, for outputs whose dimensions carry no name
+        Map<Integer, String> axisOf = new HashMap<>();
+        for (OnnxModel.ValueInfo vi : model.graph().inputs()) {
+            for (int a = 0; vi.dimNames() != null && a < vi.dimNames().length; a++) {
+                String d = vi.dimNames()[a];
+                if (d != null && padded.containsKey(d)) {
+                    axisOf.putIfAbsent(a, d);
+                }
+            }
+        }
+        Map<String, Tensor> out = runExact(in);
+        // the bucket's plan runs as it is (one plan per bucket); the outputs are cut back on the host
+        // as they are read out, so no operator depends on the request's own sizes
+        org.beehive.jitnn.engine.Engine.sync(out.values().toArray(new Tensor[0]));
+        for (OnnxModel.ValueInfo vo : model.graph().outputs()) {
+            Tensor t = out.get(vo.name());
+            if (t == null) {
+                continue;
+            }
+            int[] keep = t.shape().dims();
+            boolean cut = false;
+            for (int a = 0; a < t.rank(); a++) {
+                String d = vo.dimNames() != null && a < vo.dimNames().length ? vo.dimNames()[a] : null;
+                if (d == null || !padded.containsKey(d)) {
+                    String guess = axisOf.get(a);
+                    d = guess != null && t.dim(a) == padded.get(guess) ? guess : d;
+                }
+                Integer n = d == null ? null : actual.get(d);
+                if (n != null && t.dim(a) > n) {
+                    keep[a] = n;
+                    cut = true;
+                }
+            }
+            if (cut) {
+                out.put(vo.name(), cutOnHost(t, keep));
+            }
+        }
+        return out;
+    }
+
+    private int[] buckets;
+    /** Symbolic dimensions padding cannot change the results of: see {@link #withBuckets}. */
+    private final java.util.Set<String> paddable = new java.util.HashSet<>();
+
+    /**
+     * Pads the model's symbolic dimensions to the smallest of {@code sizes} that holds them (a size
+     * beyond the largest is run as it is), so a server compiles one plan per bucket instead of one
+     * per request shape. Only dimensions padding cannot change the results of are padded:
+     * <ul>
+     * <li>a dimension that is the first axis of every input it appears in (the batch: rows are
+     * computed independently), and</li>
+     * <li>a dimension of an input whose name contains {@code mask} (a sequence: padded positions are
+     * masked out, as zeros in the mask).</li>
+     * </ul>
+     * Inputs are padded with zeros and outputs cut back to the request's sizes. Returns this session.
+     */
+    public OnnxSession withBuckets(int... sizes) {
+        int[] b = sizes.clone();
+        java.util.Arrays.sort(b);
+        buckets = b;
+        paddable.clear();
+        Map<String, Boolean> firstAxisOnly = new HashMap<>();
+        for (OnnxModel.ValueInfo vi : model.graph().inputs()) {
+            if (vi.dimNames() == null) {
+                continue;
+            }
+            for (int a = 0; a < vi.dimNames().length; a++) {
+                String d = vi.dimNames()[a];
+                if (d == null) {
+                    continue;
+                }
+                firstAxisOnly.merge(d, a == 0, Boolean::logicalAnd);
+                if (vi.name().toLowerCase(java.util.Locale.ROOT).contains("mask")) {
+                    paddable.add(d);
+                }
+            }
+        }
+        firstAxisOnly.forEach((d, first) -> {
+            if (first) {
+                paddable.add(d);
+            }
+        });
+        // one plan per combination of buckets: keep them all in the plan cache
+        long combos = 1;
+        for (int i = 0; i < paddable.size(); i++) {
+            combos = Math.min(combos * b.length, 1024);
+        }
+        org.beehive.jitnn.engine.Engine.reservePlans((int) combos);
+        return this;
+    }
+
+    /** The symbolic dimensions {@link #withBuckets} pads (for tests and logging). */
+    public java.util.Set<String> paddedDimensions() {
+        return java.util.Collections.unmodifiableSet(paddable);
+    }
+
+    /** The leading {@code keep[a]} entries of every axis a of t, as a host tensor (INT32 stays INT32, others become FP32). */
+    private static Tensor cutOnHost(Tensor t, int[] keep) {
+        int[] dims = t.shape().dims();
+        int count = 1;
+        for (int k : keep) {
+            count *= k;
+        }
+        boolean ints = t.dtype() == DType.I32;
+        int[] iv = ints ? t.toIntArray() : null;
+        float[] fv = ints ? null : t.toFloatArray();
+        int[] io = ints ? new int[count] : null;
+        float[] fo = ints ? null : new float[count];
+        int[] idx = new int[dims.length];
+        for (int o = 0; o < count; o++) {
+            int src = 0;
+            for (int a = 0; a < dims.length; a++) {
+                src = src * dims[a] + idx[a];
+            }
+            if (ints) {
+                io[o] = iv[src];
+            } else {
+                fo[o] = fv[src];
+            }
+            for (int a = dims.length - 1; a >= 0; a--) {
+                if (++idx[a] < keep[a]) {
+                    break;
+                }
+                idx[a] = 0;
+            }
+        }
+        return ints ? Tensor.of(io, keep) : Tensor.of(fo, keep);
+    }
+
+    /** t (INT32: token ids, masks; host data) with axis {@code axis} padded with zeros to {@code size}. */
+    private static Tensor padIntsWithZeros(Tensor t, int axis, int size) {
+        int[] v = t.toIntArray();
+        int[] dims = t.shape().dims();
+        int outer = 1;
+        for (int i = 0; i < axis; i++) {
+            outer *= dims[i];
+        }
+        int inner = 1;
+        for (int i = axis + 1; i < dims.length; i++) {
+            inner *= dims[i];
+        }
+        int[] out = new int[outer * size * inner];
+        for (int o = 0; o < outer; o++) {
+            System.arraycopy(v, o * dims[axis] * inner, out, o * size * inner, dims[axis] * inner);
+        }
+        dims[axis] = size;
+        return Tensor.of(out, dims);
+    }
+
+    private int bucket(int n) {
+        for (int b : buckets) {
+            if (b >= n) {
+                return b;
+            }
+        }
+        return n;
+    }
+
+    private Map<String, Tensor> runExact(Map<String, Tensor> inputs) {
         Map<String, Value> env = new HashMap<>(constants);
         for (OnnxModel.ValueInfo vi : model.graph().inputs()) {
             Tensor t = inputs.get(vi.name());
