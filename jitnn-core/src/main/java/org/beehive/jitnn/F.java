@@ -49,7 +49,9 @@ public final class F {
             // FP16 inference on the tensor cores: the FP32 input is rounded as the kernel stages it
             y = Linear.apply(x2, Autocast.weight(weight), bias, relu);
         } else {
-            y = Linear.apply(Autocast.operand(x2), Autocast.weight(weight), bias, relu);
+            // half-precision inference: the bias too is cast once per version (FP16 for cuBLASLt's epilogue)
+            Tensor b = bias != null && Autocast.halfActivations() ? Autocast.weight(bias) : bias;
+            y = Linear.apply(Autocast.operand(x2), Autocast.weight(weight), b, relu);
         }
         if (x.rank() <= 2) {
             return y;

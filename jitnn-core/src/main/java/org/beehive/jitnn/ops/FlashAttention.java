@@ -153,10 +153,10 @@ public final class FlashAttention implements Op {
         var vz = e.scratchF16(z * s * d);
         var oz = e.scratchF16(z * t * d);
         int qn = z * t * d;
-        int kn = z * s * d;
-        e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionHalfKernels::gather, e.context(), q, qz, heads, t, d, m[5], m[6], m[7], m[8], qn));
-        e.task(Emitter.grid1D(kn), (g, id) -> g.task(id, AttentionHalfKernels::gather, e.context(), k, kz, heads, s, d, m[9], m[10], m[11], m[12], kn));
-        e.task(Emitter.grid1D(kn), (g, id) -> g.task(id, AttentionHalfKernels::gather, e.context(), v, vz, heads, s, d, m[13], m[14], m[15], m[16], kn));
+        // q, k and v in one pass over the projection
+        IntArray meta = e.constant(m);
+        int total = z * Math.max(t, s) * d;
+        e.task(Emitter.grid1D(total), (g, id) -> g.task(id, AttentionHalfKernels::gatherQkv, e.context(), q, k, v, qz, kz, vz, meta, t, s, d, total));
         org.beehive.jitnn.natives.Libs.fusedAttention(e, qz, kz, vz, oz, z / heads, heads, t, s, d, scale, causal != 0);
         e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionHalfKernels::mergeHalf, e.context(), oz, o, heads, t, d, m[17], m[18], m[19], m[20], qn));
     }

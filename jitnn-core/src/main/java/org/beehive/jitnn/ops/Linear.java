@@ -82,12 +82,24 @@ public final class Linear implements Op {
         int act = node.iattr[4];
         int epilogue = (node.iattr[3] != 0 ? GemmKernels.BIAS : 0) | (act == RELU ? GemmKernels.RELU : 0) | (act == GELU ? GemmKernels.GELU : 0)
                 | (act == GELU_TANH ? GemmKernels.GELU_TANH : 0);
-        FloatArray bias = node.iattr[3] != 0 ? e.f32(node.in(2)) : null;
         if (node.out(0).dtype() == DType.F16) {
             // FP16 out: cuBLAS writes FP16, or the half GEMM into an FP32 buffer converted with the epilogue
             var xh = e.f16(node.in(0));
             var wh = e.f16(node.in(1));
             var yh = e.f16(node.out(0));
+            FloatArray bias;
+            if (node.iattr[3] != 0 && node.in(2).dtype() == DType.F16) {
+                // an FP16 bias (cast once per version): cuBLASLt's epilogue reads it as it is
+                var bh = e.f16(node.in(2));
+                if (org.beehive.jitnn.natives.Libs.gemmHalfOutHalfBias(e, xh, wh, yh, bh, m, n, k, epilogue)) {
+                    return;
+                }
+                FloatArray bf = e.scratch(n);
+                e.task(Emitter.grid1D(n), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LowPrecision::f16ToF32, e.context(), bh, bf, n));
+                bias = bf;
+            } else {
+                bias = node.iattr[3] != 0 ? e.f32(node.in(2)) : null;
+            }
             if (org.beehive.jitnn.natives.Libs.gemmHalfOut(e, xh, wh, yh, bias, m, n, k, 0, 1, epilogue)) {
                 return;
             }
@@ -98,6 +110,7 @@ public final class Linear implements Op {
             e.task(Emitter.grid1D(total), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LibraryGlueKernels::epilogueToHalf, e.context(), tmp, b, yh, m, n, total, epilogue));
             return;
         }
+        FloatArray bias = node.iattr[3] != 0 ? e.f32(node.in(2)) : null;
         if (node.in(0).dtype() == DType.F32 && node.in(1).dtype() == DType.F16) {
             // FP32 input and FP16 weight (Autocast): rounded to FP16 as the tensor-core kernel stages it
             MatMul.emitGemmA32(e, e.f32(node.in(0)), node.in(1), e.f32(node.out(0)), bias != null ? bias : e.dummyF32(), m, n, k, epilogue);
@@ -114,7 +127,7 @@ public final class Linear implements Op {
     public void reference(Node node) {
         Object x = node.in(0).storage().host();
         Object w = node.in(1).storage().host();
-        FloatArray b = node.iattr[3] != 0 ? (FloatArray) node.in(2).storage().host() : null;
+        Object b = node.iattr[3] != 0 ? node.in(2).storage().host() : null;
         Object y = node.out(0).storage().host();
         int m = node.iattr[0];
         int n = node.iattr[1];
@@ -122,7 +135,7 @@ public final class Linear implements Op {
         int act = node.iattr[4];
         for (int i = 0; i < m; i++) {
             for (int j = 0; j < n; j++) {
-                double acc = b == null ? 0 : b.get(j);
+                double acc = b == null ? 0 : HostValues.get(b, j);
                 for (int q = 0; q < k; q++) {
                     acc += (double) HostValues.get(x, i * k + q) * HostValues.get(w, j * k + q);
                 }

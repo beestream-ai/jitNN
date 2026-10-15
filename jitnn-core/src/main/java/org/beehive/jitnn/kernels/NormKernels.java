@@ -492,6 +492,111 @@ public final class NormKernels {
         }
     }
 
+    /** {@link #rowNormForwardWarp} with FP16 x and y. */
+    public static void rowNormForwardHalfWarp(KernelContext kc, HalfFloatArray x, FloatArray w, FloatArray b, HalfFloatArray y, FloatArray mean, FloatArray rstd, int rows, int cols, float eps, int mode,
+            int hasBias) {
+        int lane = kc.localIdx % 32;
+        int row = kc.groupIdx * WARP_ROWS + kc.localIdx / 32;
+        if (row < rows) {
+            int base = row * cols;
+            float mu = 0.0f;
+            if (mode == LAYER) {
+                float sum = 0.0f;
+                for (int c = lane; c < cols; c += 32) {
+                    sum += x.get(base + c).getFloat32();
+                }
+                mu = kc.simdSum(sum) / cols;
+            }
+            float sq = 0.0f;
+            for (int c = lane; c < cols; c += 32) {
+                float d = x.get(base + c).getFloat32() - mu;
+                sq += d * d;
+            }
+            float r = 1.0f / TornadoMath.sqrt(kc.simdSum(sq) / cols + eps);
+            for (int c = lane; c < cols; c += 32) {
+                float v = (x.get(base + c).getFloat32() - mu) * r * w.get(c);
+                if (hasBias != 0) {
+                    v += b.get(c);
+                }
+                y.set(base + c, new HalfFloat(v));
+            }
+            if (lane == 0) {
+                mean.set(row, mu);
+                rstd.set(row, r);
+            }
+        }
+    }
+
+    /** {@link #rowNormForwardWarp} of x + res (FP16), FP16 y. */
+    public static void rowNormForwardHalfAddWarp(KernelContext kc, HalfFloatArray x, HalfFloatArray res, FloatArray w, FloatArray b, HalfFloatArray y, FloatArray mean, FloatArray rstd, int rows, int cols, float eps, int mode,
+            int hasBias) {
+        int lane = kc.localIdx % 32;
+        int row = kc.groupIdx * WARP_ROWS + kc.localIdx / 32;
+        if (row < rows) {
+            int base = row * cols;
+            float mu = 0.0f;
+            if (mode == LAYER) {
+                float sum = 0.0f;
+                for (int c = lane; c < cols; c += 32) {
+                    sum += (x.get(base + c).getFloat32() + res.get(base + c).getFloat32());
+                }
+                mu = kc.simdSum(sum) / cols;
+            }
+            float sq = 0.0f;
+            for (int c = lane; c < cols; c += 32) {
+                float d = (x.get(base + c).getFloat32() + res.get(base + c).getFloat32()) - mu;
+                sq += d * d;
+            }
+            float r = 1.0f / TornadoMath.sqrt(kc.simdSum(sq) / cols + eps);
+            for (int c = lane; c < cols; c += 32) {
+                float v = ((x.get(base + c).getFloat32() + res.get(base + c).getFloat32()) - mu) * r * w.get(c);
+                if (hasBias != 0) {
+                    v += b.get(c);
+                }
+                y.set(base + c, new HalfFloat(v));
+            }
+            if (lane == 0) {
+                mean.set(row, mu);
+                rstd.set(row, r);
+            }
+        }
+    }
+
+    /** {@link #rowNormForwardWarp} with an FP32 x and an FP16 y. */
+    public static void rowNormForwardToHalfWarp(KernelContext kc, FloatArray x, FloatArray w, FloatArray b, HalfFloatArray y, FloatArray mean, FloatArray rstd, int rows, int cols, float eps, int mode,
+            int hasBias) {
+        int lane = kc.localIdx % 32;
+        int row = kc.groupIdx * WARP_ROWS + kc.localIdx / 32;
+        if (row < rows) {
+            int base = row * cols;
+            float mu = 0.0f;
+            if (mode == LAYER) {
+                float sum = 0.0f;
+                for (int c = lane; c < cols; c += 32) {
+                    sum += x.get(base + c);
+                }
+                mu = kc.simdSum(sum) / cols;
+            }
+            float sq = 0.0f;
+            for (int c = lane; c < cols; c += 32) {
+                float d = x.get(base + c) - mu;
+                sq += d * d;
+            }
+            float r = 1.0f / TornadoMath.sqrt(kc.simdSum(sq) / cols + eps);
+            for (int c = lane; c < cols; c += 32) {
+                float v = (x.get(base + c) - mu) * r * w.get(c);
+                if (hasBias != 0) {
+                    v += b.get(c);
+                }
+                y.set(base + c, new HalfFloat(v));
+            }
+            if (lane == 0) {
+                mean.set(row, mu);
+                rstd.set(row, r);
+            }
+        }
+    }
+
     /** {@link #rowNormBackward} with one warp per row, as {@link #rowNormForwardWarp}. */
     public static void rowNormBackwardWarp(KernelContext kc, FloatArray dy, FloatArray x, FloatArray w, FloatArray mean, FloatArray rstd, FloatArray dx, int rows, int cols, int mode) {
         int lane = kc.localIdx % 32;

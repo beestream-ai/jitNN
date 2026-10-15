@@ -32,6 +32,48 @@ public final class AttentionHalfKernels {
     }
 
 
+    /**
+     * {@link #gather} of q, k and v in one launch: element i of qz (if i < t d z) and of kz and vz (if
+     * i < s d z), with the (offset, batch, head, token) strides of q, k and v at meta[5..16] and the
+     * heads at meta[0] (FlashAttention's metadata).
+     */
+    public static void gatherQkv(KernelContext kc, HalfFloatArray q, HalfFloatArray k, HalfFloatArray v, HalfFloatArray qz, HalfFloatArray kz, HalfFloatArray vz,
+            uk.ac.manchester.tornado.api.types.arrays.IntArray meta, int t, int s, int d, int total) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int heads = meta.get(0);
+            int j = i % d;
+            if (i < qzSize(t, d, total, s)) {
+                int row = (i / d) % t;
+                int z = i / (d * t);
+                int b = z / heads;
+                int h = z - b * heads;
+                qz.set(i, q.get(meta.get(5) + b * meta.get(6) + h * meta.get(7) + row * meta.get(8) + j));
+            }
+            int kRows = s;
+            int z = i / (d * kRows);
+            int row = (i / d) % kRows;
+            int b = z / heads;
+            int h = z - b * heads;
+            if (i < kzSize(t, d, total, s)) {
+                kz.set(i, k.get(meta.get(9) + b * meta.get(10) + h * meta.get(11) + row * meta.get(12) + j));
+                vz.set(i, v.get(meta.get(13) + b * meta.get(14) + h * meta.get(15) + row * meta.get(16) + j));
+            }
+        }
+    }
+
+    /** The q elements (z t d) when total = z max(t, s) d. */
+    private static int qzSize(int t, int d, int total, int s) {
+        int big = t > s ? t : s;
+        return total / big * t;
+    }
+
+    /** The k (and v) elements (z s d) when total = z max(t, s) d. */
+    private static int kzSize(int t, int d, int total, int s) {
+        int big = t > s ? t : s;
+        return total / big * s;
+    }
+
     /** As {@link #gather}, transposed: dst [z, d, rows] (k^T for a GEMM without a transposed operand). */
     public static void gatherTransposed(KernelContext kc, HalfFloatArray src, HalfFloatArray dst, int heads, int rows, int d, int off, int sb, int sh, int st, int total) {
         int i = kc.globalIdx;

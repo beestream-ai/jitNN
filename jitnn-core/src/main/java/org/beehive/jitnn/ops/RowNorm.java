@@ -72,17 +72,32 @@ public final class RowNorm implements Op {
             var yh = e.f16(n.out(0));
             FloatArray mh = e.f32(n.out(1));
             FloatArray rh = e.f32(n.out(2));
+            // a warp per row on CUDA with many rows (FP16 rows are short to read), a work-group per row otherwise
+            boolean warp = WARP && e.isCuda() && rows >= 256 && cols <= 4096;
+            WorkerGrid wg = Emitter.blocks1D(Emitter.ceilDiv(rows, NormKernels.WARP_ROWS), 32 * NormKernels.WARP_ROWS);
             if (n.iattr.length > 4 && n.iattr[4] != 0) {
                 // x + residual (an add fused into the norm by Fusion), both FP16
                 var xh = e.f16(n.in(0));
                 var res = e.f16(n.in(n.inputs.length - 1));
-                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardHalfAdd, e.context(), xh, res, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+                if (warp) {
+                    e.task(wg, (g, id) -> g.task(id, NormKernels::rowNormForwardHalfAddWarp, e.context(), xh, res, w, b, yh, mh, rh, rows, cols, eps, mode, hasBias));
+                } else {
+                    e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardHalfAdd, e.context(), xh, res, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+                }
             } else if (n.in(0).dtype() == DType.F16) {
                 var xh = e.f16(n.in(0));
-                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardHalf, e.context(), xh, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+                if (warp) {
+                    e.task(wg, (g, id) -> g.task(id, NormKernels::rowNormForwardHalfWarp, e.context(), xh, w, b, yh, mh, rh, rows, cols, eps, mode, hasBias));
+                } else {
+                    e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardHalf, e.context(), xh, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+                }
             } else {
                 FloatArray xf = e.f32(n.in(0));
-                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardToHalf, e.context(), xf, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+                if (warp) {
+                    e.task(wg, (g, id) -> g.task(id, NormKernels::rowNormForwardToHalfWarp, e.context(), xf, w, b, yh, mh, rh, rows, cols, eps, mode, hasBias));
+                } else {
+                    e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardToHalf, e.context(), xf, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+                }
             }
             return;
         }

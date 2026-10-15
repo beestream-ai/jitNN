@@ -123,6 +123,22 @@ public final class Libs {
         return true;
     }
 
+    /**
+     * FP16 C [m, n] = A W^T + bias (+ ReLU or GELU) with an FP16 bias, all in cuBLASLt's epilogue;
+     * false when cuBLASLt's epilogue does not take it (the caller converts the bias and retries).
+     */
+    public static boolean gemmHalfOutHalfBias(Emitter e, HalfFloatArray a, HalfFloatArray w, HalfFloatArray c, HalfFloatArray bias, int m, int n, int k, int epilogue) {
+        int bias1 = org.beehive.jitnn.kernels.GemmKernels.BIAS;
+        int act = epilogue & ~bias1;
+        boolean fuseGelu = act == org.beehive.jitnn.kernels.GemmKernels.GELU_TANH || (act == org.beehive.jitnn.kernels.GemmKernels.GELU && APPROXIMATE_GELU);
+        boolean fuseRelu = act == org.beehive.jitnn.kernels.GemmKernels.RELU;
+        if (!BIAS_EPILOGUE || (epilogue & bias1) == 0 || !(act == 0 || fuseGelu || fuseRelu) || !Native.use("gemm", Lib.CUBLAS) || !Native.use("gemmBias", Lib.CUBLAS)) {
+            return false;
+        }
+        Cuda.gemmHalfBias(e, a, w, c, bias, m, n, k, fuseRelu, fuseGelu);
+        return true;
+    }
+
     /** FP32 C [m, n] = op(A) op(B) (+ epilogue) for FP16 A and B. */
     public static boolean gemmF16(Emitter e, HalfFloatArray a, HalfFloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (!Native.use("gemm", Lib.CUBLAS)) {
