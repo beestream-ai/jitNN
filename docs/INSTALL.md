@@ -5,7 +5,7 @@
 | What | Version | Notes |
 |---|---|---|
 | JDK | 22 or newer | jitNN compiles with `--release 22`; tested on Temurin 25.0.3 and JDK 25.0.2 |
-| TornadoVM | `develop`, 7.2.1-jdk22plus-dev or newer | needs the on-demand `TornadoExecutionPlan.transferToDevice(Object...)` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), which every `develop` build installs; earlier versions lack the library tasks |
+| TornadoVM | `develop`, 7.3.2-jdk22plus-dev or newer | needs the on-demand `TornadoExecutionPlan.transferToDevice(Object...)` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), which every `develop` build installs; earlier versions lack the library tasks |
 | A device | CUDA, OpenCL or Metal | optional: the reference backend runs on any CPU |
 | cuDNN, MLX | cuDNN 9; MLX from `brew install mlx` | optional: only for `-Djitnn.native` (see [NATIVE.md](NATIVE.md)); cuBLAS, cuFFT and cuSPARSE come with the CUDA toolkit |
 | Python, `torch`, `numpy` | any recent | optional: only to regenerate the PyTorch references |

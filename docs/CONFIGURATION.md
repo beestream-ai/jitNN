@@ -14,7 +14,7 @@ Sizes are in bytes.
 | `jitnn.plan.idleExecutions` | `256` | executions of other plans before an idle large plan is closed (checked every 32 executions) |
 | `jitnn.promoteInputBytes` | `16777216` (16 MiB) | a host input at least this large that a later execution reads again (a dataset, a constant table) becomes persistent device storage instead of being copied in on every execution |
 | `jitnn.concurrency` | `1` | concurrent executions: threads are spread over this many slots, each with its own compiled plans and device buffers (weights included), so up to this many threads run plans on the device at once; plans that write parameters (training) still run one at a time. The plan cache holds `jitnn.plan.cache` plans per slot |
-| `jitnn.cudaGraph` | `true` | on CUDA, capture each plan as a CUDA graph and replay it (plans that call cuDNN run without one, see [NATIVE.md](NATIVE.md)) |
+| `jitnn.cudaGraph` | `true` | on CUDA, capture each plan as a CUDA graph and replay it |
 | `jitnn.graph.maxTasks` | `40` | tasks per TornadoVM task graph; longer traces become a chain of graphs (a graph holds at most 256 tasks and 8 KiB of bytecode) |
 | `jitnn.reuseBuffers` | `true` | reuse dead backward-pass and inference buffers inside a compiled step |
 | `jitnn.verbose` | `false` | log every compiled plan (device, nodes, tasks, build time) and the vendor libraries found |
@@ -74,12 +74,11 @@ See [NATIVE.md](NATIVE.md) for what each library takes and the fallback to jitNN
 |---|---|---|
 | `jitnn.native` | `off` | vendor libraries in place of jitNN kernels: `auto` uses every one available on the device, or a list of `cublas`, `cudnn`, `cufft`, `cusparse`, `cutlass`, `mlx`; anything missing falls back to jitNN kernels |
 | `jitnn.halfAttention` | `auto` | attention in FP16 inference (`Autocast.enableHalf`): `auto` uses cuDNN's fused attention, else CUTLASS's batched FP16 GEMMs, when `jitnn.native` makes them available, else the FP16 FlashAttention kernel; `cudnn`, `cutlass` or `flash` forces one |
-| `jitnn.cudnnGraphs` | `false` | capture plans that call cuDNN as CUDA graphs too; needs a TornadoVM with beehive-lab/TornadoVM#1238 (without it, such plans run without a CUDA graph) |
 | `jitnn.withNative` | `false` | `true` is `jitnn.native=auto`; the `--with-native` option of jitNN's tools sets it |
 | `jitnn.native.approximateGelu` | `true` | with the bias epilogue, exact GELU after an FP16 linear layer runs as cuBLASLt's tanh-approximated GELU (differences of at most about 5e-4, below FP16's rounding); `false` keeps the exact GELU as a separate kernel |
 | `jitnn.native.biasEpilogue` | `true` | FP16 linear layers in `Autocast.enableHalf` inference add their bias (and ReLU) in cuBLASLt's GEMM epilogue; `false` runs the bias as a separate kernel |
 | `jitnn.native.tf32` | `false` | cuBLAS FP32 products on TF32 tensor cores |
-| `jitnn.native.convMinFlops` | `1073741824` (2^30) | fewest multiply-adds for a convolution to go to cuDNN; smaller ones keep jitNN's kernels, so that small-batch plans keep their CUDA graph |
+| `jitnn.native.convMinFlops` | `1073741824` (2^30) | fewest multiply-adds for a convolution to go to cuDNN; smaller ones keep jitNN's kernels |
 | `jitnn.native.attentionFp16` | `false` | FP32 attention in inference through cuDNN's fused FP16 attention (q, k and v rounded to FP16) |
 | `jitnn.native.unavailable` | empty | comma-separated libraries treated as missing, to test the fallback |
 | `jitnn.native.verbose` | `false` | log which libraries were found on each device |

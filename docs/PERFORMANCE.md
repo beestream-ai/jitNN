@@ -271,9 +271,6 @@ jitNN on them. `scripts/bench/djl` holds the same comparison through DJL, as a b
 - The MLX path on Metal is written but has not been validated on hardware yet.
 - cuDNN convolutions use TF32 on Ampere and newer GPUs, as PyTorch does by default; set
   `NVIDIA_TF32_OVERRIDE=0` for FP32 arithmetic.
-- Plans with cuDNN calls run without CUDA graphs until TornadoVM PR beehive-lab/TornadoVM#1238 is
-  merged; `jitnn.native.convMinFlops` keeps small convolutions on jitNN's kernels so that
-  small-batch plans keep their graph.
 - Data-parallel ranks run one after another, so several devices give no speed-up yet.
 - The Fourier transforms are direct O(n^2) DFTs, and the matrix decompositions use one
   work-group per matrix: fine for the sizes inside models, slow for large inputs.

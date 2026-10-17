@@ -98,14 +98,11 @@ Everything else runs on jitNN's kernels, mostly because TornadoVM has no binding
 
 ## CUDA graphs
 
-Plans that call cuDNN run without a CUDA graph until TornadoVM PR beehive-lab/TornadoVM#1238 is
-merged. The reason is in TornadoVM:
-- cuDNN's workspace is shared by all of a plan's task graphs.
-- It is reallocated when a later convolution needs more.
-- Graphs captured before that point would then use freed memory.
+Plans that call the libraries are captured as CUDA graphs like any other plan. With cuDNN this needs
+a TornadoVM that includes beehive-lab/TornadoVM#1238 (`develop` 7.3.2-dev or newer): older versions free the
+cuDNN workspace while graphs captured earlier still use it.
 
-To keep small-batch plans on CUDA graphs, where launches matter more than the convolutions, cuDNN
-only takes convolutions of at least `jitnn.native.convMinFlops` multiply-adds (default 2^30).
+cuDNN only takes convolutions of at least `jitnn.native.convMinFlops` multiply-adds (default 2^30).
 Smaller ones keep jitNN's kernels.
 
 ## Results

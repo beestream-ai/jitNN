@@ -167,8 +167,7 @@ public final class Libs {
 
     /**
      * Fewest multiply-adds (2 x N x Cout x OH x OW x Cin x K x K) for a convolution to go to cuDNN
-     * ({@code -Djitnn.native.convMinFlops}): smaller ones keep jitNN's kernels, so that plans of small
-     * batches keep their CUDA graph (plans with cuDNN calls run without one, see TornadoExecutor).
+     * ({@code -Djitnn.native.convMinFlops}): smaller ones keep jitNN's kernels.
      */
     private static final long CONV_MIN_FLOPS = Long.getLong("jitnn.native.convMinFlops", 1L << 30);
 

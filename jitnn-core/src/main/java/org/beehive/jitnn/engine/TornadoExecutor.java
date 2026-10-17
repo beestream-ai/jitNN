@@ -56,8 +56,6 @@ final class TornadoExecutor {
     private static final boolean REUSE = Boolean.parseBoolean(System.getProperty("jitnn.reuseBuffers", "true"));
     /** On CUDA, capture each plan as a CUDA graph and replay it (default on). */
     private static final boolean CUDA_GRAPH = Boolean.parseBoolean(System.getProperty("jitnn.cudaGraph", "true"));
-    /** Capture plans that call cuDNN too (needs a TornadoVM with beehive-lab/TornadoVM#1238). */
-    private static final boolean CUDNN_GRAPHS = Boolean.getBoolean("jitnn.cudnnGraphs");
     private static long lastKernelNanos;
     private static long hostNanos;
     private static long executeNanos;
@@ -577,12 +575,7 @@ final class TornadoExecutor {
             plan.withProfiler(uk.ac.manchester.tornado.api.enums.ProfilerMode.SILENT);
         }
         Devices.apply(plan);
-        // WORKAROUND(TornadoVM, fixed by beehive-lab/TornadoVM#1238): cuDNN's workspace is shared by a
-        // plan's task graphs and reallocated when a later convolution needs more, which leaves graphs
-        // captured before it pointing at freed memory (CUDA_ERROR_ILLEGAL_ADDRESS); plans that call cuDNN
-        // run without a CUDA graph unless -Djitnn.cudnnGraphs=true (a TornadoVM with that fix)
-        boolean cudnn = e.libraries.stream().anyMatch(f -> f.startsWith("cudnn."));
-        if (CUDA_GRAPH && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA && (!cudnn || CUDNN_GRAPHS)) {
+        if (CUDA_GRAPH && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA) {
             plan.withCUDAGraph();
         }
         if (Engine.kernelSink() != null) {
