@@ -9,6 +9,7 @@ import org.beehive.jitnn.engine.Op;
 import org.beehive.jitnn.kernels.FlashKernels128;
 import org.beehive.jitnn.kernels.FlashKernels32;
 import org.beehive.jitnn.kernels.FlashKernels64;
+import org.beehive.jitnn.kernels.AttentionGatherKernels;
 import org.beehive.jitnn.kernels.FlashTiled64;
 import org.beehive.jitnn.kernels.FlashTiled64Half;
 import org.beehive.jitnn.kernels.AttentionHalfKernels;
@@ -196,6 +197,28 @@ public final class FlashAttention implements Op {
         e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionHalfKernels::mergeHalf, e.context(), oz, o, heads, t, d, m[17], m[18], m[19], m[20], qn));
     }
 
+    /**
+     * Packed or [B, T, H, d] q, k, v gathered into [z, t, d] and [z, s, d], a library's fused attention
+     * on them (MLX on Metal), O merged back into the output's layout. False when the library declines.
+     */
+    private static boolean emitGatheredAttention(Emitter e, int[] a, FloatArray q, FloatArray k, FloatArray v, FloatArray o, float scale) {
+        int z = a[0], t = a[1], s = a[2], d = a[3], causal = a[4], heads = a[5];
+        int[] m = meta(a);
+        FloatArray qz = e.scratch(z * t * d);
+        FloatArray kz = e.scratch(z * s * d);
+        FloatArray vz = e.scratch(z * s * d);
+        FloatArray oz = e.scratch(z * t * d);
+        IntArray meta = e.constant(m);
+        int total = z * Math.max(t, s) * d;
+        e.task(Emitter.grid1D(total), (g, id) -> g.task(id, AttentionGatherKernels::gatherQkv, e.context(), q, k, v, qz, kz, vz, meta, t, s, d, total));
+        if (!org.beehive.jitnn.natives.Libs.attention(e, qz, kz, vz, oz, z / heads, heads, t, s, d, scale, causal != 0)) {
+            return false;
+        }
+        int qn = z * t * d;
+        e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionGatherKernels::merge, e.context(), oz, o, heads, t, d, m[17], m[18], m[19], m[20], qn));
+        return true;
+    }
+
     /** [heads, the mask strides, then the (offset, batch, head, token) strides of q, k, v and o]. */
     static int[] meta(int[] a) {
         int t = a[1];
@@ -300,6 +323,10 @@ public final class FlashAttention implements Op {
         FloatArray o = e.f32(n.out(0));
         if (hasMask == 0 && a[10] == BHTD && e.unread(n.out(1))
                 && org.beehive.jitnn.natives.Libs.attention(e, q, k, v, o, z / a[5], a[5], t, s, d, scale, causal != 0)) {
+            return;
+        }
+        if (hasMask == 0 && a[10] != BHTD && e.unread(n.out(1)) && org.beehive.jitnn.natives.Libs.mlxAttentionAfterGather(z, t, s, d, causal != 0)
+                && emitGatheredAttention(e, a, q, k, v, o, scale)) {
             return;
         }
         FloatArray lse = e.f32(n.out(1));

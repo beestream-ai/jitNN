@@ -41,6 +41,14 @@ public final class LibraryGlueKernels {
     }
 
     /** {@link #epilogueBatched} on an FP16 c (computed in FP32). */
+    /** dst[i] = src[i] for i < n: a library operand moved into an array of exactly its size. */
+    public static void copy(KernelContext kc, FloatArray src, FloatArray dst, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            dst.set(i, src.get(i));
+        }
+    }
+
     public static void epilogueHalf(KernelContext kc, HalfFloatArray c, FloatArray bias, int rows, int cols, int total, int epilogue) {
         int i = kc.globalIdx;
         if (i < total) {

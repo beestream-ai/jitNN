@@ -35,6 +35,14 @@ public final class Native {
     }
 
     private static final Set<Lib> WANTED = parse();
+
+    static {
+        // MLX calls commit without waiting for the GPU unless -Dtornado.mlx.async=false: waiting after
+        // each call made batch-1 BERT 3.8x slower on an M4 Pro (TornadoVM waits before host reads)
+        if (WANTED.contains(Lib.MLX) && System.getProperty("tornado.mlx.async") == null) {
+            System.setProperty("tornado.mlx.async", "true");
+        }
+    }
     private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose") || Boolean.getBoolean("jitnn.native.verbose");
     /** Per device key and library: available (probed) or not. */
     private static final Map<String, Map<Lib, Boolean>> AVAILABLE = new java.util.HashMap<>();

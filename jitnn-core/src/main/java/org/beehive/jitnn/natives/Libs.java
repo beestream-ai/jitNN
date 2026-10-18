@@ -33,6 +33,30 @@ public final class Libs {
         return a.getSize() == numel;
     }
 
+    /**
+     * Fewest flops for MLX to take operands held in larger arrays (intermediates in reused buffers),
+     * through exact-size copies; below it the copies' launches cost more than they save.
+     */
+    private static final long MLX_COPY_MIN_FLOPS = Long.getLong("jitnn.native.mlxCopyMinFlops", 1L << 30);
+
+    /** Whether MLX can take these operands: exactly sized, or larger and the product big enough to copy them. */
+    private static boolean mlxOperands(FloatArray a, FloatArray b, FloatArray c, long na, long nb, long nc, long flops) {
+        if (exact(a, na) && exact(b, nb) && exact(c, nc)) {
+            return true;
+        }
+        return flops >= MLX_COPY_MIN_FLOPS && a.getSize() >= na && b.getSize() >= nb && c.getSize() >= nc && nc <= Integer.MAX_VALUE;
+    }
+
+    /** a itself when it holds exactly n elements, else a copy of its first n into a scratch array. */
+    private static FloatArray exactCopy(Emitter e, FloatArray a, int n) {
+        if (exact(a, n)) {
+            return a;
+        }
+        FloatArray x = e.scratch(n);
+        e.task(Emitter.grid1D(n), (g, id) -> g.task(id, LibraryGlueKernels::copy, e.context(), a, x, n));
+        return x;
+    }
+
     /** Applies the GEMM epilogue over {@code batch} [rows, cols] matrices in c (nothing for epilogue 0). */
     private static void epilogue(Emitter e, FloatArray c, FloatArray bias, int rows, int cols, int batch, int epilogue) {
         if (epilogue == 0) {
@@ -47,11 +71,18 @@ public final class Libs {
     public static boolean gemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (Native.use("gemm", Lib.CUBLAS)) {
             Cuda.sgemm(e, a, b, c, m, n, k, ta, tb);
-        } else if (ta == 0 && !(m == 1 && n == 1) && exact(a, (long) m * k) && exact(b, (long) k * n) && exact(c, (long) m * n) && Native.use("gemm", Lib.MLX)) {
+        } else if (ta == 0 && !(m == 1 && n == 1) && mlxOperands(a, b, c, (long) m * k, (long) k * n, (long) m * n, 2L * m * n * k) && Native.use("gemm", Lib.MLX)) {
+            FloatArray ax = exactCopy(e, a, m * k);
+            FloatArray bx = exactCopy(e, b, k * n);
+            FloatArray cx = exact(c, (long) m * n) ? c : e.scratch(m * n);
             if (tb == 1) {
-                Mlx.matmulTransposed(e, a, b, c, m, n, k);
+                Mlx.matmulTransposed(e, ax, bx, cx, m, n, k);
             } else {
-                Mlx.matmul(e, a, b, c, m, n, k);
+                Mlx.matmul(e, ax, bx, cx, m, n, k);
+            }
+            if (cx != c) {
+                int count = m * n;
+                e.task(Emitter.grid1D(count), (g, id) -> g.task(id, LibraryGlueKernels::copy, e.context(), cx, c, count));
             }
         } else {
             return false;
@@ -271,6 +302,22 @@ public final class Libs {
             return true;
         }
         return false;
+    }
+
+    /** Fewest q k^T multiply-adds (z t s d) for attention in another layout to be gathered for MLX. */
+    private static final long MLX_GATHER_MIN = Long.getLong("jitnn.native.mlxGatherMin", 1L << 26);
+
+    /**
+     * Whether attention of this shape held in another layout (packed or [B, T, H, d]) is worth gathering
+     * into [B, H, T, d] for MLX's fused attention; {@link #attention} then takes the gathered arrays.
+     */
+    public static boolean mlxAttentionAfterGather(int z, int t, int s, int d, boolean causal) {
+        if (causal && t != s) {
+            return false;
+        }
+        boolean decode = t <= 8 && (d == 64 || d == 96 || d == 128 || d == 256);
+        boolean prefill = t > 8 && (d == 64 || d == 72 || d == 80 || d == 96 || d == 128);
+        return (decode || prefill) && (long) z * t * s * d >= MLX_GATHER_MIN && Native.use("sdpa", Lib.MLX);
     }
 
     /** True when cuDNN's fused FP16 attention may be used (cuDNN available and its attention not turned off). */
