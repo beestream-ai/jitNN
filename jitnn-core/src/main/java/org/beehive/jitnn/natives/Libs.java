@@ -334,6 +334,63 @@ public final class Libs {
     }
 
     /**
+     * Whether a convolution of this shape runs as an FP16 library convolution in half-precision
+     * inference: one group, no dilation, and cuDNN's FP16 convolution, or MLX's for the shapes and
+     * sizes it takes (see {@link #mlxConvShape}). Decided when the convolution is recorded, as it sets
+     * the output type.
+     */
+    public static boolean conv2dHalfAvailable(int n, int c, int h, int w, int o, int k, int stride, int oh, int ow, int groups, int dil) {
+        if (groups != 1 || dil != 1) {
+            return false;
+        }
+        if (Native.use("convHalf", Lib.CUDNN)) {
+            return true;
+        }
+        long flops = 2L * n * o * oh * ow * c * k * k;
+        return flops >= MLX_CONV_MIN_FLOPS && mlxConvShape(n, c, h, w, o, k, stride) && Native.use("convHalf", Lib.MLX);
+    }
+
+    /**
+     * FP16 out [n, cout, oh, ow] = conv(x [n, cin, h, w], w [cout, cin, r, r]) (+ per-channel FP32
+     * bias, ReLU) with FP32 accumulation; false when cuDNN's FP16 convolution is off.
+     */
+    public static boolean conv2dHalf(Emitter e, HalfFloatArray x, HalfFloatArray w, HalfFloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow,
+            int r, int stride, int pad, int epilogue) {
+        if (!Native.use("convHalf", Lib.CUDNN)) {
+            long flops = 2L * n * cout * oh * ow * cin * r * r;
+            if (flops < MLX_CONV_MIN_FLOPS || !mlxConvShape(n, cin, h, wd, cout, r, stride) || !Native.use("convHalf", Lib.MLX)) {
+                return false;
+            }
+            // MLX, channels-last: x and the weight transposed in, the result transposed back with the epilogue
+            int nx = n * cin * h * wd;
+            int nw = cout * cin * r * r;
+            int ny = n * cout * oh * ow;
+            int hw = h * wd;
+            int kk = r * r;
+            int ohw = oh * ow;
+            HalfFloatArray xl = e.sharedScratchF16("mlxConvIn", nx);
+            HalfFloatArray wl = e.sharedScratchF16("mlxConvWeight", nw);
+            HalfFloatArray yl = e.sharedScratchF16("mlxConvOut", ny);
+            FloatArray b = bias != null ? bias : e.dummyF32();
+            e.task(Emitter.grid1D(nx), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLastHalf, e.context(), x, xl, cin, hw, nx));
+            e.task(Emitter.grid1D(nw), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLastHalf, e.context(), w, wl, cin, kk, nw));
+            Mlx.conv2dHalf(e, xl, wl, yl, n, h, wd, cin, cout, r, stride, pad);
+            e.task(Emitter.grid1D(ny), (g, id) -> g.task(id, LibraryGlueKernels::fromChannelsLastHalf, e.context(), yl, out, b, cout, ohw, ny, epilogue));
+            return true;
+        }
+        Cuda.conv2dHalf(e, x, w, out, n, cin, h, wd, cout, r, pad, stride);
+        if (epilogue != 0) {
+            int rowEpilogue = ((epilogue & org.beehive.jitnn.kernels.GemmKernels.BIAS) != 0 ? org.beehive.jitnn.kernels.GemmKernels.ROW_BIAS : 0)
+                    | (epilogue & ~org.beehive.jitnn.kernels.GemmKernels.BIAS);
+            FloatArray b = bias != null ? bias : e.dummyF32();
+            int plane = oh * ow;
+            int total = n * cout * plane;
+            e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), out, b, cout, plane, total, rowEpilogue));
+        }
+        return true;
+    }
+
+    /**
      * Whether MLX takes this convolution channels-last on the current device (one group, no dilation,
      * a shape the binding reproduces, at least {@code jitnn.native.mlxConvMinFlops} multiply-adds),
      * in FP16 when {@code half}.
@@ -396,36 +453,6 @@ public final class Libs {
             int rows = n * oh * ow;
             e.task(Emitter.grid1D(ny), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), out, b, rows, cout, ny, epilogue));
         }
-    }
-
-    /**
-     * Whether a convolution of this form runs as an FP16 cuDNN convolution in half-precision
-     * inference: one group, no dilation, cuDNN available with its FP16 convolution. Decided when
-     * the convolution is recorded, as it sets the output type.
-     */
-    public static boolean conv2dHalfAvailable(int groups, int dil) {
-        return groups == 1 && dil == 1 && Native.use("convHalf", Lib.CUDNN);
-    }
-
-    /**
-     * FP16 out [n, cout, oh, ow] = conv(x [n, cin, h, w], w [cout, cin, r, r]) (+ per-channel FP32
-     * bias, ReLU) with FP32 accumulation; false when cuDNN's FP16 convolution is off.
-     */
-    public static boolean conv2dHalf(Emitter e, HalfFloatArray x, HalfFloatArray w, HalfFloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow,
-            int r, int stride, int pad, int epilogue) {
-        if (!Native.use("convHalf", Lib.CUDNN)) {
-            return false;
-        }
-        Cuda.conv2dHalf(e, x, w, out, n, cin, h, wd, cout, r, pad, stride);
-        if (epilogue != 0) {
-            int rowEpilogue = ((epilogue & org.beehive.jitnn.kernels.GemmKernels.BIAS) != 0 ? org.beehive.jitnn.kernels.GemmKernels.ROW_BIAS : 0)
-                    | (epilogue & ~org.beehive.jitnn.kernels.GemmKernels.BIAS);
-            FloatArray b = bias != null ? bias : e.dummyF32();
-            int plane = oh * ow;
-            int total = n * cout * plane;
-            e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), out, b, cout, plane, total, rowEpilogue));
-        }
-        return true;
     }
 
     /** y = softmax(x) over the rows of x [rows, cols] (not the log form). */

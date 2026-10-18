@@ -61,8 +61,8 @@ public final class Conv2d implements Op {
                 throw new IllegalArgumentException("conv2d: bias " + bias.shape() + " for " + cout + " channels");
             }
         }
-        // half-precision inference: FP16 out where cuDNN runs the convolution in FP16; otherwise FP32
-        boolean half = halfPath(groups, dil);
+        // half-precision inference: FP16 out where cuDNN or MLX runs the convolution in FP16; otherwise FP32
+        boolean half = halfPath(x, w, stride, pad, dil, groups);
         if (!half) {
             x = x.dtype() == DType.F16 ? x.to(DType.F32) : x;
             w = w.dtype() == DType.F16 ? w.to(DType.F32) : w;
@@ -75,11 +75,18 @@ public final class Conv2d implements Op {
     }
 
     /**
-     * Whether a convolution recorded now returns FP16: in half-precision inference, when cuDNN's FP16
-     * convolution covers it. The caller then passes the weight as FP16 ({@link org.beehive.jitnn.F}).
+     * Whether a convolution of x [N, Cin, H, W] by w [Cout, Cin/groups, K, K] recorded now returns FP16:
+     * in half-precision inference, when cuDNN's or MLX's FP16 convolution covers it. The caller then
+     * passes the weight as FP16 ({@link org.beehive.jitnn.F}).
      */
-    public static boolean halfPath(int groups, int dil) {
-        return org.beehive.jitnn.Autocast.halfActivations() && org.beehive.jitnn.natives.Libs.conv2dHalfAvailable(groups, dil);
+    public static boolean halfPath(Tensor x, Tensor w, int stride, int pad, int dil, int groups) {
+        if (!org.beehive.jitnn.Autocast.halfActivations() || x.rank() != 4 || w.rank() != 4) {
+            return false;
+        }
+        int k = w.dim(2);
+        int oh = (x.dim(2) + 2 * pad - dil * (k - 1) - 1) / stride + 1;
+        int ow = (x.dim(3) + 2 * pad - dil * (k - 1) - 1) / stride + 1;
+        return org.beehive.jitnn.natives.Libs.conv2dHalfAvailable(x.dim(0), x.dim(1), x.dim(2), x.dim(3), w.dim(0), k, stride, oh, ow, groups, dil);
     }
 
     @Override
@@ -279,14 +286,14 @@ public final class Conv2d implements Op {
     }
 
     /**
-     * FP16 out: cuDNN's FP16 convolution on FP16 operands (an FP32 input, as the first layer's image,
+     * FP16 out: cuDNN's or MLX's FP16 convolution on FP16 operands (an FP32 input, as the first layer's image,
      * is rounded first), or, when that is off on this device, the FP32 kernels on converted copies.
      */
     private static void emitHalf(Emitter e, Node node, FloatArray bias, int epilogue) {
         int[] a = node.iattr;
         HalfFloatArray out = e.f16(node.out(0));
         int outSize = a[N] * a[COUT] * a[OH] * a[OW];
-        if (org.beehive.jitnn.natives.Libs.conv2dHalfAvailable(a[GROUPS], a[DIL])) {
+        if (org.beehive.jitnn.natives.Libs.conv2dHalfAvailable(a[N], a[CIN], a[H], a[W], a[COUT], a[K], a[STRIDE], a[OH], a[OW], a[GROUPS], a[DIL])) {
             HalfFloatArray xh = half(e, node.in(0));
             HalfFloatArray wh = half(e, node.in(1));
             if (org.beehive.jitnn.natives.Libs.conv2dHalf(e, xh, wh, out, a[BIAS] != 0 ? bias : null, a[N], a[CIN], a[H], a[W], a[COUT], a[OH], a[OW], a[K], a[STRIDE], a[PAD],

@@ -73,17 +73,17 @@ public final class F {
 
     /** 2-D convolution (NCHW), square kernel; bias may be null. */
     public static Tensor conv2d(Tensor x, Tensor weight, Tensor bias, int stride, int padding, int dilation, int groups) {
-        return Conv2d.apply(x, convWeight(weight, groups, dilation), bias, stride, padding, dilation, groups, false);
+        return Conv2d.apply(x, convWeight(x, weight, stride, padding, dilation, groups), bias, stride, padding, dilation, groups, false);
     }
 
     /** The weight of a convolution in half-precision inference cast to FP16 once per version, as for linear layers. */
-    private static Tensor convWeight(Tensor weight, int groups, int dilation) {
-        return Conv2d.halfPath(groups, dilation) ? Autocast.weight(weight) : weight;
+    private static Tensor convWeight(Tensor x, Tensor weight, int stride, int padding, int dilation, int groups) {
+        return Conv2d.halfPath(x, weight, stride, padding, dilation, groups) ? Autocast.weight(weight) : weight;
     }
 
     /** relu(conv2d(...)) with the bias and ReLU fused into the convolution's output. */
     public static Tensor conv2dRelu(Tensor x, Tensor weight, Tensor bias, int stride, int padding, int dilation, int groups) {
-        return Conv2d.apply(x, convWeight(weight, groups, dilation), bias, stride, padding, dilation, groups, true);
+        return Conv2d.apply(x, convWeight(x, weight, stride, padding, dilation, groups), bias, stride, padding, dilation, groups, true);
     }
 
     /**
