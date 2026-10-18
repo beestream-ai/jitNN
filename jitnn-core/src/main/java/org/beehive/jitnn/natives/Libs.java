@@ -47,6 +47,49 @@ public final class Libs {
         return flops >= MLX_COPY_MIN_FLOPS && a.getSize() >= na && b.getSize() >= nb && c.getSize() >= nc && nc <= Integer.MAX_VALUE;
     }
 
+    /**
+     * FP16 C [m, n] = op(A) op(B) on MLX (op(A) = A; op(B) = B or B^T) into c, or into an exact-size
+     * scratch copied to c; false when MLX does not take it. Operands in larger (reused) arrays are
+     * copied to exact-size ones when the product is big enough.
+     */
+    private static boolean mlxHalf(Emitter e, HalfFloatArray a, HalfFloatArray b, HalfFloatArray c, int m, int n, int k, int ta, int tb) {
+        long na = (long) m * k, nb = (long) k * n, nc = (long) m * n;
+        boolean exactAll = a.getSize() == na && b.getSize() == nb && c.getSize() == nc;
+        boolean copyable = 2L * m * n * k >= MLX_COPY_MIN_FLOPS && a.getSize() >= na && b.getSize() >= nb && c.getSize() >= nc;
+        if (ta != 0 || (m == 1 && n == 1) || !(exactAll || copyable) || !Native.use("gemmHalf", Lib.MLX)) {
+            return false;
+        }
+        HalfFloatArray ax = exactCopyHalf(e, a, (int) na);
+        HalfFloatArray bx = exactCopyHalf(e, b, (int) nb);
+        HalfFloatArray cx = c.getSize() == nc ? c : e.scratchF16((int) nc);
+        if (tb == 1) {
+            Mlx.matmulTransposedHalf(e, ax, bx, cx, m, n, k);
+        } else {
+            Mlx.matmulHalf(e, ax, bx, cx, m, n, k);
+        }
+        if (cx != c) {
+            int count = (int) nc;
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, LibraryGlueKernels::copyHalf, e.context(), cx, c, count));
+        }
+        return true;
+    }
+
+    private static HalfFloatArray exactCopyHalf(Emitter e, HalfFloatArray a, int n) {
+        if (a.getSize() == n) {
+            return a;
+        }
+        HalfFloatArray x = e.scratchF16(n);
+        e.task(Emitter.grid1D(n), (g, id) -> g.task(id, LibraryGlueKernels::copyHalf, e.context(), a, x, n));
+        return x;
+    }
+
+    /** FP32 c = epilogue(FP16 h): an FP16 product into an FP32 result, bias and activation applied. */
+    private static void fromHalf(Emitter e, HalfFloatArray h, FloatArray c, FloatArray bias, int m, int n, int epilogue) {
+        FloatArray b = bias != null ? bias : e.dummyF32();
+        int total = m * n;
+        e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::epilogueFromHalf, e.context(), h, b, c, m, n, total, epilogue));
+    }
+
     /** a itself when it holds exactly n elements, else a copy of its first n into a scratch array. */
     private static FloatArray exactCopy(Emitter e, FloatArray a, int n) {
         if (exact(a, n)) {
@@ -122,7 +165,16 @@ public final class Libs {
     /** FP16 C [m, n] = op(A) op(B) (+ epilogue, applied in FP32) for FP16 A and B. */
     public static boolean gemmHalfOut(Emitter e, HalfFloatArray a, HalfFloatArray b, HalfFloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (!Native.use("gemm", Lib.CUBLAS)) {
-            return false;
+            // Metal: MLX's FP16 product, then jitNN's FP16 epilogue
+            if (!mlxHalf(e, a, b, c, m, n, k, ta, tb)) {
+                return false;
+            }
+            if (epilogue != 0) {
+                FloatArray bb = bias != null ? bias : e.dummyF32();
+                int total = m * n;
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), c, bb, m, n, total, epilogue));
+            }
+            return true;
         }
         int bias1 = org.beehive.jitnn.kernels.GemmKernels.BIAS;
         int relu = org.beehive.jitnn.kernels.GemmKernels.RELU;
@@ -173,7 +225,13 @@ public final class Libs {
     /** FP32 C [m, n] = op(A) op(B) (+ epilogue) for FP16 A and B. */
     public static boolean gemmF16(Emitter e, HalfFloatArray a, HalfFloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (!Native.use("gemm", Lib.CUBLAS)) {
-            return false;
+            // Metal: MLX's FP16 product (an FP16 result, as PyTorch's autocast gives), widened with the epilogue
+            HalfFloatArray h = e.scratchF16(m * n);
+            if (!mlxHalf(e, a, b, h, m, n, k, ta, tb)) {
+                return false;
+            }
+            fromHalf(e, h, c, bias, m, n, epilogue);
+            return true;
         }
         Cuda.gemmF16(e, a, b, c, m, n, k, ta, tb);
         epilogue(e, c, bias, m, n, 1, epilogue);
@@ -186,7 +244,23 @@ public final class Libs {
      */
     public static boolean gemmA32(Emitter e, FloatArray a, HalfFloatArray w, FloatArray c, FloatArray bias, int m, int n, int k, int epilogue) {
         if (!Native.use("gemm", Lib.CUBLAS)) {
-            return false;
+            // Metal: A rounded to FP16, MLX's FP16 product, widened with the epilogue
+            if (a.getSize() < (long) m * k || w.getSize() < (long) n * k || (m == 1 && n == 1) || !Native.use("gemmHalf", Lib.MLX)) {
+                return false;
+            }
+            HalfFloatArray ah = e.scratchF16(m * k);
+            int count = m * k;
+            e.task(Emitter.grid1D(count), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LowPrecision::f32ToF16, e.context(), a, ah, count));
+            HalfFloatArray h = e.scratchF16(m * n);
+            // exact-size A and C: the product only declines a larger weight below the copy threshold
+            if (!mlxHalf(e, ah, w, h, m, n, k, 0, 1)) {
+                HalfFloatArray wx = e.scratchF16(n * k);
+                int wn = n * k;
+                e.task(Emitter.grid1D(wn), (g, id) -> g.task(id, LibraryGlueKernels::copyHalf, e.context(), w, wx, wn));
+                Mlx.matmulTransposedHalf(e, ah, wx, h, m, n, k);
+            }
+            fromHalf(e, h, c, bias, m, n, epilogue);
+            return true;
         }
         HalfFloatArray ah = e.scratchF16(m * k);
         int count = m * k;

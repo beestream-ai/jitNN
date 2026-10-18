@@ -7,6 +7,7 @@ import org.beehive.jitnn.engine.Native.Lib;
 import uk.ac.manchester.tornado.api.TaskGraph;
 import uk.ac.manchester.tornado.api.enums.DataTransferMode;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 
 /**
  * MLX calls as TornadoVM library tasks on Metal (MLX's own Metal kernels, launched on TornadoVM's
@@ -26,6 +27,16 @@ final class Mlx {
     /** C [m, n] = A [m, k] W^T for W [n, k] (a linear layer's weight). */
     static void matmulTransposed(Emitter e, FloatArray a, FloatArray w, FloatArray c, int m, int n, int k) {
         e.library(Lib.MLX, "gemm", (g, id) -> g.libraryTask(id, uk.ac.manchester.tornado.mlx.Mlx::matmulTransposed, a, w, c, m, k, n));
+    }
+
+    /** FP16 C [m, n] = A [m, k] B [k, n] for FP16 A and B. */
+    static void matmulHalf(Emitter e, HalfFloatArray a, HalfFloatArray b, HalfFloatArray c, int m, int n, int k) {
+        e.library(Lib.MLX, "gemmHalf", (g, id) -> g.libraryTask(id, uk.ac.manchester.tornado.mlx.Mlx::matmul, a, b, c, m, k, n));
+    }
+
+    /** FP16 C [m, n] = A [m, k] W^T for FP16 A and W [n, k]. */
+    static void matmulTransposedHalf(Emitter e, HalfFloatArray a, HalfFloatArray w, HalfFloatArray c, int m, int n, int k) {
+        e.library(Lib.MLX, "gemmHalf", (g, id) -> g.libraryTask(id, uk.ac.manchester.tornado.mlx.Mlx::matmulTransposed, a, w, c, m, k, n));
     }
 
     /** C[z] [m, n] = A[z] [m, k] B[z] [k, n] for z < batch, all contiguous. */

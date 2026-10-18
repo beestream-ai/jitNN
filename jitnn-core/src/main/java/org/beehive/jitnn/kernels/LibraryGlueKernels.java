@@ -49,6 +49,40 @@ public final class LibraryGlueKernels {
         }
     }
 
+    /** {@link #copy} for FP16 arrays. */
+    public static void copyHalf(KernelContext kc, HalfFloatArray src, HalfFloatArray dst, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            dst.set(i, src.get(i));
+        }
+    }
+
+    /** y = epilogue(float(x)): an FP16 product converted to FP32, then bias and activation (see GemmKernels). */
+    public static void epilogueFromHalf(KernelContext kc, HalfFloatArray x, FloatArray bias, FloatArray y, int rows, int cols, int total, int epilogue) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int col = i % cols;
+            int row = (i / cols) % rows;
+            float r = x.get(i).getFloat32();
+            if ((epilogue & GemmKernels.BIAS) != 0) {
+                r = r + bias.get(col);
+            }
+            if ((epilogue & GemmKernels.ROW_BIAS) != 0) {
+                r = r + bias.get(row);
+            }
+            if ((epilogue & GemmKernels.RELU) != 0) {
+                r = r > 0.0f ? r : 0.0f;
+            }
+            if ((epilogue & GemmKernels.GELU) != 0) {
+                r = r * ElementwiseKernels.normalCdf(r);
+            }
+            if ((epilogue & GemmKernels.GELU_TANH) != 0) {
+                r = ElementwiseKernels.geluTanh(r);
+            }
+            y.set(i, r);
+        }
+    }
+
     public static void epilogueHalf(KernelContext kc, HalfFloatArray c, FloatArray bias, int rows, int cols, int total, int epilogue) {
         int i = kc.globalIdx;
         if (i < total) {
