@@ -1,7 +1,9 @@
 package org.beehive.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;
+import uk.ac.manchester.tornado.api.types.HalfFloat;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
 /**
@@ -14,9 +16,13 @@ public final class AttentionGatherKernels {
     private AttentionGatherKernels() {
     }
 
-    /** qz [z, t, d], kz and vz [z, s, d] from q, k, v in one pass; total = z max(t, s) d. */
+    /**
+     * qz [z, t, d], kz and vz [z, s, d] from q, k, v in one pass; total = z max(t, s) d. With hasBias,
+     * bias[index % rowLen] is added to every element read (the bias of the projection that produced a
+     * packed q, k, v, of row length rowLen).
+     */
     public static void gatherQkv(KernelContext kc, FloatArray q, FloatArray k, FloatArray v, FloatArray qz, FloatArray kz, FloatArray vz, IntArray meta, int t, int s, int d,
-            int total) {
+            int total, FloatArray bias, int rowLen, int hasBias) {
         int i = kc.globalIdx;
         if (i < total) {
             int heads = meta.get(0);
@@ -28,15 +34,68 @@ public final class AttentionGatherKernels {
                 int z = i / (d * t);
                 int b = z / heads;
                 int h = z - b * heads;
-                qz.set(i, q.get(meta.get(5) + b * meta.get(6) + h * meta.get(7) + row * meta.get(8) + j));
+                int at = meta.get(5) + b * meta.get(6) + h * meta.get(7) + row * meta.get(8) + j;
+                float x = q.get(at);
+                if (hasBias != 0) {
+                    x = x + bias.get(at % rowLen);
+                }
+                qz.set(i, x);
             }
             if (i < problems * s * d) {
                 int row = (i / d) % s;
                 int z = i / (d * s);
                 int b = z / heads;
                 int h = z - b * heads;
-                kz.set(i, k.get(meta.get(9) + b * meta.get(10) + h * meta.get(11) + row * meta.get(12) + j));
-                vz.set(i, v.get(meta.get(13) + b * meta.get(14) + h * meta.get(15) + row * meta.get(16) + j));
+                int ak = meta.get(9) + b * meta.get(10) + h * meta.get(11) + row * meta.get(12) + j;
+                int av = meta.get(13) + b * meta.get(14) + h * meta.get(15) + row * meta.get(16) + j;
+                float xk = k.get(ak);
+                float xv = v.get(av);
+                if (hasBias != 0) {
+                    xk = xk + bias.get(ak % rowLen);
+                    xv = xv + bias.get(av % rowLen);
+                }
+                kz.set(i, xk);
+                vz.set(i, xv);
+            }
+        }
+    }
+
+    /** {@link #gatherQkv} on FP16 tensors (an FP16 bias, FP32 addition). */
+    public static void gatherQkvHalf(KernelContext kc, HalfFloatArray q, HalfFloatArray k, HalfFloatArray v, HalfFloatArray qz, HalfFloatArray kz, HalfFloatArray vz, IntArray meta,
+            int t, int s, int d, int total, HalfFloatArray bias, int rowLen, int hasBias) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int heads = meta.get(0);
+            int j = i % d;
+            int big = t > s ? t : s;
+            int problems = total / (big * d);
+            if (i < problems * t * d) {
+                int row = (i / d) % t;
+                int z = i / (d * t);
+                int b = z / heads;
+                int h = z - b * heads;
+                int at = meta.get(5) + b * meta.get(6) + h * meta.get(7) + row * meta.get(8) + j;
+                float x = q.get(at).getFloat32();
+                if (hasBias != 0) {
+                    x = x + bias.get(at % rowLen).getFloat32();
+                }
+                qz.set(i, new HalfFloat(x));
+            }
+            if (i < problems * s * d) {
+                int row = (i / d) % s;
+                int z = i / (d * s);
+                int b = z / heads;
+                int h = z - b * heads;
+                int ak = meta.get(9) + b * meta.get(10) + h * meta.get(11) + row * meta.get(12) + j;
+                int av = meta.get(13) + b * meta.get(14) + h * meta.get(15) + row * meta.get(16) + j;
+                float xk = k.get(ak).getFloat32();
+                float xv = v.get(av).getFloat32();
+                if (hasBias != 0) {
+                    xk = xk + bias.get(ak % rowLen).getFloat32();
+                    xv = xv + bias.get(av % rowLen).getFloat32();
+                }
+                kz.set(i, new HalfFloat(xk));
+                vz.set(i, new HalfFloat(xv));
             }
         }
     }

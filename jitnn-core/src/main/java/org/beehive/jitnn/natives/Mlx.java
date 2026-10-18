@@ -74,6 +74,12 @@ final class Mlx {
         e.library(Lib.MLX, "sdpa", (g, id) -> g.libraryTask(id, uk.ac.manchester.tornado.mlx.Mlx::scaledDotProductAttention, q, k, v, o, batch, heads, heads, t, s, d, scale, causal));
     }
 
+    /** {@link #attention} on FP16 arrays. */
+    static void attentionHalf(Emitter e, HalfFloatArray q, HalfFloatArray k, HalfFloatArray v, HalfFloatArray o, int batch, int heads, int t, int s, int d, float scale,
+            boolean causal) {
+        e.library(Lib.MLX, "sdpaHalf", (g, id) -> g.libraryTask(id, uk.ac.manchester.tornado.mlx.Mlx::scaledDotProductAttention, q, k, v, o, batch, heads, heads, t, s, d, scale, causal));
+    }
+
     /** Runs a small product on the current device: null if MLX works there, otherwise why not. */
     static String probe() {
         // without MLX's metallib (brew install mlx, or -Dtornado.mlx.metallib) the probe fails to run;

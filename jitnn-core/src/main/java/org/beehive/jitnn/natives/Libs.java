@@ -495,6 +495,26 @@ public final class Libs {
         return (decode || prefill) && (long) z * t * s * d >= MLX_GATHER_MIN && Native.use("sdpa", Lib.MLX);
     }
 
+    /** {@link #mlxAttentionAfterGather} for FP16 tensors (MLX's FP16 fused attention). */
+    public static boolean mlxHalfAttentionAfterGather(int z, int t, int s, int d, boolean causal) {
+        if (causal && t != s) {
+            return false;
+        }
+        boolean decode = t <= 8 && (d == 64 || d == 96 || d == 128 || d == 256);
+        boolean prefill = t > 8 && (d == 64 || d == 72 || d == 80 || d == 96 || d == 128);
+        return (decode || prefill) && (long) z * t * s * d >= MLX_GATHER_MIN && Native.use("sdpaHalf", Lib.MLX);
+    }
+
+    /** MLX's FP16 fused attention on contiguous q [b, h, t, d], k and v [b, h, s, d]; false when it declines. */
+    public static boolean mlxAttentionHalf(Emitter e, HalfFloatArray q, HalfFloatArray k, HalfFloatArray v, HalfFloatArray o, int batch, int heads, int t, int s, int d,
+            float scale, boolean causal) {
+        if (!Native.use("sdpaHalf", Lib.MLX)) {
+            return false;
+        }
+        Mlx.attentionHalf(e, q, k, v, o, batch, heads, t, s, d, scale, causal);
+        return true;
+    }
+
     /** True when cuDNN's fused FP16 attention may be used (cuDNN available and its attention not turned off). */
     public static boolean fusedAttentionAvailable() {
         return Native.use("sdpa", Lib.CUDNN);

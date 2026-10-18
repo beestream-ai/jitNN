@@ -16,6 +16,7 @@ import org.beehive.jitnn.kernels.AttentionHalfKernels;
 
 import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
 /**
@@ -106,7 +107,11 @@ public final class FlashAttention implements Op {
     }
 
     private static Tensor record(Tensor[] qkv, Shape outShape, int z, int t, int s, int d, int heads, Tensor mask, boolean causal, float scale, int layout) {
-        boolean half = qkv[0].dtype() == DType.F16 && halfKernel(d);
+        // FP16 stays FP16 for the FP16 kernel, or for MLX's FP16 attention (Metal, where that kernel does not fit)
+        boolean mlxHalf = qkv[0].dtype() == DType.F16 && mask == null && org.beehive.jitnn.Autocast.halfActivations()
+                && org.beehive.jitnn.engine.Engine.backend() == org.beehive.jitnn.engine.Engine.Backend.TORNADO
+                && org.beehive.jitnn.natives.Libs.mlxHalfAttentionAfterGather(z, t, s, d, causal);
+        boolean half = qkv[0].dtype() == DType.F16 && (halfKernel(d) || mlxHalf);
         for (int i = 0; i < qkv.length; i++) {
             if (qkv[i].dtype() == DType.F16 && !half) {
                 qkv = qkv.clone();
@@ -201,22 +206,100 @@ public final class FlashAttention implements Op {
      * Packed or [B, T, H, d] q, k, v gathered into [z, t, d] and [z, s, d], a library's fused attention
      * on them (MLX on Metal), O merged back into the output's layout. False when the library declines.
      */
-    private static boolean emitGatheredAttention(Emitter e, int[] a, FloatArray q, FloatArray k, FloatArray v, FloatArray o, float scale) {
+    private static boolean emitGatheredAttention(Emitter e, int[] a, FloatArray q, FloatArray k, FloatArray v, FloatArray o, float scale, FloatArray bias) {
         int z = a[0], t = a[1], s = a[2], d = a[3], causal = a[4], heads = a[5];
         int[] m = meta(a);
-        FloatArray qz = e.scratch(z * t * d);
-        FloatArray kz = e.scratch(z * s * d);
-        FloatArray vz = e.scratch(z * s * d);
-        FloatArray oz = e.scratch(z * t * d);
+        FloatArray qz = e.sharedScratch("attentionQ", z * t * d);
+        FloatArray kz = e.sharedScratch("attentionK", z * s * d);
+        FloatArray vz = e.sharedScratch("attentionV", z * s * d);
+        FloatArray oz = e.sharedScratch("attentionO", z * t * d);
         IntArray meta = e.constant(m);
         int total = z * Math.max(t, s) * d;
-        e.task(Emitter.grid1D(total), (g, id) -> g.task(id, AttentionGatherKernels::gatherQkv, e.context(), q, k, v, qz, kz, vz, meta, t, s, d, total));
+        int hasBias = bias != null ? 1 : 0;
+        FloatArray b = bias != null ? bias : e.dummyF32();
+        int rowLen = 3 * heads * d;
+        e.task(Emitter.grid1D(total), (g, id) -> g.task(id, AttentionGatherKernels::gatherQkv, e.context(), q, k, v, qz, kz, vz, meta, t, s, d, total, b, rowLen, hasBias));
         if (!org.beehive.jitnn.natives.Libs.attention(e, qz, kz, vz, oz, z / heads, heads, t, s, d, scale, causal != 0)) {
             return false;
         }
         int qn = z * t * d;
         e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionGatherKernels::merge, e.context(), oz, o, heads, t, d, m[17], m[18], m[19], m[20], qn));
         return true;
+    }
+
+    /** {@link #emitGatheredAttention} on FP16 tensors with MLX's FP16 attention (an FP16 bias). */
+    private static boolean emitGatheredAttentionHalf(Emitter e, int[] a, HalfFloatArray q, HalfFloatArray k, HalfFloatArray v, HalfFloatArray o, float scale,
+            HalfFloatArray bias) {
+        int z = a[0], t = a[1], s = a[2], d = a[3], causal = a[4], heads = a[5];
+        int[] m = meta(a);
+        HalfFloatArray qz = e.sharedScratchF16("attentionQ", z * t * d);
+        HalfFloatArray kz = e.sharedScratchF16("attentionK", z * s * d);
+        HalfFloatArray vz = e.sharedScratchF16("attentionV", z * s * d);
+        HalfFloatArray oz = e.sharedScratchF16("attentionO", z * t * d);
+        IntArray meta = e.constant(m);
+        int total = z * Math.max(t, s) * d;
+        int hasBias = bias != null ? 1 : 0;
+        HalfFloatArray b = bias != null ? bias : e.scratchF16(1);
+        int rowLen = 3 * heads * d;
+        e.task(Emitter.grid1D(total), (g, id) -> g.task(id, AttentionGatherKernels::gatherQkvHalf, e.context(), q, k, v, qz, kz, vz, meta, t, s, d, total, b, rowLen, hasBias));
+        if (!org.beehive.jitnn.natives.Libs.mlxAttentionHalf(e, qz, kz, vz, oz, z / heads, heads, t, s, d, scale, causal != 0)) {
+            return false;
+        }
+        int qn = z * t * d;
+        e.task(Emitter.grid1D(qn), (g, id) -> g.task(id, AttentionHalfKernels::mergeHalf, e.context(), oz, o, heads, t, d, m[17], m[18], m[19], m[20], qn));
+        return true;
+    }
+
+    /** iattr index set when the last input is the bias of the projection that produced the packed q, k, v (added as they are read). */
+    static final int QKV_BIAS = 11;
+
+    /**
+     * A projection's bias moved into the attention that reads its packed q, k, v (the projection's only
+     * reader), where the gather for a library's fused attention adds it: the bias pass goes away.
+     * Only where that gather runs (MLX on Metal), with no mask and the log-sum-exp unread.
+     */
+    public static java.util.List<Node> foldQkvBias(java.util.List<Node> nodes, java.util.Set<org.beehive.jitnn.engine.Storage> wanted) {
+        java.util.IdentityHashMap<org.beehive.jitnn.engine.Storage, Integer> uses = new java.util.IdentityHashMap<>();
+        java.util.IdentityHashMap<org.beehive.jitnn.engine.Storage, Integer> reader = new java.util.IdentityHashMap<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            for (Tensor x : nodes.get(i).inputs) {
+                uses.merge(x.storage(), 1, Integer::sum);
+                reader.put(x.storage(), i);
+            }
+        }
+        java.util.List<Node> out = null;
+        for (int i = 0; i < nodes.size(); i++) {
+            Node l = nodes.get(i);
+            if (l.op != Linear.OP || l.iattr[3] == 0 || l.iattr[4] != Linear.NONE || wanted.contains(l.out(0).storage())) {
+                continue;
+            }
+            Integer j = reader.get(l.out(0).storage());
+            if (j == null || j <= i || uses.getOrDefault(l.out(0).storage(), 0) != 1) {
+                continue;
+            }
+            Node f = nodes.get(j);
+            if (f.op != OP || f.iattr[10] != PACKED || f.inputs.length != 1 || f.in(0).storage() != l.out(0).storage() || uses.containsKey(f.out(1).storage())
+                    || wanted.contains(f.out(1).storage()) || f.in(0).dtype() != l.in(2).dtype()) {
+                continue;
+            }
+            int[] fa = f.iattr;
+            boolean half = f.out(0).dtype() == DType.F16;
+            boolean mlx = half ? org.beehive.jitnn.natives.Libs.mlxHalfAttentionAfterGather(fa[0], fa[1], fa[2], fa[3], fa[4] != 0)
+                    : org.beehive.jitnn.natives.Libs.mlxAttentionAfterGather(fa[0], fa[1], fa[2], fa[3], fa[4] != 0);
+            if (!mlx) {
+                continue;
+            }
+            if (out == null) {
+                out = new java.util.ArrayList<>(nodes);
+            }
+            int[] la = l.iattr.clone();
+            la[3] = 0;
+            out.set(i, new Node(Linear.OP, new Tensor[] { l.in(0), l.in(1) }, l.outputs, la, l.fattr, true));
+            int[] na = java.util.Arrays.copyOf(fa, QKV_BIAS + 1);
+            na[QKV_BIAS] = 1;
+            out.set(j, new Node(OP, new Tensor[] { f.in(0), l.in(2) }, f.outputs, na, f.fattr, true));
+        }
+        return out == null ? nodes : out;
     }
 
     /** [heads, the mask strides, then the (offset, batch, head, token) strides of q, k, v and o]. */
@@ -293,13 +376,28 @@ public final class FlashAttention implements Op {
         IntArray meta = e.constant(meta(a));
         boolean packed = a[10] == PACKED;
         int qkvCount = packed ? 1 : 3;
+        boolean qkvBias = a.length > QKV_BIAS && a[QKV_BIAS] != 0;
+        int hm = n.inputs.length - qkvCount - (qkvBias ? 1 : 0) > 0 ? 1 : 0;
+        Tensor biasT = qkvBias ? n.in(n.inputs.length - 1) : null;
+        int rows = z / a[5] * t;
+        int cols = 3 * a[5] * d;
         if (n.out(0).dtype() == DType.F16) {
             var qh = e.f16(n.in(0));
             var kh = packed ? qh : e.f16(n.in(1));
             var vh = packed ? qh : e.f16(n.in(2));
-            int hm = n.inputs.length > qkvCount ? 1 : 0;
             FloatArray mk = hm != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
             var oh = e.f16(n.out(0));
+            if (hm == 0 && e.unread(n.out(1)) && org.beehive.jitnn.natives.Libs.mlxHalfAttentionAfterGather(z, t, s, d, causal != 0)
+                    && emitGatheredAttentionHalf(e, a, qh, kh, vh, oh, scale, biasT != null ? e.f16(biasT) : null)) {
+                return;
+            }
+            if (biasT != null) {
+                // the paths below read q, k, v as they are: the projection's bias goes on first
+                FloatArray bf = biasT.dtype() == DType.F16 ? halfToFloat(e, e.f16(biasT), cols) : e.f32(biasT);
+                int total = rows * cols;
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LibraryGlueKernels::epilogueHalf, e.context(), qh, bf, rows, cols, total,
+                        org.beehive.jitnn.kernels.GemmKernels.BIAS));
+            }
             if (hm == 0 && e.unread(n.out(1))) {
                 if (useCudnnAttention(t, s, d, causal)) {
                     emitCudnnAttention(e, a, qh, kh, vh, oh, scale);
@@ -310,6 +408,17 @@ public final class FlashAttention implements Op {
                     return;
                 }
             }
+            if (!org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.FORWARD_LOCAL_BYTES)) {
+                // the FP16 kernel does not fit (Metal): the FP32 kernels on converted copies
+                FloatArray qf = halfToFloat(e, qh, n.in(0).numel());
+                FloatArray kf = packed ? qf : halfToFloat(e, kh, n.in(1).numel());
+                FloatArray vf = packed ? qf : halfToFloat(e, vh, n.in(2).numel());
+                int on = n.out(0).numel();
+                FloatArray of = e.scratch(on);
+                emitKernels(e, n, a, qf, kf, vf, mk, of, hm, meta, scale);
+                e.task(Emitter.grid1D(on), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LowPrecision::f32ToF16, e.context(), of, oh, on));
+                return;
+            }
             FloatArray lh = e.f32(n.out(1));
             WorkerGrid tiled = Emitter.blocks2D(z * Emitter.ceilDiv(t, FlashTiled64.BQ), 1, 16, 16);
             e.task(tiled, (g, id) -> g.task(id, FlashTiled64Half::forward, e.context(), qh, kh, vh, mk, oh, lh, t, s, d, scale, causal, hm, meta));
@@ -318,17 +427,39 @@ public final class FlashAttention implements Op {
         FloatArray q = e.f32(n.in(0));
         FloatArray k = packed ? q : e.f32(n.in(1));
         FloatArray v = packed ? q : e.f32(n.in(2));
-        int hasMask = n.inputs.length > qkvCount ? 1 : 0;
-        FloatArray mask = hasMask != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
+        FloatArray mask = hm != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
         FloatArray o = e.f32(n.out(0));
-        if (hasMask == 0 && a[10] == BHTD && e.unread(n.out(1))
+        if (hm == 0 && a[10] == BHTD && e.unread(n.out(1))
                 && org.beehive.jitnn.natives.Libs.attention(e, q, k, v, o, z / a[5], a[5], t, s, d, scale, causal != 0)) {
             return;
         }
-        if (hasMask == 0 && a[10] != BHTD && e.unread(n.out(1)) && org.beehive.jitnn.natives.Libs.mlxAttentionAfterGather(z, t, s, d, causal != 0)
-                && emitGatheredAttention(e, a, q, k, v, o, scale)) {
+        FloatArray bias = biasT != null ? e.f32(biasT) : null;
+        if (hm == 0 && a[10] != BHTD && e.unread(n.out(1)) && org.beehive.jitnn.natives.Libs.mlxAttentionAfterGather(z, t, s, d, causal != 0)
+                && emitGatheredAttention(e, a, q, k, v, o, scale, bias)) {
             return;
         }
+        if (bias != null) {
+            int total = rows * cols;
+            e.task(Emitter.grid1D(total), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LibraryGlueKernels::epilogueBatched, e.context(), q, bias, rows, cols, total,
+                    org.beehive.jitnn.kernels.GemmKernels.BIAS));
+        }
+        emitKernels(e, n, a, q, k, v, mask, o, hm, meta, scale);
+    }
+
+    /** An FP32 copy of the first count elements of an FP16 array. */
+    private static FloatArray halfToFloat(Emitter e, HalfFloatArray h, int count) {
+        FloatArray f = e.scratch(count);
+        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LowPrecision::f16ToF32, e.context(), h, f, count));
+        return f;
+    }
+
+    /** jitNN's FP32 attention kernels, by head dimension. */
+    private static void emitKernels(Emitter e, Node n, int[] a, FloatArray q, FloatArray k, FloatArray v, FloatArray mask, FloatArray o, int hasMask, IntArray meta, float scale) {
+        int z = a[0];
+        int t = a[1];
+        int s = a[2];
+        int d = a[3];
+        int causal = a[4];
         FloatArray lse = e.f32(n.out(1));
         WorkerGrid g0 = grid(z, t, d);
         if (d <= FlashKernels32.D) {

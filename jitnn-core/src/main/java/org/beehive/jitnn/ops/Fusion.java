@@ -110,6 +110,18 @@ public final class Fusion {
                 result.add(n);
             }
         }
+        // a projection's bias added by the gather of the attention that reads it (MLX on Metal)
+        List<Node> biased = FlashAttention.foldQkvBias(result, wantedSet);
+        if (biased != result) {
+            result = biased;
+            changed = true;
+        }
+        // a linear layer's bias added by the norm that reads it through a residual add (MLX on Metal)
+        List<Node> normed = RowNorm.foldResidualBias(result, wantedSet);
+        if (normed != result) {
+            result = normed;
+            changed = true;
+        }
         // channels-last storage around library convolutions (MLX on Metal), after BatchNorm folding
         List<Node> layout = ChannelsLast.rewrite(result, wantedSet);
         if (layout != result) {

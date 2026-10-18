@@ -54,6 +54,11 @@ final class TornadoExecutor {
     private static final int MAX_TASKS = Integer.getInteger("jitnn.graph.maxTasks", 40);
     /** Reuse dead intermediates' buffers within a compiled trace (default on). */
     private static final boolean REUSE = Boolean.parseBoolean(System.getProperty("jitnn.reuseBuffers", "true"));
+    /**
+     * Reuse only buffers of exactly an intermediate's size ({@code -Djitnn.reuseBuffers.exact}): {@code auto}
+     * (the default) on Metal with MLX, {@code true} always, {@code false} never.
+     */
+    private static final String EXACT_REUSE = System.getProperty("jitnn.reuseBuffers.exact", "auto");
     /** On CUDA, capture each plan as a CUDA graph and replay it (default on). */
     private static final boolean CUDA_GRAPH = Boolean.parseBoolean(System.getProperty("jitnn.cudaGraph", "true"));
     private static long lastKernelNanos;
@@ -417,6 +422,10 @@ final class TornadoExecutor {
         // (smallest that fits); it returns to the pool after its last reader. A node's outputs
         // are placed before its own inputs are released, so they never alias them.
         List<TornadoNativeArray> pool = new ArrayList<>();
+        // with MLX on Metal only buffers of exactly the size are reused: MLX takes only arrays of exactly
+        // its operands' size, and a larger reused buffer costs a copy in and out of every library call
+        boolean exact = EXACT_REUSE.equals("true") || EXACT_REUSE.equals("auto") && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.METAL
+                && Native.use("gemm", Native.Lib.MLX);
         long freshBytes = 0;
         for (int ni = 0; ni < nodes.size(); ni++) {
             for (Tensor t : nodes.get(ni).outputs) {
@@ -428,7 +437,7 @@ final class TornadoExecutor {
                 TornadoNativeArray best = null;
                 if (recyclable[si]) {
                     for (TornadoNativeArray a : pool) {
-                        boolean fits = a.getSize() >= Math.max(s.numel, 1) && Storage.holds(a, s.dtype);
+                        boolean fits = (exact ? a.getSize() == Math.max(s.numel, 1) : a.getSize() >= Math.max(s.numel, 1)) && Storage.holds(a, s.dtype);
                         if (fits && (best == null || a.getSize() < best.getSize())) {
                             best = a;
                         }

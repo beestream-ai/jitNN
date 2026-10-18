@@ -68,6 +68,25 @@ public final class RowNorm implements Op {
         float eps = n.fattr[0];
         FloatArray w = e.f32(n.in(1));
         FloatArray b = hasBias != 0 ? e.f32(n.in(2)) : e.dummyF32();
+        if (n.iattr.length > 4 && n.iattr[4] >= ADD_BIAS) {
+            // x + residual + the producing projection's bias, then the norm: inputs [x, w, (b), residual, projection bias]
+            FloatArray mh = e.f32(n.out(1));
+            FloatArray rh = e.f32(n.out(2));
+            Tensor lbT = n.in(n.inputs.length - 1);
+            FloatArray lb = lbT.dtype() == DType.F16 ? halfToFloat(e, e.f16(lbT), cols) : e.f32(lbT);
+            if (n.out(0).dtype() == DType.F16) {
+                var xh = e.f16(n.in(0));
+                var res = e.f16(n.in(n.inputs.length - 2));
+                var yh = e.f16(n.out(0));
+                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardHalfAddBias, e.context(), xh, res, lb, w, b, yh, mh, rh, cols, eps, mode, hasBias));
+            } else {
+                FloatArray xf = e.f32(n.in(0));
+                FloatArray res = e.f32(n.in(n.inputs.length - 2));
+                FloatArray yf = e.f32(n.out(0));
+                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForwardAddBias, e.context(), xf, res, lb, w, b, yf, mh, rh, cols, eps, mode, hasBias));
+            }
+            return;
+        }
         if (n.out(0).dtype() == DType.F16) {
             var yh = e.f16(n.out(0));
             FloatArray mh = e.f32(n.out(1));
@@ -117,6 +136,104 @@ public final class RowNorm implements Op {
             return;
         }
         e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormForward, e.context(), x, w, b, y, mean, rstd, cols, eps, mode, hasBias));
+    }
+
+    /** iattr[4] of a norm of x + residual + the bias of the projection that produced one of them (inputs [x, w, (b), residual, bias]). */
+    static final int ADD_BIAS = 2;
+
+    private static FloatArray halfToFloat(Emitter e, uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray h, int count) {
+        FloatArray f = e.scratch(count);
+        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, org.beehive.jitnn.kernels.LowPrecision::f16ToF32, e.context(), h, f, count));
+        return f;
+    }
+
+    /**
+     * On Metal with MLX's products (whose bias is a pass of its own): a linear layer's bias moved into the
+     * norm that reads it through a residual add. FP32: linear, add and norm become the norm of x + residual
+     * + bias (the add goes away); FP16, where the add is already in the norm: the bias joins it. The linear
+     * output and the add's must have no other reader, and the norm's statistics none.
+     */
+    public static java.util.List<Node> foldResidualBias(java.util.List<Node> nodes, java.util.Set<org.beehive.jitnn.engine.Storage> wanted) {
+        java.util.IdentityHashMap<org.beehive.jitnn.engine.Storage, Integer> uses = new java.util.IdentityHashMap<>();
+        java.util.IdentityHashMap<org.beehive.jitnn.engine.Storage, Integer> reader = new java.util.IdentityHashMap<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            for (Tensor t : nodes.get(i).inputs) {
+                uses.merge(t.storage(), 1, Integer::sum);
+                reader.put(t.storage(), i);
+            }
+        }
+        java.util.List<Node> out = new java.util.ArrayList<>(nodes);
+        boolean changed = false;
+        for (int i = 0; i < out.size(); i++) {
+            Node l = out.get(i);
+            if (l == null || l.op != Linear.OP || l.iattr[3] == 0 || l.iattr[4] != Linear.NONE || wanted.contains(l.out(0).storage())) {
+                continue;
+            }
+            boolean half = l.out(0).dtype() == DType.F16;
+            Integer j = reader.get(l.out(0).storage());
+            if (j == null || j <= i || out.get(j) == null || uses.getOrDefault(l.out(0).storage(), 0) != 1
+                    || !org.beehive.jitnn.engine.Native.use(half ? "gemmHalf" : "gemm", org.beehive.jitnn.engine.Native.Lib.MLX)) {
+                continue;
+            }
+            Node r = out.get(j);
+            Tensor y = l.out(0);
+            Node norm;
+            Tensor x;
+            Tensor res;
+            int normAt;
+            if (!half && r.op == Binary.OP && r.inputs.length == 2 && r.iattr[0] == Binary.Kind.ADD.code && r.in(0).shape().equals(r.in(1).shape())
+                    && r.out(0).dtype() == DType.F32 && r.in(0).dtype() == DType.F32 && r.in(1).dtype() == DType.F32 && !wanted.contains(r.out(0).storage())) {
+                Integer k = reader.get(r.out(0).storage());
+                if (k == null || k <= j || out.get(k) == null || uses.getOrDefault(r.out(0).storage(), 0) != 1) {
+                    continue;
+                }
+                norm = out.get(k);
+                if (norm.op != OP || norm.iattr.length != 4 || norm.in(0).storage() != r.out(0).storage() || norm.out(0).dtype() != DType.F32) {
+                    continue;
+                }
+                x = y;
+                res = r.in(0).storage() == y.storage() ? r.in(1) : r.in(0);
+                normAt = k;
+            } else if (half && r.op == OP && r.iattr.length == 5 && r.iattr[4] == 1 && r.out(0).dtype() == DType.F16) {
+                norm = r;
+                Tensor a = r.in(0);
+                Tensor last = r.in(r.inputs.length - 1);
+                if (a.storage() != y.storage() && last.storage() != y.storage()) {
+                    continue;
+                }
+                x = y;
+                res = a.storage() == y.storage() ? last : a;
+                normAt = j;
+            } else {
+                continue;
+            }
+            if (uses.containsKey(norm.out(1).storage()) || uses.containsKey(norm.out(2).storage()) || wanted.contains(norm.out(1).storage())
+                    || wanted.contains(norm.out(2).storage())) {
+                continue;
+            }
+            int[] la = l.iattr.clone();
+            la[3] = 0;
+            out.set(i, new Node(Linear.OP, new Tensor[] { l.in(0), l.in(1) }, l.outputs, la, l.fattr, true));
+            int hasNormBias = norm.iattr[3];
+            Tensor[] in = hasNormBias != 0 ? new Tensor[] { x, norm.in(1), norm.in(2), res, l.in(2) } : new Tensor[] { x, norm.in(1), res, l.in(2) };
+            int[] na = java.util.Arrays.copyOf(norm.iattr, 5);
+            na[4] = ADD_BIAS;
+            out.set(normAt, new Node(OP, in, norm.outputs, na, norm.fattr, true));
+            if (normAt != j) {
+                out.set(j, null);
+            }
+            changed = true;
+        }
+        if (!changed) {
+            return nodes;
+        }
+        java.util.List<Node> kept = new java.util.ArrayList<>(out.size());
+        for (Node n : out) {
+            if (n != null) {
+                kept.add(n);
+            }
+        }
+        return kept;
     }
 
     /** Warp-per-row kernels with warp reductions on CUDA unless {@code -Djitnn.rownorm=group}. */
