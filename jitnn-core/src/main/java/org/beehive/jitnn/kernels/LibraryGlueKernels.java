@@ -95,6 +95,17 @@ public final class LibraryGlueKernels {
         }
     }
 
+    /** {@link #toChannelsLast} from FP32 into FP16 (an FP32 activation entering an FP16 convolution). */
+    public static void toChannelsLastToHalf(KernelContext kc, FloatArray x, HalfFloatArray y, int c, int hw, int total) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int ch = i % c;
+            int p = (i / c) % hw;
+            int b = i / (c * hw);
+            y.set(i, new HalfFloat(x.get((b * c + ch) * hw + p)));
+        }
+    }
+
     /** {@link #fromChannelsLast} for FP16 arrays (FP32 bias, FP32 arithmetic). */
     public static void fromChannelsLastHalf(KernelContext kc, HalfFloatArray y, HalfFloatArray out, FloatArray bias, int c, int hw, int total, int epilogue) {
         int i = kc.globalIdx;

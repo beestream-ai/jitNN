@@ -330,6 +330,66 @@ public final class Libs {
         return specialized && !winograd;
     }
 
+    /**
+     * Whether MLX takes this convolution channels-last on the current device (one group, no dilation,
+     * a shape the binding reproduces, at least {@code jitnn.native.mlxConvMinFlops} multiply-adds),
+     * in FP16 when {@code half}.
+     */
+    public static boolean mlxConvChannelsLast(int n, int c, int h, int w, int o, int k, int stride, int oh, int ow, int groups, int dil, boolean half) {
+        if (groups != 1 || dil != 1) {
+            return false;
+        }
+        long flops = 2L * n * o * oh * ow * c * k * k;
+        return flops >= MLX_CONV_MIN_FLOPS && mlxConvShape(n, c, h, w, o, k, stride) && Native.use(half ? "convHalf" : "conv", Lib.MLX);
+    }
+
+    /**
+     * out [n, oh, ow, cout] = conv(x [n, h, w, cin], w [cout, cin, r, r]) (+ per-channel bias, ReLU) on
+     * MLX, input and output channels-last; the weight is transposed to [cout, r, r, cin] for MLX.
+     */
+    public static void conv2dChannelsLast(Emitter e, FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow, int r,
+            int stride, int pad, int epilogue) {
+        int nx = n * cin * h * wd;
+        int nw = cout * cin * r * r;
+        int ny = n * cout * oh * ow;
+        int kk = r * r;
+        FloatArray xl = exact(x, nx) ? x : e.sharedScratch("mlxConvIn", nx);
+        if (xl != x) {
+            e.task(Emitter.grid1D(nx), (g, id) -> g.task(id, LibraryGlueKernels::copy, e.context(), x, xl, nx));
+        }
+        FloatArray wl = e.sharedScratch("mlxConvWeight", nw);
+        e.task(Emitter.grid1D(nw), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLast, e.context(), w, wl, cin, kk, nw));
+        FloatArray yl = exact(out, ny) ? out : e.sharedScratch("mlxConvOut", ny);
+        Mlx.conv2d(e, xl, wl, yl, n, h, wd, cin, cout, r, stride, pad);
+        if (yl != out) {
+            e.task(Emitter.grid1D(ny), (g, id) -> g.task(id, LibraryGlueKernels::copy, e.context(), yl, out, ny));
+        }
+        // channels-last: the bias is per column of [n oh ow, cout]
+        epilogue(e, out, bias, n * oh * ow, cout, 1, epilogue);
+    }
+
+    /** {@link #conv2dChannelsLast} on FP16 arrays (FP32 bias). */
+    public static void conv2dChannelsLastHalf(Emitter e, HalfFloatArray x, HalfFloatArray w, HalfFloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh,
+            int ow, int r, int stride, int pad, int epilogue) {
+        int nx = n * cin * h * wd;
+        int nw = cout * cin * r * r;
+        int ny = n * cout * oh * ow;
+        int kk = r * r;
+        HalfFloatArray xl = exactCopyHalf(e, x, nx);
+        HalfFloatArray wl = e.sharedScratchF16("mlxConvWeight", nw);
+        e.task(Emitter.grid1D(nw), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLastHalf, e.context(), w, wl, cin, kk, nw));
+        HalfFloatArray yl = out.getSize() == ny ? out : e.sharedScratchF16("mlxConvOut", ny);
+        Mlx.conv2dHalf(e, xl, wl, yl, n, h, wd, cin, cout, r, stride, pad);
+        if (yl != out) {
+            e.task(Emitter.grid1D(ny), (g, id) -> g.task(id, LibraryGlueKernels::copyHalf, e.context(), yl, out, ny));
+        }
+        if (epilogue != 0) {
+            FloatArray b = bias != null ? bias : e.dummyF32();
+            int rows = n * oh * ow;
+            e.task(Emitter.grid1D(ny), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), out, b, rows, cout, ny, epilogue));
+        }
+    }
+
     /** y = softmax(x) over the rows of x [rows, cols] (not the log form). */
     public static boolean softmax(Emitter e, FloatArray x, FloatArray y, int rows, int cols) {
         if (Native.use("softmax", Lib.CUDNN)) {

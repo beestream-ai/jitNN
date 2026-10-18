@@ -110,6 +110,12 @@ public final class Fusion {
                 result.add(n);
             }
         }
+        // channels-last storage around library convolutions (MLX on Metal), after BatchNorm folding
+        List<Node> layout = ChannelsLast.rewrite(result, wantedSet);
+        if (layout != result) {
+            result = layout;
+            changed = true;
+        }
         if (ELEMENTWISE) {
             List<Node> chained = fuseElementwise(result, wantedSet);
             if (chained != null) {
