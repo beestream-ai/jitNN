@@ -141,6 +141,25 @@ class HalfInferenceAccelTest {
         close(run(Backend.REFERENCE, false, model), run(Backend.TORNADO, true, model), 2e-2, 2e-2, "conv + batch norm block in FP16");
     }
 
+    /**
+     * A bottleneck whose 3x3 convolution has the shape jitNN runs as Winograd F(4x4) (128 channels,
+     * 4 x 32 x 32): with MLX on Metal it runs channels-last between MLX's 1x1 convolutions; in FP32 and
+     * FP16 against the FP32 host reference.
+     */
+    @Test
+    void winogradBottleneck() {
+        Supplier<Tensor> model = () -> {
+            Tensor x = constant(90, -1, 1, 4, 64, 32, 32);
+            Tensor y = convBn(x, 128, 1, 1, 91, true);
+            y = convBn(y, 128, 3, 1, 92, true);
+            y = convBn(y, 64, 1, 1, 93, false);
+            return x.add(y).relu();
+        };
+        float[] expected = run(Backend.REFERENCE, false, model);
+        close(expected, run(Backend.TORNADO, false, model), 1e-3, 1e-3, "Winograd bottleneck in FP32");
+        close(expected, run(Backend.TORNADO, true, model), 3e-2, 3e-2, "Winograd bottleneck in FP16");
+    }
+
     /** Grouped convolutions have no FP16 form: they read FP32 copies. */
     @Test
     void groupedConvolution() {
