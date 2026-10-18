@@ -34,6 +34,17 @@ public final class ChannelsLast {
     static final Conv CONV = new Conv();
     static final Winograd WINOGRAD = new Winograd();
     static final Layout TO_HALF = new Layout(2);
+    static final AddBias ADD_BIAS = new AddBias();
+
+    /** iattr index (after Conv2d's) set to 1 when the convolution's weight is a channels-last copy. */
+    private static final int WEIGHT_LAST = 14;
+
+    /** A weight's channels-last copy and the version of the weight it was made from. */
+    private record LastWeight(Tensor w, long version) {
+    }
+
+    /** Channels-last copies of persistent convolution weights, by the weight's storage. */
+    private static final java.util.Map<Storage, LastWeight> WEIGHTS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
     static final Layout TO_LAST = new Layout(1);
     static final Layout TO_FIRST = new Layout(0);
 
@@ -105,6 +116,13 @@ public final class ChannelsLast {
         if (!any) {
             return nodes;
         }
+        // storages some operator of this trace writes (a weight folded in this trace is copied again)
+        Set<Storage> written = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Node n : nodes) {
+            for (Tensor t : n.outputs) {
+                written.add(t.storage());
+            }
+        }
         // storages holding [N, H, W, C] data, and the converted copies made so far
         Set<Storage> last = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         IdentityHashMap<Storage, Tensor> asLast = new IdentityHashMap<>();
@@ -131,12 +149,18 @@ public final class ChannelsLast {
                 int[] yd = { a[N], a[COUT], a[OH] * a[OW] };
                 Tensor[] ins = n.inputs.clone();
                 ins[0] = xl;
+                int[] attr = java.util.Arrays.copyOf(n.iattr, WEIGHT_LAST + 1);
+                Tensor wl = lastWeight(n.in(1), a, written, out);
+                if (wl != null) {
+                    ins[1] = wl;
+                    attr[WEIGHT_LAST] = 1;
+                }
                 if (pinned(y, wanted)) {
                     Tensor yl = Tensor.result(y.shape(), y.dtype());
-                    out.add(new Node(CONV, ins, new Tensor[] { yl }, n.iattr, n.fattr, true));
+                    out.add(new Node(CONV, ins, new Tensor[] { yl }, attr, n.fattr, true));
                     out.add(new Node(TO_FIRST, new Tensor[] { yl }, new Tensor[] { y }, yd, null, true));
                 } else {
-                    out.add(new Node(CONV, ins, n.outputs, n.iattr, n.fattr, true));
+                    out.add(new Node(CONV, ins, n.outputs, attr, n.fattr, true));
                     last.add(y.storage());
                     dims.put(y.storage(), yd);
                 }
@@ -192,6 +216,73 @@ public final class ChannelsLast {
                 }
             }
             out.add(new Node(n.op, ins, n.outputs, n.iattr, n.fattr, true));
+        }
+        return biasIntoAdd(out, wanted);
+    }
+
+    /**
+     * The persistent channels-last copy [Cout, K, K, Cin] of a persistent convolution weight, with a
+     * conversion node when it is new, stale (the weight's version moved) or the weight is written in
+     * this trace; null for weights that are not persistent (converted on every call instead).
+     */
+    private static Tensor lastWeight(Tensor w, int[] a, Set<Storage> written, List<Node> out) {
+        Storage s = w.storage();
+        if (!s.isPersistent() || w.rank() != 4) {
+            return null;
+        }
+        LastWeight c = WEIGHTS.get(s);
+        boolean stale = c == null || c.version() != s.version() || written.contains(s);
+        if (c == null) {
+            int[] dims = { a[COUT], a[K], a[K], a[CIN] };
+            float[] zeros = new float[w.numel()];
+            Tensor t = w.dtype() == DType.F16 ? Tensor.persistentHalf(zeros, dims) : Tensor.persistent(Tensor.of(zeros, dims));
+            c = new LastWeight(t, s.version());
+        }
+        if (stale) {
+            out.add(new Node(TO_LAST, new Tensor[] { w }, new Tensor[] { c.w() }, new int[] { a[COUT], a[CIN], a[K] * a[K] }, null, true));
+            WEIGHTS.put(s, new LastWeight(c.w(), s.version()));
+        }
+        return c.w();
+    }
+
+    /**
+     * A channels-last convolution whose only reader is a same-shape add (or add + ReLU) leaves its bias
+     * to the add: one pass applies bias, residual and ReLU instead of two.
+     */
+    private static List<Node> biasIntoAdd(List<Node> nodes, Set<Storage> wanted) {
+        IdentityHashMap<Storage, Integer> uses = new IdentityHashMap<>();
+        IdentityHashMap<Storage, Integer> reader = new IdentityHashMap<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            for (Tensor t : nodes.get(i).inputs) {
+                uses.merge(t.storage(), 1, Integer::sum);
+                reader.put(t.storage(), i);
+            }
+        }
+        List<Node> out = new ArrayList<>(nodes);
+        for (int i = 0; i < out.size(); i++) {
+            Node c = out.get(i);
+            if (c.op != CONV || c.iattr[BIAS] == 0 || c.iattr[RELU] != 0 || pinned(c.out(0), wanted)) {
+                continue;
+            }
+            Storage y = c.out(0).storage();
+            Integer j = reader.get(y);
+            if (j == null || j <= i || uses.getOrDefault(y, 0) != 1) {
+                continue;
+            }
+            Node add = out.get(j);
+            boolean addOp = add.op == Binary.OP && add.inputs.length == 2
+                    && (add.iattr[0] == Binary.Kind.ADD.code || add.iattr[0] == Binary.Kind.ADD_RELU.code) && add.in(0).shape().equals(add.in(1).shape())
+                    && add.in(0).dtype() == add.in(1).dtype() && add.out(0).dtype() == add.in(0).dtype() && add.in(0).dtype() == c.out(0).dtype();
+            if (!addOp) {
+                continue;
+            }
+            Tensor other = add.in(0).storage() == y ? add.in(1) : add.in(0);
+            int[] ca = c.iattr.clone();
+            ca[BIAS] = 0;
+            Tensor bias = c.in(2);
+            out.set(i, new Node(CONV, new Tensor[] { c.in(0), c.in(1) }, c.outputs, ca, c.fattr, true));
+            int relu = add.iattr[0] == Binary.Kind.ADD_RELU.code ? 1 : 0;
+            out.set(j, new Node(ADD_BIAS, new Tensor[] { c.out(0), other, bias }, add.outputs, new int[] { c.iattr[COUT], relu }, null, true));
         }
         return out;
     }
@@ -325,12 +416,13 @@ public final class ChannelsLast {
             int[] a = node.iattr;
             int epilogue = (a[BIAS] != 0 ? GemmKernels.BIAS : 0) | (a[RELU] != 0 ? GemmKernels.RELU : 0);
             FloatArray bias = a[BIAS] != 0 ? e.f32(node.in(2)) : null;
+            boolean weightLast = a.length > WEIGHT_LAST && a[WEIGHT_LAST] != 0;
             if (node.out(0).dtype() == DType.F16) {
                 org.beehive.jitnn.natives.Libs.conv2dChannelsLastHalf(e, e.f16(node.in(0)), e.f16(node.in(1)), e.f16(node.out(0)), bias, a[N], a[CIN], a[H], a[W], a[COUT], a[OH],
-                        a[OW], a[K], a[STRIDE], a[PAD], epilogue);
+                        a[OW], a[K], a[STRIDE], a[PAD], epilogue, weightLast);
             } else {
                 org.beehive.jitnn.natives.Libs.conv2dChannelsLast(e, e.f32(node.in(0)), e.f32(node.in(1)), e.f32(node.out(0)), bias, a[N], a[CIN], a[H], a[W], a[COUT], a[OH],
-                        a[OW], a[K], a[STRIDE], a[PAD], epilogue);
+                        a[OW], a[K], a[STRIDE], a[PAD], epilogue, weightLast);
             }
         }
 
@@ -405,6 +497,44 @@ public final class ChannelsLast {
                 FloatArray y = e.f32(node.out(0));
                 e.task(Emitter.grid1D(cout * tiles), (g, id) -> g.task(id, org.beehive.jitnn.kernels.ConvChannelsLastKernels::winograd4OutputLast, e.context(), mm, y, bias, cout, oh,
                         ow, th, tw, tiles, epilogue));
+            }
+        }
+
+        @Override
+        public void reference(Node n) {
+            throw new UnsupportedOperationException(name() + " runs only in compiled plans");
+        }
+    }
+
+    /** out = y + bias[c] + other (+ ReLU) on channels-last tensors: inputs [y, other, bias], iattr [C, relu]. */
+    static final class AddBias implements Op {
+
+        @Override
+        public String name() {
+            return "add_bias_channels_last";
+        }
+
+        @Override
+        public boolean acceptsHalf() {
+            return true;
+        }
+
+        @Override
+        public void emit(Emitter e, Node n) {
+            int c = n.iattr[0];
+            int relu = n.iattr[1];
+            int total = n.out(0).numel();
+            FloatArray bias = e.f32(n.in(2));
+            if (n.out(0).dtype() == DType.F16) {
+                HalfFloatArray y = e.f16(n.in(0));
+                HalfFloatArray r = e.f16(n.in(1));
+                HalfFloatArray o = e.f16(n.out(0));
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::addBiasLastHalf, e.context(), y, r, bias, o, c, total, relu));
+            } else {
+                FloatArray y = e.f32(n.in(0));
+                FloatArray r = e.f32(n.in(1));
+                FloatArray o = e.f32(n.out(0));
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::addBiasLast, e.context(), y, r, bias, o, c, total, relu));
             }
         }
 
