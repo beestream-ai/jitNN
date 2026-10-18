@@ -47,7 +47,29 @@ public final class Tensor {
         if (s.numel() != data.length) {
             throw new IllegalArgumentException(data.length + " values for shape " + s);
         }
-        return new Tensor(s, Storage.ofHost(FloatArray.fromArray(data.length == 0 ? new float[1] : data), DType.F32, false));
+        return new Tensor(s, Storage.ofHost(floats(data.length == 0 ? new float[1] : data), DType.F32, false));
+    }
+
+    /**
+     * A tensor over {@code data} itself, without a copy, as PyTorch's {@code from_numpy}: the array is
+     * read when the operators that use it run (at the next sync), so it must not change until then,
+     * and later reads of the tensor see later changes. {@link #of} copies instead.
+     */
+    public static Tensor wrap(float[] data, int... dims) {
+        Shape s = dims.length == 0 && data.length != 1 ? Shape.of(data.length) : Shape.of(dims);
+        if (s.numel() != data.length || data.length == 0) {
+            throw new IllegalArgumentException(data.length + " values for shape " + s);
+        }
+        return new Tensor(s, Storage.ofHeap(data, DType.F32, data.length));
+    }
+
+    /** {@link #wrap(float[], int...)} for int data. */
+    public static Tensor wrap(int[] data, int... dims) {
+        Shape s = dims.length == 0 && data.length != 1 ? Shape.of(data.length) : Shape.of(dims);
+        if (s.numel() != data.length || data.length == 0) {
+            throw new IllegalArgumentException(data.length + " values for shape " + s);
+        }
+        return new Tensor(s, Storage.ofHeap(data, DType.I32, data.length));
     }
 
     public static Tensor of(int[] data, int... dims) {
@@ -55,7 +77,24 @@ public final class Tensor {
         if (s.numel() != data.length) {
             throw new IllegalArgumentException(data.length + " values for shape " + s);
         }
-        return new Tensor(s, Storage.ofHost(IntArray.fromArray(data.length == 0 ? new int[1] : data), DType.I32, false));
+        return new Tensor(s, Storage.ofHost(ints(data.length == 0 ? new int[1] : data), DType.I32, false));
+    }
+
+    /**
+     * A native copy of data in one bulk copy (TornadoVM's FloatArray.fromArray sets one element at a
+     * time: 3.3 ms for a batch of 32 ImageNet images against well under 1 ms).
+     */
+    static FloatArray floats(float[] data) {
+        FloatArray a = new FloatArray(data.length);
+        java.lang.foreign.MemorySegment.copy(data, 0, a.getSegment(), java.lang.foreign.ValueLayout.JAVA_FLOAT, 0, data.length);
+        return a;
+    }
+
+    /** {@link #floats} for int data. */
+    static IntArray ints(int[] data) {
+        IntArray a = new IntArray(data.length);
+        java.lang.foreign.MemorySegment.copy(data, 0, a.getSegment(), java.lang.foreign.ValueLayout.JAVA_INT, 0, data.length);
+        return a;
     }
 
     public static Tensor scalar(float value) {
@@ -159,7 +198,7 @@ public final class Tensor {
         // which would run everything recorded so far
         boolean plainHost = init.storage.isHostValid() && !init.storage.isPersistent() && init.storage.dtype() == DType.F32 && init.storage.host() instanceof FloatArray;
         float[] values = plainHost ? java.util.Arrays.copyOf(((FloatArray) init.storage.host()).toHeapArray(), init.numel()) : init.toFloatArray();
-        Tensor p = new Tensor(init.shape, Storage.ofHost(FloatArray.fromArray(values.length == 0 ? new float[1] : values), DType.F32, true));
+        Tensor p = new Tensor(init.shape, Storage.ofHost(floats(values.length == 0 ? new float[1] : values), DType.F32, true));
         return p;
     }
 

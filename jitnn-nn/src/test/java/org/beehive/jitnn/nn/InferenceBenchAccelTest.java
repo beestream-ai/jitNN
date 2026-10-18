@@ -239,7 +239,7 @@ class InferenceBenchAccelTest {
                 String name = "resnet50_b" + b + "_" + mode;
                 Supplier<Tensor> forward = () -> Grad.inference(() -> {
                     try (Grad.Scope ignored = mode.equals("fp16h") ? Autocast.enableHalf() : null) {
-                        return model.forward(Tensor.of(x, b, 3, 224, 224));
+                        return model.forward(Tensor.wrap(x, b, 3, 224, 224));
                     }
                 });
                 if (Boolean.getBoolean("jitnn.bench.split")) {
@@ -271,13 +271,13 @@ class InferenceBenchAccelTest {
                 if (Boolean.getBoolean("jitnn.bench.split")) {
                     split(name, () -> Grad.inference(() -> {
                         try (Grad.Scope ignored = mode.equals("fp16") ? Autocast.enable(DType.F16) : mode.equals("fp16h") ? Autocast.enableHalf() : null) {
-                            return model.forward(Tensor.of(ids, b, t));
+                            return model.forward(Tensor.wrap(ids, b, t));
                         }
                     }));
                 }
                 time(name, b, () -> Grad.inference(() -> {
                     try (Grad.Scope ignored = mode.equals("fp16") ? Autocast.enable(DType.F16) : mode.equals("fp16h") ? Autocast.enableHalf() : null) {
-                        return model.forward(Tensor.of(ids, b, t));
+                        return model.forward(Tensor.wrap(ids, b, t));
                     }
                 }));
             }

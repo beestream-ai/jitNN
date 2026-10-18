@@ -497,6 +497,17 @@ class OpsAccelTest {
         }
     }
 
+    /** Inputs over the caller's own arrays (Tensor.wrap): read when the plan runs, the same results as copies. */
+    @Test
+    void wrappedInputs() {
+        float[] x = seq(64 * 96, 0.01f, -0.5f);
+        int[] ids = new int[] { 3, 1, 4, 1, 5, 9, 2, 6 };
+        same("linear over a wrapped input", () -> F.linear(Tensor.wrap(x, 64, 96), Tensor.uniform(201, -0.1f, 0.1f, 32, 96), Tensor.uniform(202, -1, 1, 32)));
+        same("embedding over wrapped ids", () -> F.embedding(Tensor.wrap(ids, 8), Tensor.uniform(203, -1, 1, 10, 16)));
+        // a wrapped tensor read back on the host has the array's values
+        assertArrayEquals(x, Tensor.wrap(x, 64, 96).toFloatArray());
+    }
+
     /** Element-wise chains fused into one kernel (inference, and the gradient chains of a backward pass) against the unfused reference. */
     @Test
     void fusedElementwiseChains() {

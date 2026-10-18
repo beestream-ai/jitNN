@@ -32,6 +32,13 @@ public final class Storage {
     int inputUses;
 
     TornadoNativeArray array;
+
+    /**
+     * A Java array holding the contents instead of {@link #array} (a float[] or int[] shared by
+     * {@code Tensor.wrap}): copied straight into a plan's input buffer, and into a native array only
+     * when something else needs one.
+     */
+    Object heap;
     boolean hostValid;
     /**
      * Created inside autograd's backward pass and not handed to the user as a leaf gradient: no
@@ -72,6 +79,36 @@ public final class Storage {
         s.array = array;
         s.hostValid = true;
         return s;
+    }
+
+    /** Host storage over a Java float[] or int[] shared with the caller (see {@link #heap}). */
+    public static Storage ofHeap(Object data, DType dtype, int numel) {
+        if (!(data instanceof float[] && dtype == DType.F32) && !(data instanceof int[] && dtype == DType.I32)) {
+            throw new IllegalArgumentException("a shared host array must be float[] (F32) or int[] (I32)");
+        }
+        Storage s = new Storage(dtype, numel, false);
+        s.heap = data;
+        s.hostValid = true;
+        return s;
+    }
+
+    /** The native array, made from the shared Java array on first use. */
+    TornadoNativeArray materialize() {
+        if (array == null && heap != null) {
+            array = newArray(dtype, numel);
+            copyHeap(heap, array, numel);
+            heap = null;
+        }
+        return array;
+    }
+
+    /** Copies a shared Java array into a native array of the same type in one bulk copy. */
+    static void copyHeap(Object heap, TornadoNativeArray to, int numel) {
+        if (heap instanceof float[] f) {
+            java.lang.foreign.MemorySegment.copy(f, 0, to.getSegment(), java.lang.foreign.ValueLayout.JAVA_FLOAT, 0, numel);
+        } else {
+            java.lang.foreign.MemorySegment.copy((int[]) heap, 0, to.getSegment(), java.lang.foreign.ValueLayout.JAVA_INT, 0, numel);
+        }
     }
 
     private static final ThreadLocal<Boolean> INTERNAL = ThreadLocal.withInitial(() -> Boolean.FALSE);
@@ -129,6 +166,7 @@ public final class Storage {
     }
 
     TornadoNativeArray allocate() {
+        materialize();
         if (array == null) {
             array = newArray(dtype, numel);
         }
@@ -161,7 +199,7 @@ public final class Storage {
     /** The host array with current contents, fetching it from a device if needed. */
     public TornadoNativeArray host() {
         Engine.ensureHost(this);
-        return array;
+        return materialize();
     }
 
     /**

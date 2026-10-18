@@ -672,7 +672,12 @@ final class TornadoExecutor {
                 Engine.ensureHost(s);
                 transfers[4]++;
                 transfers[5] += s.numel;
-                copy((TornadoNativeArray) s.array, (TornadoNativeArray) ct.arrays[i]);
+                if (s.array == null && s.heap != null) {
+                    // a shared Java array (Tensor.wrap): one copy, straight into the plan's buffer
+                    Storage.copyHeap(s.heap, (TornadoNativeArray) ct.arrays[i], s.numel);
+                } else {
+                    copy((TornadoNativeArray) s.array, (TornadoNativeArray) ct.arrays[i]);
+                }
             }
         }
         for (int i = 0; i < slots.size(); i++) {
