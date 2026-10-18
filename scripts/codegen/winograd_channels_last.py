@@ -2,7 +2,8 @@
 
 usage: python3 scripts/codegen/winograd_channels_last.py > jitnn-core/src/main/java/org/beehive/jitnn/kernels/ConvChannelsLastKernels.java
 
-The input transform reads x [N, H, W, C] (FP32 or FP16) into v [36, tiles, C]; the weight transform
+The input transform reads x [N, H, W, C] (FP32 or FP16) into v [36, tiles, C], optionally applying
+the producing convolution's bias and ReLU to in-bounds values; the weight transform
 writes u [36, Cin, Cout]; the 36 products mm = v u are [36, tiles, Cout]; the output transform writes
 out [N, OH, OW, C] (FP32 or FP16) with the bias and ReLU epilogue. Work-items run channel-fastest
 (idx = tile * C + channel), so every read and write coalesces.
@@ -31,6 +32,20 @@ def input_last(body, half):
     read = r"x.get(((n * h + r0 + \1) * wd + c0 + \2) * c + ci)" + (".getFloat32()" if half else "")
     body = re.sub(r"x\.get\(base \+ \(r0 \+ (\d)\) \* wd \+ c0 \+ (\d)\)", read, body)
     assert "base" not in body, name
+    return body
+
+
+def input_last_act(body, half):
+    """The input transform applying the producing convolution's bias and ReLU to in-bounds inputs (padding stays 0)."""
+    body = input_last(body, half)
+    old = "winograd4InputLastHalf(" if half else "winograd4InputLast("
+    new = "winograd4InputLastActHalf(" if half else "winograd4InputLastAct("
+    body = body.replace(old, new)
+    body = body.replace(", FloatArray v, int c,", ", FloatArray bias, int relu, FloatArray v, int c,")
+    body = body.replace("            int p = idx / c;\n", "            int p = idx / c;\n            float bc = bias.get(ci);\n            float lo = relu != 0 ? 0.0f : -3.4e38f;\n", 1)
+    get = r"(x\.get\(\(\(n \* h \+ r0 \+ \d\) \* wd \+ c0 \+ \d\) \* c \+ ci\)" + (r"\.getFloat32\(\)" if half else "") + ")"
+    body = re.sub(get, r"TornadoMath.max(\1 + bc, lo)", body)
+    assert "TornadoMath.max" in body and "float bc" in body
     return body
 
 
@@ -63,6 +78,7 @@ def main():
     print("package org.beehive.jitnn.kernels;")
     print()
     print("import uk.ac.manchester.tornado.api.KernelContext;")
+    print("import uk.ac.manchester.tornado.api.math.TornadoMath;")
     print("import uk.ac.manchester.tornado.api.types.HalfFloat;")
     print("import uk.ac.manchester.tornado.api.types.arrays.FloatArray;")
     print("import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;")
@@ -77,7 +93,8 @@ def main():
     print()
     print("    private ConvChannelsLastKernels() {")
     print("    }")
-    for body in (input_last(inp, False), input_last(inp, True), weight_last(wgt), output_last(outp, False), output_last(outp, True)):
+    for body in (input_last(inp, False), input_last(inp, True), input_last_act(inp, False), input_last_act(inp, True), weight_last(wgt), output_last(outp, False),
+                 output_last(outp, True)):
         print()
         sys.stdout.write(body)
     print("}")

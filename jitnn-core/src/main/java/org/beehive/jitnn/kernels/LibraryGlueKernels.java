@@ -125,13 +125,17 @@ public final class LibraryGlueKernels {
     }
 
     /**
-     * out = y + bias[c] + r (then ReLU when relu != 0) on channels-last tensors: the bias of the
-     * convolution that produced y, applied with the residual add that reads it.
+     * out = y + bias[c] + r (+ bias2[c] when hasBias2 != 0), then ReLU when relu != 0, on channels-last
+     * tensors: the biases of the convolutions that produced y (and r), applied with the residual add.
      */
-    public static void addBiasLast(KernelContext kc, FloatArray y, FloatArray r, FloatArray bias, FloatArray out, int c, int total, int relu) {
+    public static void addBiasLast(KernelContext kc, FloatArray y, FloatArray r, FloatArray bias, FloatArray bias2, FloatArray out, int c, int total, int relu, int hasBias2) {
         int i = kc.globalIdx;
         if (i < total) {
-            float v = y.get(i) + bias.get(i % c) + r.get(i);
+            int ch = i % c;
+            float v = y.get(i) + bias.get(ch) + r.get(i);
+            if (hasBias2 != 0) {
+                v = v + bias2.get(ch);
+            }
             if (relu != 0) {
                 v = v > 0.0f ? v : 0.0f;
             }
@@ -140,10 +144,15 @@ public final class LibraryGlueKernels {
     }
 
     /** {@link #addBiasLast} on FP16 tensors (FP32 bias, FP32 arithmetic). */
-    public static void addBiasLastHalf(KernelContext kc, HalfFloatArray y, HalfFloatArray r, FloatArray bias, HalfFloatArray out, int c, int total, int relu) {
+    public static void addBiasLastHalf(KernelContext kc, HalfFloatArray y, HalfFloatArray r, FloatArray bias, FloatArray bias2, HalfFloatArray out, int c, int total, int relu,
+            int hasBias2) {
         int i = kc.globalIdx;
         if (i < total) {
-            float v = y.get(i).getFloat32() + bias.get(i % c) + r.get(i).getFloat32();
+            int ch = i % c;
+            float v = y.get(i).getFloat32() + bias.get(ch) + r.get(i).getFloat32();
+            if (hasBias2 != 0) {
+                v = v + bias2.get(ch);
+            }
             if (relu != 0) {
                 v = v > 0.0f ? v : 0.0f;
             }

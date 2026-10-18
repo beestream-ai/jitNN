@@ -1,6 +1,7 @@
 package org.beehive.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;
+import uk.ac.manchester.tornado.api.math.TornadoMath;
 import uk.ac.manchester.tornado.api.types.HalfFloat;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
@@ -437,6 +438,544 @@ public final class ConvChannelsLastKernels {
             float d5_5 = 0.0f;
             if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
                 d5_5 = x.get(((n * h + r0 + 5) * wd + c0 + 5) * c + ci).getFloat32();
+            }
+            float t0_0 = 4.0f * d0_0 - 5.0f * d2_0 + d4_0;
+            float t1_0 = -4.0f * d1_0 - 4.0f * d2_0 + d3_0 + d4_0;
+            float t2_0 = 4.0f * d1_0 - 4.0f * d2_0 - d3_0 + d4_0;
+            float t3_0 = -2.0f * d1_0 - d2_0 + 2.0f * d3_0 + d4_0;
+            float t4_0 = 2.0f * d1_0 - d2_0 - 2.0f * d3_0 + d4_0;
+            float t5_0 = 4.0f * d1_0 - 5.0f * d3_0 + d5_0;
+            float t0_1 = 4.0f * d0_1 - 5.0f * d2_1 + d4_1;
+            float t1_1 = -4.0f * d1_1 - 4.0f * d2_1 + d3_1 + d4_1;
+            float t2_1 = 4.0f * d1_1 - 4.0f * d2_1 - d3_1 + d4_1;
+            float t3_1 = -2.0f * d1_1 - d2_1 + 2.0f * d3_1 + d4_1;
+            float t4_1 = 2.0f * d1_1 - d2_1 - 2.0f * d3_1 + d4_1;
+            float t5_1 = 4.0f * d1_1 - 5.0f * d3_1 + d5_1;
+            float t0_2 = 4.0f * d0_2 - 5.0f * d2_2 + d4_2;
+            float t1_2 = -4.0f * d1_2 - 4.0f * d2_2 + d3_2 + d4_2;
+            float t2_2 = 4.0f * d1_2 - 4.0f * d2_2 - d3_2 + d4_2;
+            float t3_2 = -2.0f * d1_2 - d2_2 + 2.0f * d3_2 + d4_2;
+            float t4_2 = 2.0f * d1_2 - d2_2 - 2.0f * d3_2 + d4_2;
+            float t5_2 = 4.0f * d1_2 - 5.0f * d3_2 + d5_2;
+            float t0_3 = 4.0f * d0_3 - 5.0f * d2_3 + d4_3;
+            float t1_3 = -4.0f * d1_3 - 4.0f * d2_3 + d3_3 + d4_3;
+            float t2_3 = 4.0f * d1_3 - 4.0f * d2_3 - d3_3 + d4_3;
+            float t3_3 = -2.0f * d1_3 - d2_3 + 2.0f * d3_3 + d4_3;
+            float t4_3 = 2.0f * d1_3 - d2_3 - 2.0f * d3_3 + d4_3;
+            float t5_3 = 4.0f * d1_3 - 5.0f * d3_3 + d5_3;
+            float t0_4 = 4.0f * d0_4 - 5.0f * d2_4 + d4_4;
+            float t1_4 = -4.0f * d1_4 - 4.0f * d2_4 + d3_4 + d4_4;
+            float t2_4 = 4.0f * d1_4 - 4.0f * d2_4 - d3_4 + d4_4;
+            float t3_4 = -2.0f * d1_4 - d2_4 + 2.0f * d3_4 + d4_4;
+            float t4_4 = 2.0f * d1_4 - d2_4 - 2.0f * d3_4 + d4_4;
+            float t5_4 = 4.0f * d1_4 - 5.0f * d3_4 + d5_4;
+            float t0_5 = 4.0f * d0_5 - 5.0f * d2_5 + d4_5;
+            float t1_5 = -4.0f * d1_5 - 4.0f * d2_5 + d3_5 + d4_5;
+            float t2_5 = 4.0f * d1_5 - 4.0f * d2_5 - d3_5 + d4_5;
+            float t3_5 = -2.0f * d1_5 - d2_5 + 2.0f * d3_5 + d4_5;
+            float t4_5 = 2.0f * d1_5 - d2_5 - 2.0f * d3_5 + d4_5;
+            float t5_5 = 4.0f * d1_5 - 5.0f * d3_5 + d5_5;
+            float v0_0 = 4.0f * t0_0 - 5.0f * t0_2 + t0_4;
+            float v0_1 = -4.0f * t0_1 - 4.0f * t0_2 + t0_3 + t0_4;
+            float v0_2 = 4.0f * t0_1 - 4.0f * t0_2 - t0_3 + t0_4;
+            float v0_3 = -2.0f * t0_1 - t0_2 + 2.0f * t0_3 + t0_4;
+            float v0_4 = 2.0f * t0_1 - t0_2 - 2.0f * t0_3 + t0_4;
+            float v0_5 = 4.0f * t0_1 - 5.0f * t0_3 + t0_5;
+            float v1_0 = 4.0f * t1_0 - 5.0f * t1_2 + t1_4;
+            float v1_1 = -4.0f * t1_1 - 4.0f * t1_2 + t1_3 + t1_4;
+            float v1_2 = 4.0f * t1_1 - 4.0f * t1_2 - t1_3 + t1_4;
+            float v1_3 = -2.0f * t1_1 - t1_2 + 2.0f * t1_3 + t1_4;
+            float v1_4 = 2.0f * t1_1 - t1_2 - 2.0f * t1_3 + t1_4;
+            float v1_5 = 4.0f * t1_1 - 5.0f * t1_3 + t1_5;
+            float v2_0 = 4.0f * t2_0 - 5.0f * t2_2 + t2_4;
+            float v2_1 = -4.0f * t2_1 - 4.0f * t2_2 + t2_3 + t2_4;
+            float v2_2 = 4.0f * t2_1 - 4.0f * t2_2 - t2_3 + t2_4;
+            float v2_3 = -2.0f * t2_1 - t2_2 + 2.0f * t2_3 + t2_4;
+            float v2_4 = 2.0f * t2_1 - t2_2 - 2.0f * t2_3 + t2_4;
+            float v2_5 = 4.0f * t2_1 - 5.0f * t2_3 + t2_5;
+            float v3_0 = 4.0f * t3_0 - 5.0f * t3_2 + t3_4;
+            float v3_1 = -4.0f * t3_1 - 4.0f * t3_2 + t3_3 + t3_4;
+            float v3_2 = 4.0f * t3_1 - 4.0f * t3_2 - t3_3 + t3_4;
+            float v3_3 = -2.0f * t3_1 - t3_2 + 2.0f * t3_3 + t3_4;
+            float v3_4 = 2.0f * t3_1 - t3_2 - 2.0f * t3_3 + t3_4;
+            float v3_5 = 4.0f * t3_1 - 5.0f * t3_3 + t3_5;
+            float v4_0 = 4.0f * t4_0 - 5.0f * t4_2 + t4_4;
+            float v4_1 = -4.0f * t4_1 - 4.0f * t4_2 + t4_3 + t4_4;
+            float v4_2 = 4.0f * t4_1 - 4.0f * t4_2 - t4_3 + t4_4;
+            float v4_3 = -2.0f * t4_1 - t4_2 + 2.0f * t4_3 + t4_4;
+            float v4_4 = 2.0f * t4_1 - t4_2 - 2.0f * t4_3 + t4_4;
+            float v4_5 = 4.0f * t4_1 - 5.0f * t4_3 + t4_5;
+            float v5_0 = 4.0f * t5_0 - 5.0f * t5_2 + t5_4;
+            float v5_1 = -4.0f * t5_1 - 4.0f * t5_2 + t5_3 + t5_4;
+            float v5_2 = 4.0f * t5_1 - 4.0f * t5_2 - t5_3 + t5_4;
+            float v5_3 = -2.0f * t5_1 - t5_2 + 2.0f * t5_3 + t5_4;
+            float v5_4 = 2.0f * t5_1 - t5_2 - 2.0f * t5_3 + t5_4;
+            float v5_5 = 4.0f * t5_1 - 5.0f * t5_3 + t5_5;
+            int stride = c * tiles;
+            v.set(0 * stride + idx, v0_0);
+            v.set(1 * stride + idx, v0_1);
+            v.set(2 * stride + idx, v0_2);
+            v.set(3 * stride + idx, v0_3);
+            v.set(4 * stride + idx, v0_4);
+            v.set(5 * stride + idx, v0_5);
+            v.set(6 * stride + idx, v1_0);
+            v.set(7 * stride + idx, v1_1);
+            v.set(8 * stride + idx, v1_2);
+            v.set(9 * stride + idx, v1_3);
+            v.set(10 * stride + idx, v1_4);
+            v.set(11 * stride + idx, v1_5);
+            v.set(12 * stride + idx, v2_0);
+            v.set(13 * stride + idx, v2_1);
+            v.set(14 * stride + idx, v2_2);
+            v.set(15 * stride + idx, v2_3);
+            v.set(16 * stride + idx, v2_4);
+            v.set(17 * stride + idx, v2_5);
+            v.set(18 * stride + idx, v3_0);
+            v.set(19 * stride + idx, v3_1);
+            v.set(20 * stride + idx, v3_2);
+            v.set(21 * stride + idx, v3_3);
+            v.set(22 * stride + idx, v3_4);
+            v.set(23 * stride + idx, v3_5);
+            v.set(24 * stride + idx, v4_0);
+            v.set(25 * stride + idx, v4_1);
+            v.set(26 * stride + idx, v4_2);
+            v.set(27 * stride + idx, v4_3);
+            v.set(28 * stride + idx, v4_4);
+            v.set(29 * stride + idx, v4_5);
+            v.set(30 * stride + idx, v5_0);
+            v.set(31 * stride + idx, v5_1);
+            v.set(32 * stride + idx, v5_2);
+            v.set(33 * stride + idx, v5_3);
+            v.set(34 * stride + idx, v5_4);
+            v.set(35 * stride + idx, v5_5);
+        }
+    }
+
+    public static void winograd4InputLastAct(KernelContext kc, FloatArray x, FloatArray bias, int relu, FloatArray v, int c, int h, int wd, int pad, int th, int tw, int tiles) {
+        int idx = kc.globalIdx;
+        if (idx < c * tiles) {
+            int ci = idx % c;
+            int p = idx / c;
+            float bc = bias.get(ci);
+            float lo = relu != 0 ? 0.0f : -3.4e38f;
+            int tx = p % tw;
+            int r = p / tw;
+            int ty = r % th;
+            int n = r / th;
+            int r0 = 4 * ty - pad;
+            int c0 = 4 * tx - pad;
+            float d0_0 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d0_0 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 0) * c + ci) + bc, lo);
+            }
+            float d0_1 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d0_1 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 1) * c + ci) + bc, lo);
+            }
+            float d0_2 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d0_2 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 2) * c + ci) + bc, lo);
+            }
+            float d0_3 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d0_3 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 3) * c + ci) + bc, lo);
+            }
+            float d0_4 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d0_4 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 4) * c + ci) + bc, lo);
+            }
+            float d0_5 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d0_5 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 5) * c + ci) + bc, lo);
+            }
+            float d1_0 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d1_0 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 0) * c + ci) + bc, lo);
+            }
+            float d1_1 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d1_1 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 1) * c + ci) + bc, lo);
+            }
+            float d1_2 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d1_2 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 2) * c + ci) + bc, lo);
+            }
+            float d1_3 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d1_3 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 3) * c + ci) + bc, lo);
+            }
+            float d1_4 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d1_4 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 4) * c + ci) + bc, lo);
+            }
+            float d1_5 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d1_5 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 5) * c + ci) + bc, lo);
+            }
+            float d2_0 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d2_0 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 0) * c + ci) + bc, lo);
+            }
+            float d2_1 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d2_1 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 1) * c + ci) + bc, lo);
+            }
+            float d2_2 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d2_2 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 2) * c + ci) + bc, lo);
+            }
+            float d2_3 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d2_3 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 3) * c + ci) + bc, lo);
+            }
+            float d2_4 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d2_4 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 4) * c + ci) + bc, lo);
+            }
+            float d2_5 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d2_5 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 5) * c + ci) + bc, lo);
+            }
+            float d3_0 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d3_0 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 0) * c + ci) + bc, lo);
+            }
+            float d3_1 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d3_1 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 1) * c + ci) + bc, lo);
+            }
+            float d3_2 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d3_2 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 2) * c + ci) + bc, lo);
+            }
+            float d3_3 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d3_3 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 3) * c + ci) + bc, lo);
+            }
+            float d3_4 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d3_4 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 4) * c + ci) + bc, lo);
+            }
+            float d3_5 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d3_5 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 5) * c + ci) + bc, lo);
+            }
+            float d4_0 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d4_0 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 0) * c + ci) + bc, lo);
+            }
+            float d4_1 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d4_1 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 1) * c + ci) + bc, lo);
+            }
+            float d4_2 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d4_2 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 2) * c + ci) + bc, lo);
+            }
+            float d4_3 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d4_3 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 3) * c + ci) + bc, lo);
+            }
+            float d4_4 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d4_4 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 4) * c + ci) + bc, lo);
+            }
+            float d4_5 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d4_5 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 5) * c + ci) + bc, lo);
+            }
+            float d5_0 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d5_0 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 0) * c + ci) + bc, lo);
+            }
+            float d5_1 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d5_1 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 1) * c + ci) + bc, lo);
+            }
+            float d5_2 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d5_2 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 2) * c + ci) + bc, lo);
+            }
+            float d5_3 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d5_3 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 3) * c + ci) + bc, lo);
+            }
+            float d5_4 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d5_4 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 4) * c + ci) + bc, lo);
+            }
+            float d5_5 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d5_5 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 5) * c + ci) + bc, lo);
+            }
+            float t0_0 = 4.0f * d0_0 - 5.0f * d2_0 + d4_0;
+            float t1_0 = -4.0f * d1_0 - 4.0f * d2_0 + d3_0 + d4_0;
+            float t2_0 = 4.0f * d1_0 - 4.0f * d2_0 - d3_0 + d4_0;
+            float t3_0 = -2.0f * d1_0 - d2_0 + 2.0f * d3_0 + d4_0;
+            float t4_0 = 2.0f * d1_0 - d2_0 - 2.0f * d3_0 + d4_0;
+            float t5_0 = 4.0f * d1_0 - 5.0f * d3_0 + d5_0;
+            float t0_1 = 4.0f * d0_1 - 5.0f * d2_1 + d4_1;
+            float t1_1 = -4.0f * d1_1 - 4.0f * d2_1 + d3_1 + d4_1;
+            float t2_1 = 4.0f * d1_1 - 4.0f * d2_1 - d3_1 + d4_1;
+            float t3_1 = -2.0f * d1_1 - d2_1 + 2.0f * d3_1 + d4_1;
+            float t4_1 = 2.0f * d1_1 - d2_1 - 2.0f * d3_1 + d4_1;
+            float t5_1 = 4.0f * d1_1 - 5.0f * d3_1 + d5_1;
+            float t0_2 = 4.0f * d0_2 - 5.0f * d2_2 + d4_2;
+            float t1_2 = -4.0f * d1_2 - 4.0f * d2_2 + d3_2 + d4_2;
+            float t2_2 = 4.0f * d1_2 - 4.0f * d2_2 - d3_2 + d4_2;
+            float t3_2 = -2.0f * d1_2 - d2_2 + 2.0f * d3_2 + d4_2;
+            float t4_2 = 2.0f * d1_2 - d2_2 - 2.0f * d3_2 + d4_2;
+            float t5_2 = 4.0f * d1_2 - 5.0f * d3_2 + d5_2;
+            float t0_3 = 4.0f * d0_3 - 5.0f * d2_3 + d4_3;
+            float t1_3 = -4.0f * d1_3 - 4.0f * d2_3 + d3_3 + d4_3;
+            float t2_3 = 4.0f * d1_3 - 4.0f * d2_3 - d3_3 + d4_3;
+            float t3_3 = -2.0f * d1_3 - d2_3 + 2.0f * d3_3 + d4_3;
+            float t4_3 = 2.0f * d1_3 - d2_3 - 2.0f * d3_3 + d4_3;
+            float t5_3 = 4.0f * d1_3 - 5.0f * d3_3 + d5_3;
+            float t0_4 = 4.0f * d0_4 - 5.0f * d2_4 + d4_4;
+            float t1_4 = -4.0f * d1_4 - 4.0f * d2_4 + d3_4 + d4_4;
+            float t2_4 = 4.0f * d1_4 - 4.0f * d2_4 - d3_4 + d4_4;
+            float t3_4 = -2.0f * d1_4 - d2_4 + 2.0f * d3_4 + d4_4;
+            float t4_4 = 2.0f * d1_4 - d2_4 - 2.0f * d3_4 + d4_4;
+            float t5_4 = 4.0f * d1_4 - 5.0f * d3_4 + d5_4;
+            float t0_5 = 4.0f * d0_5 - 5.0f * d2_5 + d4_5;
+            float t1_5 = -4.0f * d1_5 - 4.0f * d2_5 + d3_5 + d4_5;
+            float t2_5 = 4.0f * d1_5 - 4.0f * d2_5 - d3_5 + d4_5;
+            float t3_5 = -2.0f * d1_5 - d2_5 + 2.0f * d3_5 + d4_5;
+            float t4_5 = 2.0f * d1_5 - d2_5 - 2.0f * d3_5 + d4_5;
+            float t5_5 = 4.0f * d1_5 - 5.0f * d3_5 + d5_5;
+            float v0_0 = 4.0f * t0_0 - 5.0f * t0_2 + t0_4;
+            float v0_1 = -4.0f * t0_1 - 4.0f * t0_2 + t0_3 + t0_4;
+            float v0_2 = 4.0f * t0_1 - 4.0f * t0_2 - t0_3 + t0_4;
+            float v0_3 = -2.0f * t0_1 - t0_2 + 2.0f * t0_3 + t0_4;
+            float v0_4 = 2.0f * t0_1 - t0_2 - 2.0f * t0_3 + t0_4;
+            float v0_5 = 4.0f * t0_1 - 5.0f * t0_3 + t0_5;
+            float v1_0 = 4.0f * t1_0 - 5.0f * t1_2 + t1_4;
+            float v1_1 = -4.0f * t1_1 - 4.0f * t1_2 + t1_3 + t1_4;
+            float v1_2 = 4.0f * t1_1 - 4.0f * t1_2 - t1_3 + t1_4;
+            float v1_3 = -2.0f * t1_1 - t1_2 + 2.0f * t1_3 + t1_4;
+            float v1_4 = 2.0f * t1_1 - t1_2 - 2.0f * t1_3 + t1_4;
+            float v1_5 = 4.0f * t1_1 - 5.0f * t1_3 + t1_5;
+            float v2_0 = 4.0f * t2_0 - 5.0f * t2_2 + t2_4;
+            float v2_1 = -4.0f * t2_1 - 4.0f * t2_2 + t2_3 + t2_4;
+            float v2_2 = 4.0f * t2_1 - 4.0f * t2_2 - t2_3 + t2_4;
+            float v2_3 = -2.0f * t2_1 - t2_2 + 2.0f * t2_3 + t2_4;
+            float v2_4 = 2.0f * t2_1 - t2_2 - 2.0f * t2_3 + t2_4;
+            float v2_5 = 4.0f * t2_1 - 5.0f * t2_3 + t2_5;
+            float v3_0 = 4.0f * t3_0 - 5.0f * t3_2 + t3_4;
+            float v3_1 = -4.0f * t3_1 - 4.0f * t3_2 + t3_3 + t3_4;
+            float v3_2 = 4.0f * t3_1 - 4.0f * t3_2 - t3_3 + t3_4;
+            float v3_3 = -2.0f * t3_1 - t3_2 + 2.0f * t3_3 + t3_4;
+            float v3_4 = 2.0f * t3_1 - t3_2 - 2.0f * t3_3 + t3_4;
+            float v3_5 = 4.0f * t3_1 - 5.0f * t3_3 + t3_5;
+            float v4_0 = 4.0f * t4_0 - 5.0f * t4_2 + t4_4;
+            float v4_1 = -4.0f * t4_1 - 4.0f * t4_2 + t4_3 + t4_4;
+            float v4_2 = 4.0f * t4_1 - 4.0f * t4_2 - t4_3 + t4_4;
+            float v4_3 = -2.0f * t4_1 - t4_2 + 2.0f * t4_3 + t4_4;
+            float v4_4 = 2.0f * t4_1 - t4_2 - 2.0f * t4_3 + t4_4;
+            float v4_5 = 4.0f * t4_1 - 5.0f * t4_3 + t4_5;
+            float v5_0 = 4.0f * t5_0 - 5.0f * t5_2 + t5_4;
+            float v5_1 = -4.0f * t5_1 - 4.0f * t5_2 + t5_3 + t5_4;
+            float v5_2 = 4.0f * t5_1 - 4.0f * t5_2 - t5_3 + t5_4;
+            float v5_3 = -2.0f * t5_1 - t5_2 + 2.0f * t5_3 + t5_4;
+            float v5_4 = 2.0f * t5_1 - t5_2 - 2.0f * t5_3 + t5_4;
+            float v5_5 = 4.0f * t5_1 - 5.0f * t5_3 + t5_5;
+            int stride = c * tiles;
+            v.set(0 * stride + idx, v0_0);
+            v.set(1 * stride + idx, v0_1);
+            v.set(2 * stride + idx, v0_2);
+            v.set(3 * stride + idx, v0_3);
+            v.set(4 * stride + idx, v0_4);
+            v.set(5 * stride + idx, v0_5);
+            v.set(6 * stride + idx, v1_0);
+            v.set(7 * stride + idx, v1_1);
+            v.set(8 * stride + idx, v1_2);
+            v.set(9 * stride + idx, v1_3);
+            v.set(10 * stride + idx, v1_4);
+            v.set(11 * stride + idx, v1_5);
+            v.set(12 * stride + idx, v2_0);
+            v.set(13 * stride + idx, v2_1);
+            v.set(14 * stride + idx, v2_2);
+            v.set(15 * stride + idx, v2_3);
+            v.set(16 * stride + idx, v2_4);
+            v.set(17 * stride + idx, v2_5);
+            v.set(18 * stride + idx, v3_0);
+            v.set(19 * stride + idx, v3_1);
+            v.set(20 * stride + idx, v3_2);
+            v.set(21 * stride + idx, v3_3);
+            v.set(22 * stride + idx, v3_4);
+            v.set(23 * stride + idx, v3_5);
+            v.set(24 * stride + idx, v4_0);
+            v.set(25 * stride + idx, v4_1);
+            v.set(26 * stride + idx, v4_2);
+            v.set(27 * stride + idx, v4_3);
+            v.set(28 * stride + idx, v4_4);
+            v.set(29 * stride + idx, v4_5);
+            v.set(30 * stride + idx, v5_0);
+            v.set(31 * stride + idx, v5_1);
+            v.set(32 * stride + idx, v5_2);
+            v.set(33 * stride + idx, v5_3);
+            v.set(34 * stride + idx, v5_4);
+            v.set(35 * stride + idx, v5_5);
+        }
+    }
+
+    public static void winograd4InputLastActHalf(KernelContext kc, HalfFloatArray x, FloatArray bias, int relu, FloatArray v, int c, int h, int wd, int pad, int th, int tw, int tiles) {
+        int idx = kc.globalIdx;
+        if (idx < c * tiles) {
+            int ci = idx % c;
+            int p = idx / c;
+            float bc = bias.get(ci);
+            float lo = relu != 0 ? 0.0f : -3.4e38f;
+            int tx = p % tw;
+            int r = p / tw;
+            int ty = r % th;
+            int n = r / th;
+            int r0 = 4 * ty - pad;
+            int c0 = 4 * tx - pad;
+            float d0_0 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d0_0 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 0) * c + ci).getFloat32() + bc, lo);
+            }
+            float d0_1 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d0_1 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 1) * c + ci).getFloat32() + bc, lo);
+            }
+            float d0_2 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d0_2 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 2) * c + ci).getFloat32() + bc, lo);
+            }
+            float d0_3 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d0_3 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 3) * c + ci).getFloat32() + bc, lo);
+            }
+            float d0_4 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d0_4 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 4) * c + ci).getFloat32() + bc, lo);
+            }
+            float d0_5 = 0.0f;
+            if ((r0 + 0 >= 0) & (r0 + 0 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d0_5 = TornadoMath.max(x.get(((n * h + r0 + 0) * wd + c0 + 5) * c + ci).getFloat32() + bc, lo);
+            }
+            float d1_0 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d1_0 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 0) * c + ci).getFloat32() + bc, lo);
+            }
+            float d1_1 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d1_1 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 1) * c + ci).getFloat32() + bc, lo);
+            }
+            float d1_2 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d1_2 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 2) * c + ci).getFloat32() + bc, lo);
+            }
+            float d1_3 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d1_3 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 3) * c + ci).getFloat32() + bc, lo);
+            }
+            float d1_4 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d1_4 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 4) * c + ci).getFloat32() + bc, lo);
+            }
+            float d1_5 = 0.0f;
+            if ((r0 + 1 >= 0) & (r0 + 1 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d1_5 = TornadoMath.max(x.get(((n * h + r0 + 1) * wd + c0 + 5) * c + ci).getFloat32() + bc, lo);
+            }
+            float d2_0 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d2_0 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 0) * c + ci).getFloat32() + bc, lo);
+            }
+            float d2_1 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d2_1 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 1) * c + ci).getFloat32() + bc, lo);
+            }
+            float d2_2 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d2_2 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 2) * c + ci).getFloat32() + bc, lo);
+            }
+            float d2_3 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d2_3 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 3) * c + ci).getFloat32() + bc, lo);
+            }
+            float d2_4 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d2_4 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 4) * c + ci).getFloat32() + bc, lo);
+            }
+            float d2_5 = 0.0f;
+            if ((r0 + 2 >= 0) & (r0 + 2 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d2_5 = TornadoMath.max(x.get(((n * h + r0 + 2) * wd + c0 + 5) * c + ci).getFloat32() + bc, lo);
+            }
+            float d3_0 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d3_0 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 0) * c + ci).getFloat32() + bc, lo);
+            }
+            float d3_1 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d3_1 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 1) * c + ci).getFloat32() + bc, lo);
+            }
+            float d3_2 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d3_2 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 2) * c + ci).getFloat32() + bc, lo);
+            }
+            float d3_3 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d3_3 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 3) * c + ci).getFloat32() + bc, lo);
+            }
+            float d3_4 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d3_4 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 4) * c + ci).getFloat32() + bc, lo);
+            }
+            float d3_5 = 0.0f;
+            if ((r0 + 3 >= 0) & (r0 + 3 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d3_5 = TornadoMath.max(x.get(((n * h + r0 + 3) * wd + c0 + 5) * c + ci).getFloat32() + bc, lo);
+            }
+            float d4_0 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d4_0 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 0) * c + ci).getFloat32() + bc, lo);
+            }
+            float d4_1 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d4_1 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 1) * c + ci).getFloat32() + bc, lo);
+            }
+            float d4_2 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d4_2 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 2) * c + ci).getFloat32() + bc, lo);
+            }
+            float d4_3 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d4_3 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 3) * c + ci).getFloat32() + bc, lo);
+            }
+            float d4_4 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d4_4 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 4) * c + ci).getFloat32() + bc, lo);
+            }
+            float d4_5 = 0.0f;
+            if ((r0 + 4 >= 0) & (r0 + 4 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d4_5 = TornadoMath.max(x.get(((n * h + r0 + 4) * wd + c0 + 5) * c + ci).getFloat32() + bc, lo);
+            }
+            float d5_0 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 0 >= 0) & (c0 + 0 < wd)) {
+                d5_0 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 0) * c + ci).getFloat32() + bc, lo);
+            }
+            float d5_1 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 1 >= 0) & (c0 + 1 < wd)) {
+                d5_1 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 1) * c + ci).getFloat32() + bc, lo);
+            }
+            float d5_2 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 2 >= 0) & (c0 + 2 < wd)) {
+                d5_2 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 2) * c + ci).getFloat32() + bc, lo);
+            }
+            float d5_3 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 3 >= 0) & (c0 + 3 < wd)) {
+                d5_3 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 3) * c + ci).getFloat32() + bc, lo);
+            }
+            float d5_4 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 4 >= 0) & (c0 + 4 < wd)) {
+                d5_4 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 4) * c + ci).getFloat32() + bc, lo);
+            }
+            float d5_5 = 0.0f;
+            if ((r0 + 5 >= 0) & (r0 + 5 < h) & (c0 + 5 >= 0) & (c0 + 5 < wd)) {
+                d5_5 = TornadoMath.max(x.get(((n * h + r0 + 5) * wd + c0 + 5) * c + ci).getFloat32() + bc, lo);
             }
             float t0_0 = 4.0f * d0_0 - 5.0f * d2_0 + d4_0;
             float t1_0 = -4.0f * d1_0 - 4.0f * d2_0 + d3_0 + d4_0;

@@ -39,6 +39,9 @@ public final class ChannelsLast {
     /** iattr index (after Conv2d's) set to 1 when the convolution's weight is a channels-last copy. */
     private static final int WEIGHT_LAST = 14;
 
+    /** Winograd iattr index (after WEIGHT_LAST) set when the input still needs its producer's bias (last input) and, at PRE + 1, ReLU. */
+    private static final int PRE = 15;
+
     /** A weight's channels-last copy and the version of the weight it was made from. */
     private record LastWeight(Tensor w, long version) {
     }
@@ -217,7 +220,109 @@ public final class ChannelsLast {
             }
             out.add(new Node(n.op, ins, n.outputs, n.iattr, n.fattr, true));
         }
-        return biasIntoAdd(out, wanted);
+        return deferEpilogues(biasIntoAdd(castsIntoWinograd(out, wanted), wanted), wanted);
+    }
+
+    /**
+     * A cast from FP16 whose only reader is a Winograd convolution goes away: the input transform reads
+     * the FP16 tensor itself (in FP32 arithmetic), and the producer's bias can then move into it too.
+     */
+    private static List<Node> castsIntoWinograd(List<Node> nodes, Set<Storage> wanted) {
+        IdentityHashMap<Storage, Integer> uses = new IdentityHashMap<>();
+        IdentityHashMap<Storage, Integer> reader = new IdentityHashMap<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            for (Tensor t : nodes.get(i).inputs) {
+                uses.merge(t.storage(), 1, Integer::sum);
+                reader.put(t.storage(), i);
+            }
+        }
+        List<Node> out = new ArrayList<>(nodes);
+        boolean dropped = false;
+        for (int i = 0; i < out.size(); i++) {
+            Node c = out.get(i);
+            if (c == null || c.op != Cast.OP || c.inputs.length != 1 || c.in(0).dtype() != DType.F16 || c.out(0).dtype() != DType.F32 || pinned(c.out(0), wanted)) {
+                continue;
+            }
+            Storage y = c.out(0).storage();
+            Integer j = reader.get(y);
+            if (j == null || j <= i || uses.getOrDefault(y, 0) != 1 || out.get(j) == null || out.get(j).op != WINOGRAD || out.get(j).in(0).storage() != y) {
+                continue;
+            }
+            Node r = out.get(j);
+            Tensor[] rin = r.inputs.clone();
+            rin[0] = c.in(0);
+            out.set(j, new Node(WINOGRAD, rin, r.outputs, r.iattr, r.fattr, true));
+            out.set(i, null);
+            dropped = true;
+        }
+        if (!dropped) {
+            return out;
+        }
+        List<Node> kept = new ArrayList<>(out.size());
+        for (Node n : out) {
+            if (n != null) {
+                kept.add(n);
+            }
+        }
+        return kept;
+    }
+
+    /**
+     * The bias and ReLU of a channels-last MLX convolution moved into its only reader, so no pass of
+     * their own runs: a residual add that already takes one convolution's bias takes this one's as a
+     * second, the input transform of a Winograd convolution applies them as it reads, and a conversion
+     * back to NCHW applies them as it writes.
+     */
+    private static List<Node> deferEpilogues(List<Node> nodes, Set<Storage> wanted) {
+        IdentityHashMap<Storage, Integer> uses = new IdentityHashMap<>();
+        IdentityHashMap<Storage, Integer> reader = new IdentityHashMap<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            for (Tensor t : nodes.get(i).inputs) {
+                uses.merge(t.storage(), 1, Integer::sum);
+                reader.put(t.storage(), i);
+            }
+        }
+        List<Node> out = new ArrayList<>(nodes);
+        for (int i = 0; i < out.size(); i++) {
+            Node c = out.get(i);
+            if (c.op != CONV || c.iattr[BIAS] == 0 && c.iattr[RELU] == 0 || pinned(c.out(0), wanted)) {
+                continue;
+            }
+            Storage y = c.out(0).storage();
+            Integer j = reader.get(y);
+            if (j == null || j <= i || uses.getOrDefault(y, 0) != 1) {
+                continue;
+            }
+            Node r = out.get(j);
+            boolean hasBias = c.iattr[BIAS] != 0;
+            Tensor bias = hasBias ? c.in(2) : null;
+            Node replaced = null;
+            if (r.op == ADD_BIAS && r.inputs.length == 3 && hasBias && c.iattr[RELU] == 0 && r.in(1).storage() == y) {
+                replaced = new Node(ADD_BIAS, new Tensor[] { r.in(0), r.in(1), r.in(2), bias }, r.outputs, r.iattr, r.fattr, true);
+            } else if (r.op == WINOGRAD && hasBias && r.in(0).storage() == y && !(r.iattr.length > PRE && r.iattr[PRE] != 0)) {
+                int[] ra = java.util.Arrays.copyOf(r.iattr, PRE + 2);
+                ra[PRE] = 1;
+                ra[PRE + 1] = c.iattr[RELU];
+                Tensor[] rin = java.util.Arrays.copyOf(r.inputs, r.inputs.length + 1);
+                rin[rin.length - 1] = bias;
+                replaced = new Node(WINOGRAD, rin, r.outputs, ra, r.fattr, true);
+            } else if (r.op == TO_FIRST && r.inputs.length == 1 && r.in(0).storage() == y) {
+                int ep = (hasBias ? GemmKernels.BIAS : 0) | (c.iattr[RELU] != 0 ? GemmKernels.RELU : 0);
+                int[] ra = java.util.Arrays.copyOf(r.iattr, 4);
+                ra[3] = ep;
+                Tensor[] rin = hasBias ? new Tensor[] { r.in(0), bias } : new Tensor[] { r.in(0) };
+                replaced = new Node(TO_FIRST, rin, r.outputs, ra, r.fattr, true);
+            }
+            if (replaced == null) {
+                continue;
+            }
+            int[] ca = c.iattr.clone();
+            ca[BIAS] = 0;
+            ca[RELU] = 0;
+            out.set(i, new Node(CONV, new Tensor[] { c.in(0), c.in(1) }, c.outputs, ca, c.fattr, true));
+            out.set(j, replaced);
+        }
+        return out;
     }
 
     /**
@@ -359,6 +464,8 @@ public final class ChannelsLast {
             int c = n.iattr[1];
             int hw = n.iattr[2];
             int total = n.iattr[0] * c * hw;
+            // back to NCHW may also apply the producing convolution's bias and ReLU (iattr[3], input 1)
+            int ep = n.iattr.length > 3 ? n.iattr[3] : 0;
             if (mode == 2) {
                 FloatArray x = e.f32(n.in(0));
                 HalfFloatArray y = e.f16(n.out(0));
@@ -377,8 +484,8 @@ public final class ChannelsLast {
                 if (toLast) {
                     e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLastHalf, e.context(), x, y, c, hw, total));
                 } else {
-                    FloatArray none = e.dummyF32();
-                    e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::fromChannelsLastHalf, e.context(), x, y, none, c, hw, total, 0));
+                    FloatArray b = n.inputs.length > 1 ? e.f32(n.in(1)) : e.dummyF32();
+                    e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::fromChannelsLastHalf, e.context(), x, y, b, c, hw, total, ep));
                 }
                 return;
             }
@@ -387,8 +494,8 @@ public final class ChannelsLast {
             if (toLast) {
                 e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLast, e.context(), x, y, c, hw, total));
             } else {
-                FloatArray none = e.dummyF32();
-                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::fromChannelsLast, e.context(), x, y, none, c, hw, total, 0));
+                FloatArray b = n.inputs.length > 1 ? e.f32(n.in(1)) : e.dummyF32();
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::fromChannelsLast, e.context(), x, y, b, c, hw, total, ep));
             }
         }
 
@@ -459,7 +566,21 @@ public final class ChannelsLast {
             FloatArray v = e.sharedScratch("winogradV", 36 * cin * tiles);
             FloatArray u = e.sharedScratch("winogradU", 36 * cout * cin);
             FloatArray mm = e.sharedScratch("winogradM", 36 * cout * tiles);
-            if (node.in(0).dtype() == DType.F16) {
+            boolean pre = a.length > PRE && a[PRE] != 0;
+            if (pre) {
+                // the producing convolution's bias and ReLU, applied as the inputs are read
+                FloatArray preBias = e.f32(node.in(node.inputs.length - 1));
+                int preRelu = a[PRE + 1];
+                if (node.in(0).dtype() == DType.F16) {
+                    HalfFloatArray x = e.f16(node.in(0));
+                    e.task(Emitter.grid1D(cin * tiles), (g, id) -> g.task(id, org.beehive.jitnn.kernels.ConvChannelsLastKernels::winograd4InputLastActHalf, e.context(), x, preBias,
+                            preRelu, v, cin, h, wd, pad, th, tw, tiles));
+                } else {
+                    FloatArray x = e.f32(node.in(0));
+                    e.task(Emitter.grid1D(cin * tiles), (g, id) -> g.task(id, org.beehive.jitnn.kernels.ConvChannelsLastKernels::winograd4InputLastAct, e.context(), x, preBias,
+                            preRelu, v, cin, h, wd, pad, th, tw, tiles));
+                }
+            } else if (node.in(0).dtype() == DType.F16) {
                 HalfFloatArray x = e.f16(node.in(0));
                 e.task(Emitter.grid1D(cin * tiles), (g, id) -> g.task(id, org.beehive.jitnn.kernels.ConvChannelsLastKernels::winograd4InputLastHalf, e.context(), x, v, cin, h, wd,
                         pad, th, tw, tiles));
@@ -506,7 +627,10 @@ public final class ChannelsLast {
         }
     }
 
-    /** out = y + bias[c] + other (+ ReLU) on channels-last tensors: inputs [y, other, bias], iattr [C, relu]. */
+    /**
+     * out = y + bias[c] + other (+ bias2[c]) (+ ReLU) on channels-last tensors: inputs [y, other, bias
+     * (, bias2)], iattr [C, relu].
+     */
     static final class AddBias implements Op {
 
         @Override
@@ -525,16 +649,18 @@ public final class ChannelsLast {
             int relu = n.iattr[1];
             int total = n.out(0).numel();
             FloatArray bias = e.f32(n.in(2));
+            int hasBias2 = n.inputs.length > 3 ? 1 : 0;
+            FloatArray bias2 = hasBias2 != 0 ? e.f32(n.in(3)) : e.dummyF32();
             if (n.out(0).dtype() == DType.F16) {
                 HalfFloatArray y = e.f16(n.in(0));
                 HalfFloatArray r = e.f16(n.in(1));
                 HalfFloatArray o = e.f16(n.out(0));
-                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::addBiasLastHalf, e.context(), y, r, bias, o, c, total, relu));
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::addBiasLastHalf, e.context(), y, r, bias, bias2, o, c, total, relu, hasBias2));
             } else {
                 FloatArray y = e.f32(n.in(0));
                 FloatArray r = e.f32(n.in(1));
                 FloatArray o = e.f32(n.out(0));
-                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::addBiasLast, e.context(), y, r, bias, o, c, total, relu));
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::addBiasLast, e.context(), y, r, bias, bias2, o, c, total, relu, hasBias2));
             }
         }
 
