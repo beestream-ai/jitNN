@@ -152,6 +152,30 @@ public final class Emitter {
         return use(a);
     }
 
+    private final java.util.Map<String, Object> shared = new java.util.HashMap<>();
+
+    /**
+     * A work buffer of exactly {@code numel} elements shared by every task of the plan that asks for
+     * the same role and size: tasks run in order, so a buffer one operator fills and reads is free for
+     * the next (the layout copies around library calls, which would otherwise take a buffer each).
+     */
+    public FloatArray sharedScratch(String role, int numel) {
+        return use((FloatArray) shared.computeIfAbsent(role + ":f32:" + numel, k -> {
+            FloatArray a = new FloatArray(Math.max(numel, 1));
+            scratch.add(a);
+            return a;
+        }));
+    }
+
+    /** {@link #sharedScratch} for FP16 buffers. */
+    public uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray sharedScratchF16(String role, int numel) {
+        return use((uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray) shared.computeIfAbsent(role + ":f16:" + numel, k -> {
+            var a = new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(Math.max(numel, 1));
+            scratch.add(a);
+            return a;
+        }));
+    }
+
     /** An FP16 device work buffer owned by the compiled plan. */
     public uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray scratchF16(int numel) {
         var a = new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(Math.max(numel, 1));

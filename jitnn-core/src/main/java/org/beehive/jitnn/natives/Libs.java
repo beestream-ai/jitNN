@@ -283,7 +283,28 @@ public final class Libs {
     public static boolean conv2d(Emitter e, FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride,
             int pad, int dil, int groups, int epilogue) {
         long flops = 2L * n * cout * oh * ow * cin * r * r;
-        if (groups != 1 || dil != 1 || flops < CONV_MIN_FLOPS || !Native.use("conv", Lib.CUDNN)) {
+        if (groups != 1 || dil != 1) {
+            return false;
+        }
+        if (flops >= MLX_CONV_MIN_FLOPS && mlxConvShape(n, cin, h, wd, cout, r, stride) && Native.use("conv", Lib.MLX)) {
+            // MLX convolves channels-last: x and the weight transposed in, the result transposed back with the epilogue
+            FloatArray xl = e.sharedScratch("mlxConvIn", n * cin * h * wd);
+            FloatArray wl = e.sharedScratch("mlxConvWeight", cout * cin * r * r);
+            FloatArray yl = e.sharedScratch("mlxConvOut", n * cout * oh * ow);
+            int nx = n * cin * h * wd;
+            int nw = cout * cin * r * r;
+            int ny = n * cout * oh * ow;
+            int hw = h * wd;
+            int kk = r * r;
+            int ohw = oh * ow;
+            FloatArray b = bias != null ? bias : e.dummyF32();
+            e.task(Emitter.grid1D(nx), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLast, e.context(), x, xl, cin, hw, nx));
+            e.task(Emitter.grid1D(nw), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLast, e.context(), w, wl, cin, kk, nw));
+            Mlx.conv2d(e, xl, wl, yl, n, h, wd, cin, cout, r, stride, pad);
+            e.task(Emitter.grid1D(ny), (g, id) -> g.task(id, LibraryGlueKernels::fromChannelsLast, e.context(), yl, out, b, cout, ohw, ny, epilogue));
+            return true;
+        }
+        if (flops < CONV_MIN_FLOPS || !Native.use("conv", Lib.CUDNN)) {
             return false;
         }
         Cuda.conv2d(e, x, w, out, n, cin, h, wd, cout, r, pad, stride);
@@ -292,6 +313,21 @@ public final class Libs {
                 | (epilogue & ~org.beehive.jitnn.kernels.GemmKernels.BIAS);
         epilogue(e, out, bias, cout, oh * ow, n, rowEpilogue);
         return true;
+    }
+
+    /** Fewest multiply-adds for a convolution to go to MLX ({@code -Djitnn.native.mlxConvMinFlops}): below it the layout transposes cost more than they save. */
+    private static final long MLX_CONV_MIN_FLOPS = Long.getLong("jitnn.native.mlxConvMinFlops", 1L << 28);
+
+    /**
+     * Whether TornadoVM's MLX convolution reproduces MLX's kernel choice for this shape (one group, no
+     * dilation): the implicit-GEMM kernels for channel counts they specialise (inputs of at most 4 or
+     * a multiple of 16 channels, outputs of at most 16 or a multiple of 16), but not the 3x3
+     * stride-1 shapes MLX runs with Winograd, which the binding does not reproduce.
+     */
+    static boolean mlxConvShape(int n, int c, int h, int w, int o, int k, int stride) {
+        boolean winograd = stride == 1 && k == 3 && c % 32 == 0 && o % 32 == 0 && (long) n * h * w >= 4096 && c + o >= 256;
+        boolean specialized = (c <= 4 || c % 16 == 0) && (o <= 16 || o % 16 == 0);
+        return specialized && !winograd;
     }
 
     /** y = softmax(x) over the rows of x [rows, cols] (not the log form). */

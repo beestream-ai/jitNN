@@ -49,6 +49,70 @@ public final class LibraryGlueKernels {
         }
     }
 
+    /**
+     * y [n, hw, c] = x [n, c, hw]: channels-first to channels-last (also a weight [o, i, kh, kw] to
+     * [o, kh, kw, i] with n = o, c = i, hw = kh kw); one work-item per element of y.
+     */
+    public static void toChannelsLast(KernelContext kc, FloatArray x, FloatArray y, int c, int hw, int total) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int ch = i % c;
+            int p = (i / c) % hw;
+            int b = i / (c * hw);
+            y.set(i, x.get((b * c + ch) * hw + p));
+        }
+    }
+
+    /**
+     * out [n, c, hw] = epilogue(y [n, hw, c]): channels-last back to channels-first, with the
+     * per-channel bias (BIAS) and ReLU of a convolution; one work-item per element of out.
+     */
+    public static void fromChannelsLast(KernelContext kc, FloatArray y, FloatArray out, FloatArray bias, int c, int hw, int total, int epilogue) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int p = i % hw;
+            int ch = (i / hw) % c;
+            int b = i / (c * hw);
+            float r = y.get((b * hw + p) * c + ch);
+            if ((epilogue & GemmKernels.BIAS) != 0) {
+                r = r + bias.get(ch);
+            }
+            if ((epilogue & GemmKernels.RELU) != 0) {
+                r = r > 0.0f ? r : 0.0f;
+            }
+            out.set(i, r);
+        }
+    }
+
+    /** {@link #toChannelsLast} for FP16 arrays. */
+    public static void toChannelsLastHalf(KernelContext kc, HalfFloatArray x, HalfFloatArray y, int c, int hw, int total) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int ch = i % c;
+            int p = (i / c) % hw;
+            int b = i / (c * hw);
+            y.set(i, x.get((b * c + ch) * hw + p));
+        }
+    }
+
+    /** {@link #fromChannelsLast} for FP16 arrays (FP32 bias, FP32 arithmetic). */
+    public static void fromChannelsLastHalf(KernelContext kc, HalfFloatArray y, HalfFloatArray out, FloatArray bias, int c, int hw, int total, int epilogue) {
+        int i = kc.globalIdx;
+        if (i < total) {
+            int p = i % hw;
+            int ch = (i / hw) % c;
+            int b = i / (c * hw);
+            float r = y.get((b * hw + p) * c + ch).getFloat32();
+            if ((epilogue & GemmKernels.BIAS) != 0) {
+                r = r + bias.get(ch);
+            }
+            if ((epilogue & GemmKernels.RELU) != 0) {
+                r = r > 0.0f ? r : 0.0f;
+            }
+            out.set(i, new HalfFloat(r));
+        }
+    }
+
     /** {@link #copy} for FP16 arrays. */
     public static void copyHalf(KernelContext kc, HalfFloatArray src, HalfFloatArray dst, int n) {
         int i = kc.globalIdx;

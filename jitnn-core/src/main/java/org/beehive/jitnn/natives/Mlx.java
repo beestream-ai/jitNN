@@ -44,6 +44,16 @@ final class Mlx {
         e.library(Lib.MLX, "gemm", (g, id) -> g.libraryTask(id, uk.ac.manchester.tornado.mlx.Mlx::einsumBatchedMatmul, a, b, c, batch, m, k, n));
     }
 
+    /** Convolution, channels-last: x [n, h, w, c], weight [o, k, k, c], out [n, oh, ow, o]; one group, no dilation. */
+    static void conv2d(Emitter e, FloatArray x, FloatArray w, FloatArray out, int n, int h, int wd, int c, int o, int k, int stride, int pad) {
+        e.library(Lib.MLX, "conv", (g, id) -> g.libraryTask(id, uk.ac.manchester.tornado.mlx.Mlx::conv2d, x, w, out, n, h, wd, c, o, k, k, stride, pad, 1, 1));
+    }
+
+    /** {@link #conv2d} on FP16 arrays. */
+    static void conv2dHalf(Emitter e, HalfFloatArray x, HalfFloatArray w, HalfFloatArray out, int n, int h, int wd, int c, int o, int k, int stride, int pad) {
+        e.library(Lib.MLX, "convHalf", (g, id) -> g.libraryTask(id, uk.ac.manchester.tornado.mlx.Mlx::conv2d, x, w, out, n, h, wd, c, o, k, k, stride, pad, 1, 1));
+    }
+
     /** Row softmax of x [rows, cols]. */
     static void softmax(Emitter e, FloatArray x, FloatArray y, int rows, int cols) {
         e.library(Lib.MLX, "softmax", (g, id) -> g.libraryTask(id, uk.ac.manchester.tornado.mlx.Mlx::softmaxRows, x, y, rows, cols));
