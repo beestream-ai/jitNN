@@ -21,6 +21,12 @@ public final class FlashTiled64 {
     /** Keys per tile. */
     public static final int BK = 32;
     public static final int THREADS = 256;
+
+    /** Local memory of {@link #forward} (and of FlashTiled64Half's forward), in bytes. */
+    public static final int FORWARD_LOCAL_BYTES = 4 * (4160 + 2 * 2080 + 2112 + 256 + 3 * 64);
+
+    /** Local memory of {@link #backwardQ} and {@link #backwardKV}, in bytes. */
+    public static final int BACKWARD_LOCAL_BYTES = 4 * (4 * 2080 + 2 * 1056 + 2 * 32);
     private static final float MASKED = -3.0e38f;
 
     private FlashTiled64() {

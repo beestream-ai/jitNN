@@ -49,6 +49,15 @@ public final class Engine {
     }
 
     /** True when this thread's plans run through TornadoVM on a CUDA device. */
+    /**
+     * Whether a kernel needing {@code bytes} of local memory per work-group fits the device plans run
+     * on (Metal allows 32 KB, CUDA 48 KB); true when the device does not report a size.
+     */
+    public static boolean localMemoryFits(long bytes) {
+        long available = Devices.localMemory();
+        return available <= 0 || bytes <= available;
+    }
+
     public static boolean onCuda() {
         return backend() == Backend.TORNADO && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA;
     }

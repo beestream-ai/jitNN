@@ -100,7 +100,8 @@ public final class FlashAttention implements Op {
      */
     private static boolean halfKernel(int d) {
         return d <= FlashKernels64.D && d > FlashKernels32.D && TILED && org.beehive.jitnn.Autocast.halfActivations()
-                && org.beehive.jitnn.engine.Engine.backend() == org.beehive.jitnn.engine.Engine.Backend.TORNADO;
+                && org.beehive.jitnn.engine.Engine.backend() == org.beehive.jitnn.engine.Engine.Backend.TORNADO
+                && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.FORWARD_LOCAL_BYTES);
     }
 
     private static Tensor record(Tensor[] qkv, Shape outShape, int z, int t, int s, int d, int heads, Tensor mask, boolean causal, float scale, int layout) {
@@ -305,7 +306,8 @@ public final class FlashAttention implements Op {
         WorkerGrid g0 = grid(z, t, d);
         if (d <= FlashKernels32.D) {
             e.task(g0, (g, id) -> g.task(id, FlashKernels32::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
-        } else if (d <= FlashKernels64.D && TILED) {
+        } else if (d <= FlashKernels64.D && TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.FORWARD_LOCAL_BYTES)) {
+            // the tiled kernel needs 43.5 KB of local memory: more than Metal's 32 KB
             WorkerGrid tiled = Emitter.blocks2D(z * Emitter.ceilDiv(t, FlashTiled64.BQ), 1, 16, 16);
             e.task(tiled, (g, id) -> g.task(id, FlashTiled64::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
         } else if (d <= FlashKernels64.D) {
@@ -463,7 +465,7 @@ public final class FlashAttention implements Op {
             FloatArray dv = packed ? dq : e.f32(n.out(2));
             int rows = z * t;
             FloatArray delta = e.scratch(rows);
-            if (d <= FlashKernels64.D && d > FlashKernels32.D && TILED) {
+            if (d <= FlashKernels64.D && d > FlashKernels32.D && TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.BACKWARD_LOCAL_BYTES)) {
                 // backwardQ computes delta for its queries, then backwardKV reads it
                 WorkerGrid tq = Emitter.blocks2D(z * Emitter.ceilDiv(t, 32), 1, 16, 16);
                 WorkerGrid tk = Emitter.blocks2D(z * Emitter.ceilDiv(s, 32), 1, 16, 16);
