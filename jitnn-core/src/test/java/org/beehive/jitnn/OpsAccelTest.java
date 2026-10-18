@@ -40,6 +40,15 @@ class OpsAccelTest {
         same(what, f, RTOL, ATOL);
     }
 
+    /**
+     * A convolution's tolerance: with vendor libraries (-Djitnn.native) cuDNN convolves FP32 in TF32 on
+     * Ampere and newer GPUs (about 1e-3 relative), unless NVIDIA_TF32_OVERRIDE=0 keeps FP32 arithmetic.
+     */
+    static double convTol(double tol) {
+        boolean tf32 = org.beehive.jitnn.engine.Native.requested() && !"0".equals(System.getenv("NVIDIA_TF32_OVERRIDE"));
+        return tf32 ? Math.max(tol, 3e-3) : tol;
+    }
+
     static Tensor t(int n, float scale, float offset, int... dims) {
         return Tensor.of(seq(n, scale, offset), dims);
     }
@@ -90,7 +99,8 @@ class OpsAccelTest {
         same("gemm128 A^T", () -> Tensor.uniform(13, -1, 1, 700, 1100).matmul(Tensor.uniform(22, -1, 1, 700, 1030), true, false), 1e-5, 2e-5);
         same("gemm128 B^T", () -> a.get().matmul(Tensor.uniform(14, -1, 1, 1040, 700), false, true), 1e-5, 2e-5);
         same("linear 1024x768 -> 1024", () -> F.linear(Tensor.uniform(15, -1, 1, 1024, 768), Tensor.uniform(16, -0.05f, 0.05f, 1024, 768), Tensor.uniform(17, -1, 1, 1024)), 1e-5, 2e-5);
-        same("conv 8x64x56x56 3x3", () -> F.conv2d(Tensor.uniform(18, -1, 1, 8, 64, 56, 56), Tensor.uniform(19, -0.05f, 0.05f, 64, 64, 3, 3), null, 1, 1, 1, 1), 1e-5, 2e-5);
+        same("conv 8x64x56x56 3x3", () -> F.conv2d(Tensor.uniform(18, -1, 1, 8, 64, 56, 56), Tensor.uniform(19, -0.05f, 0.05f, 64, 64, 3, 3), null, 1, 1, 1, 1), convTol(1e-5),
+                convTol(2e-5));
         // few output tiles: split-K, in the GEMM and in the convolution
         same("split-K linear 128x768 -> 768", () -> F.linear(Tensor.uniform(23, -1, 1, 128, 768), Tensor.uniform(24, -0.05f, 0.05f, 768, 768), Tensor.uniform(25, -1, 1, 768)), 1e-5, 2e-5);
         same("split-K matmul A^T B^T", () -> Tensor.uniform(26, -1, 1, 1000, 70).matmul(Tensor.uniform(27, -1, 1, 90, 1000), true, true), 1e-5, 2e-5);
@@ -483,7 +493,7 @@ class OpsAccelTest {
                 Tensor y = F.conv2d(x, w, Tensor.uniform(93, -1, 1, cout), 1, 0, 1, 1);
                 y.mul(Tensor.uniform(94, -1, 1, n, cout, hw, hw)).sum().backward();
                 return Tensor.cat(0, y.reshape(-1), x.grad().reshape(-1), w.grad().reshape(-1));
-            }, 1e-4, 1e-4);
+            }, convTol(1e-4), convTol(1e-4));
         }
     }
 
