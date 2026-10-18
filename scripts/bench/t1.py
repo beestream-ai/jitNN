@@ -3,10 +3,12 @@ built from jitNN's seeds (bit-identical weights), on the inputs InferenceBenchAc
 
 Protocol for every framework: host input in, host output out, 10 warm-up calls, then the median
 of 50 timed calls. FP32 runs have TF32 off everywhere (PyTorch and ONNX Runtime's CUDA provider),
-so they compare FP32 arithmetic; FP16 runs use FP16 weights and activations (jitNN: FP16 GEMM
-operands under autocast, FP32 elsewhere).
+so they compare FP32 arithmetic; FP16 runs use FP16 weights and activations.
 
-usage: python t1.py <work dir> [jitnn output dir]
+usage: python t1.py [--device cuda|mps] [--models resnet50,bert] <work dir> [jitnn output dir]
+
+--device mps runs PyTorch on Apple's Metal (MPS) and ONNX Runtime on its CoreML provider, limited
+to the CPU and GPU (not the Neural Engine), so both use the same GPU as jitNN's Metal backend.
 
 Exports one ONNX model per configuration into <work dir>, prints one line per run and writes
 <work dir>/t1.json. With a jitNN output dir (written by InferenceBenchAccelTest with
@@ -79,17 +81,32 @@ def export(model, x, path):
     return path
 
 
-def ort_session(path, fp32):
+def ort_session(path, fp32, device):
     import onnxruntime as ort
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    if device == "mps":
+        coreml = {"ModelFormat": "MLProgram", "MLComputeUnits": "CPUAndGPU", "RequireStaticInputShapes": "1"}
+        return ort.InferenceSession(path, opts, providers=[("CoreMLExecutionProvider", coreml), "CPUExecutionProvider"])
     cuda = {"device_id": 0, "cudnn_conv_algo_search": "EXHAUSTIVE", "use_tf32": 0 if fp32 else 1}
     return ort.InferenceSession(path, opts, providers=[("CUDAExecutionProvider", cuda)])
 
 
-def main(work, jitnn_dir):
+ORT_PROVIDER = {"cuda": "CUDAExecutionProvider", "mps": "CoreMLExecutionProvider"}
+
+
+def gpu_name(device):
+    if device == "mps":
+        import platform
+        import subprocess
+        chip = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True).stdout.strip()
+        return chip or platform.machine()
+    return torch.cuda.get_device_name(0)
+
+
+def main(work, jitnn_dir, device="cuda", kinds=("resnet50", "bert")):
     os.makedirs(work, exist_ok=True)
-    dev = torch.device("cuda")
+    dev = torch.device(device)
     results = []
 
     def record(engine, name, samples, stats, out, ref):
@@ -112,6 +129,7 @@ def main(work, jitnn_dir):
             results.append(dict(engine="jitnn-check", run=name, max_rel_err_vs_fp32=err))
 
     configs = [("resnet50", b, None) for b in RESNET_BATCHES] + [("bert", b, t) for b, t in BERT_SHAPES]
+    configs = [c for c in configs if c[0] in kinds]
     nets = {}
     for kind, b, t in configs:
         if kind not in nets:
@@ -121,7 +139,7 @@ def main(work, jitnn_dir):
         x_np = images(b) if kind == "resnet50" else tokens(b, t)
         base = f"resnet50_b{b}" if kind == "resnet50" else f"bert_b{b}_s{t}"
         with torch.no_grad():
-            ref = net32(torch.from_numpy(x_np).to(dev)).double().cpu().numpy()
+            ref = net32(torch.from_numpy(x_np).to(dev)).cpu().double().numpy()
         jitnn_check(base + "_fp32", ref)
         jitnn_check(base + "_fp16", ref)
         for dtype in ("fp32", "fp16"):
@@ -137,16 +155,26 @@ def main(work, jitnn_dir):
 
             record("pytorch", name, b, timed(torch_call), torch_call(), ref)
             path = export(net, torch.from_numpy(feed).to(dev), os.path.join(work, name + ".onnx"))
-            sess = ort_session(path, fp32)
-            assert "CUDAExecutionProvider" in sess.get_providers(), sess.get_providers()
+            sess = ort_session(path, fp32, device)
+            assert ORT_PROVIDER[device] in sess.get_providers(), sess.get_providers()
             ort_call = lambda: sess.run(None, {"x": feed})[0]  # noqa: E731
             record("onnxruntime", name, b, timed(ort_call), ort_call(), ref)
             del sess
-        torch.cuda.empty_cache()
+        if device == "cuda":
+            torch.cuda.empty_cache()
+        else:
+            torch.mps.empty_cache()
     import onnxruntime as ort
     with open(os.path.join(work, "t1.json"), "w") as f:
-        json.dump(dict(torch=torch.__version__, onnxruntime=ort.__version__, gpu=torch.cuda.get_device_name(0), results=results), f, indent=1)
+        json.dump(dict(torch=torch.__version__, onnxruntime=ort.__version__, gpu=gpu_name(device), results=results), f, indent=1)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
+    import argparse
+    ap = argparse.ArgumentParser(description="ResNet-50 and BERT-base inference with PyTorch and ONNX Runtime")
+    ap.add_argument("--device", choices=["cuda", "mps"], default="cuda")
+    ap.add_argument("--models", default="resnet50,bert")
+    ap.add_argument("work")
+    ap.add_argument("jitnn_dir", nargs="?")
+    a = ap.parse_args()
+    main(a.work, a.jitnn_dir, a.device, tuple(a.models.split(",")))
