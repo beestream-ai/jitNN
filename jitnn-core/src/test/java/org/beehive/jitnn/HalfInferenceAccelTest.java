@@ -143,8 +143,9 @@ class HalfInferenceAccelTest {
 
     /**
      * A bottleneck whose 3x3 convolution has the shape jitNN runs as Winograd F(4x4) (128 channels,
-     * 4 x 32 x 32): with MLX on Metal it runs channels-last between MLX's 1x1 convolutions; in FP32 and
-     * FP16 against the FP32 host reference.
+     * 4 x 32 x 32), with a projection shortcut: with MLX on Metal it runs channels-last between MLX's 1x1
+     * convolutions, their biases applied by the Winograd input transform and the residual add; in FP32
+     * and FP16 against the FP32 host reference.
      */
     @Test
     void winogradBottleneck() {
@@ -153,7 +154,9 @@ class HalfInferenceAccelTest {
             Tensor y = convBn(x, 128, 1, 1, 91, true);
             y = convBn(y, 128, 3, 1, 92, true);
             y = convBn(y, 64, 1, 1, 93, false);
-            return x.add(y).relu();
+            // a projection shortcut, as in ResNet's first block of a stage: both biases go to the add
+            Tensor shortcut = convBn(x, 64, 1, 1, 94, false);
+            return shortcut.add(y).relu();
         };
         float[] expected = run(Backend.REFERENCE, false, model);
         close(expected, run(Backend.TORNADO, false, model), 1e-3, 1e-3, "Winograd bottleneck in FP32");
