@@ -63,6 +63,8 @@ class HalfInferenceAccelTest {
             return x;
         };
         float[] expected = run(Backend.REFERENCE, false, model);
+        // FP32 on the device too: on Metal with MLX, projection biases move into the attention gather and the norms
+        close(expected, run(Backend.TORNADO, false, model), 1e-3, 1e-3, "two encoder blocks in FP32");
         float[] actual = run(Backend.TORNADO, true, model);
         // FP16 activations: about 3 significant digits after two blocks
         close(expected, actual, 2e-2, 2e-2, "two encoder blocks in FP16");
