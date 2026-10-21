@@ -18,7 +18,7 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 
 /**
- * Channels-last inference for convolutions a library runs channels-last (MLX on Metal). Tensors keep
+ * Channels-last inference for convolutions a library runs channels-last (cuDNN on CUDA, MLX on Metal). Tensors keep
  * their NCHW shape, but those that only convolutions and same-shape element-wise operators read and
  * write are stored [N, H, W, C]: the convolution reads and writes them directly, the element-wise
  * operators do not care, and a layout conversion runs only where an operator needs NCHW (pooling,
@@ -68,7 +68,7 @@ public final class ChannelsLast {
         if (t != DType.F32 && t != DType.F16 || !input || n.in(1).dtype() != t) {
             return false;
         }
-        return org.beehive.jitnn.natives.Libs.mlxConvChannelsLast(a[N], a[CIN], a[H], a[W], a[COUT], a[K], a[STRIDE], a[OH], a[OW], a[GROUPS], a[DIL], t == DType.F16);
+        return org.beehive.jitnn.natives.Libs.convChannelsLast(a[N], a[CIN], a[H], a[W], a[COUT], a[K], a[STRIDE], a[OH], a[OW], a[GROUPS], a[DIL], t == DType.F16);
     }
 
     /**

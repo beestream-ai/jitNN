@@ -96,6 +96,16 @@ final class Cuda {
         e.library(Lib.CUDNN, "convHalf", (g, id) -> g.libraryTask(id, CuDnn::cudnnConv2dFP16, x, w, out, n, c, h, wd, cout, r, r, pad, stride));
     }
 
+    /** cuDNN channels-last convolution: x [n, h, w, c] (NHWC), w [cout, r, r, c] (KRSC), one group, no dilation, into out [n, oh, ow, cout]. */
+    static void conv2dLast(Emitter e, FloatArray x, FloatArray w, FloatArray out, int n, int c, int h, int wd, int cout, int r, int pad, int stride) {
+        e.library(Lib.CUDNN, "convNhwc", (g, id) -> g.libraryTask(id, CuDnn::cudnnConv2dNHWC, x, w, out, n, c, h, wd, cout, r, r, pad, stride));
+    }
+
+    /** {@link #conv2dLast} on FP16 tensors (FP32 accumulation, tensor cores). */
+    static void conv2dLastHalf(Emitter e, HalfFloatArray x, HalfFloatArray w, HalfFloatArray out, int n, int c, int h, int wd, int cout, int r, int pad, int stride) {
+        e.library(Lib.CUDNN, "convNhwcHalf", (g, id) -> g.libraryTask(id, CuDnn::cudnnConv2dNHWCFP16, x, w, out, n, c, h, wd, cout, r, r, pad, stride));
+    }
+
     /** FP16 attention (cuDNN's fused SDPA, inference): q [b, h, t, d], k and v [b, h, s, d], all FP16. */
     static void attentionF16(Emitter e, HalfFloatArray q, HalfFloatArray k, HalfFloatArray v, HalfFloatArray o, int b, int h, int t, int s, int d, float scale, boolean causal) {
         e.library(Lib.CUDNN, "sdpa", (g, id) -> g.libraryTask(id, CuDnn::sdpaForward, q, k, v, o, b, h, t, s, d, scale, causal));
@@ -172,6 +182,39 @@ final class Cuda {
         Native.runProbe(g);
         // an interior output sums 8 channels x 9 taps of 0.125
         float centre = o.get(h * h / 2 + h / 2).getFloat32();
+        return Math.abs(centre - 9.0f) < 1e-2f ? null : "probe returned " + centre;
+    }
+
+    /**
+     * One small channels-last convolution, FP16 when {@code half}: null when it works (a TornadoVM
+     * without the NHWC convolutions fails here).
+     */
+    static String probeConvLast(boolean half) {
+        int c = 8, h = 8, k = 8;
+        TaskGraph g = Native.probeGraph(half ? "ConvNhwcHalf" : "ConvNhwc");
+        float centre;
+        if (half) {
+            HalfFloatArray x = new HalfFloatArray(c * h * h);
+            HalfFloatArray w = new HalfFloatArray(k * c * 9);
+            x.init(new uk.ac.manchester.tornado.api.types.HalfFloat(1.0f));
+            w.init(new uk.ac.manchester.tornado.api.types.HalfFloat(0.125f));
+            HalfFloatArray o = new HalfFloatArray(k * h * h);
+            g.transferToDevice(DataTransferMode.EVERY_EXECUTION, x, w).libraryTask("t", CuDnn::cudnnConv2dNHWCFP16, x, w, o, 1, c, h, h, k, 3, 3, 1, 1)
+                    .transferToHost(DataTransferMode.EVERY_EXECUTION, o);
+            Native.runProbe(g);
+            centre = o.get((h * h / 2 + h / 2) * k).getFloat32();
+        } else {
+            FloatArray x = new FloatArray(c * h * h);
+            FloatArray w = new FloatArray(k * c * 9);
+            x.init(1.0f);
+            w.init(0.125f);
+            FloatArray o = new FloatArray(k * h * h);
+            g.transferToDevice(DataTransferMode.EVERY_EXECUTION, x, w).libraryTask("t", CuDnn::cudnnConv2dNHWC, x, w, o, 1, c, h, h, k, 3, 3, 1, 1)
+                    .transferToHost(DataTransferMode.EVERY_EXECUTION, o);
+            Native.runProbe(g);
+            centre = o.get((h * h / 2 + h / 2) * k);
+        }
+        // an interior output sums 8 channels x 9 taps of 0.125
         return Math.abs(centre - 9.0f) < 1e-2f ? null : "probe returned " + centre;
     }
 

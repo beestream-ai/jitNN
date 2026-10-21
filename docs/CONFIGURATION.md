@@ -79,6 +79,7 @@ See [NATIVE.md](NATIVE.md) for what each library takes and the fallback to jitNN
 | `jitnn.native.biasEpilogue` | `true` | FP16 linear layers in `Autocast.enableHalf` inference add their bias (and ReLU) in cuBLASLt's GEMM epilogue; `false` runs the bias as a separate kernel |
 | `jitnn.native.tf32` | `false` | cuBLAS FP32 products on TF32 tensor cores |
 | `jitnn.native.convMinFlops` | `1073741824` (2^30) | fewest multiply-adds for a convolution to go to cuDNN; smaller ones keep jitNN's kernels |
+| `jitnn.native.cudnnChannelsLast` | `all` | cuDNN convolutions in inference run channels-last (NHWC), with the tensors around them kept channels-last: `all`, `half` (FP16 convolutions only) or `off` (NCHW) |
 | `jitnn.native.attentionFp16` | `false` | FP32 attention in inference through cuDNN's fused FP16 attention (q, k and v rounded to FP16) |
 | `jitnn.native.unavailable` | empty | comma-separated libraries treated as missing, to test the fallback |
 | `jitnn.native.verbose` | `false` | log which libraries were found on each device |

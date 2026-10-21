@@ -64,7 +64,8 @@ library tasks compiled into plans.
 | Batched products, broadcast operands | cuBLAS `SgemmStridedBatched` | `einsumBatchedMatmul` | MLX: no transposes, nothing broadcast |
 | FP16 products (FP32 result) | cuBLAS `GemmEx` FP16 → FP32 | – | both operands FP16 |
 | `linear` with an FP16 weight (autocast) | FP16 cast + cuBLAS `GemmEx` | – | |
-| Convolution forward | cuDNN `conv2d` (NCHW) | – | one group, no dilation, at least `jitnn.native.convMinFlops` multiply-adds |
+| Convolution forward | cuDNN `conv2d`, channels-last (NHWC) in inference | `conv2d` (channels-last) | one group, no dilation, at least `jitnn.native.convMinFlops` multiply-adds (FP32) |
+| FP16 convolution forward in `Autocast.enableHalf` inference | cuDNN FP16 `conv2d` on the tensor cores, channels-last (NHWC) | `conv2d` FP16 (channels-last) | one group, no dilation |
 | Convolution gradients, 1x1 convolutions, Winograd | cuBLAS (the GEMMs jitNN expresses them as) | – | |
 | Bias and activation after any of the above | jitNN kernel | jitNN kernel | |
 | `softmax` (not the log form) | cuDNN `softmax` | `softmaxRows` | |
@@ -79,7 +80,7 @@ Everything else runs on jitNN's kernels, mostly because TornadoVM has no binding
 
 | Not covered | Reason |
 |---|---|
-| Convolution backward in cuDNN, NHWC layouts, grouped and dilated convolutions | the cuDNN binding has forward, NCHW, one-group convolution only |
+| Convolution backward in cuDNN, grouped and dilated convolutions | the cuDNN binding has forward, one-group convolution only |
 | BatchNorm, LayerNorm with gradients, pooling, RNN/LSTM/GRU | no binding for them. Max pooling has no padding argument and no argmax for the gradient |
 | Random numbers (cuRAND) | jitNN's Philox streams must match the host and regenerate dropout masks in the backward pass |
 | Linear algebra (LU, QR, SVD, ...), SDDMM | no cuSOLVER binding, no SDDMM in cuSPARSE's binding |
@@ -102,8 +103,14 @@ Plans that call the libraries are captured as CUDA graphs like any other plan. W
 a TornadoVM that includes beehive-lab/TornadoVM#1238 (`develop` 7.3.2-dev or newer): older versions free the
 cuDNN workspace while graphs captured earlier still use it.
 
-cuDNN only takes convolutions of at least `jitnn.native.convMinFlops` multiply-adds (default 2^30).
-Smaller ones keep jitNN's kernels.
+cuDNN only takes FP32 convolutions of at least `jitnn.native.convMinFlops` multiply-adds (default
+2^30). Smaller ones keep jitNN's kernels.
+
+In inference the channels-last pass keeps image tensors [N, H, W, C] between the convolutions cuDNN
+runs channels-last (NHWC), its tensor cores' layout, and converts only around the operators that need
+[N, C, H, W]. On an RTX 5070 Ti this makes ResNet-50 16% (FP32) to 22% (FP16, batch 128) faster than
+cuDNN's channels-first (NCHW) convolutions. `-Djitnn.native.cudnnChannelsLast=half` keeps it to FP16
+convolutions, `off` turns it off. It needs a TornadoVM whose cuDNN binding has the NHWC convolutions.
 
 ## Results
 

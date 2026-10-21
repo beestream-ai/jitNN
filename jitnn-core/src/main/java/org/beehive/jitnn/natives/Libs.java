@@ -24,6 +24,9 @@ public final class Libs {
         if (lib == Lib.CUDNN && function.equals("sdpa")) {
             return Cuda.probeAttention();
         }
+        if (lib == Lib.CUDNN && (function.equals("convNhwc") || function.equals("convNhwcHalf"))) {
+            return Cuda.probeConvLast(function.equals("convNhwcHalf"));
+        }
         return lib == Lib.CUDNN && function.equals("convHalf") ? Cuda.probeConvHalf() : null;
     }
 
@@ -391,21 +394,41 @@ public final class Libs {
     }
 
     /**
-     * Whether MLX takes this convolution channels-last on the current device (one group, no dilation,
-     * a shape the binding reproduces, at least {@code jitnn.native.mlxConvMinFlops} multiply-adds),
-     * in FP16 when {@code half}.
+     * Which convolutions cuDNN takes channels-last (NHWC), {@code -Djitnn.native.cudnnChannelsLast}:
+     * {@code all} (the default: FP16 ones, and FP32 ones from {@code jitnn.native.convMinFlops}
+     * multiply-adds), {@code half} (FP16 only) or {@code off} (channels-first, NCHW). cuDNN's NHWC
+     * kernels read the layout the tensor cores use without transposing it.
      */
-    public static boolean mlxConvChannelsLast(int n, int c, int h, int w, int o, int k, int stride, int oh, int ow, int groups, int dil, boolean half) {
+    private static final String CUDNN_CHANNELS_LAST = System.getProperty("jitnn.native.cudnnChannelsLast", "all");
+
+    /** Whether cuDNN takes channels-last convolutions (FP16 when {@code half}) on the current device. */
+    private static boolean cudnnChannelsLast(boolean half) {
+        if (CUDNN_CHANNELS_LAST.equals("off") || !half && !CUDNN_CHANNELS_LAST.equals("all")) {
+            return false;
+        }
+        return Native.use(half ? "convNhwcHalf" : "convNhwc", Lib.CUDNN);
+    }
+
+    /**
+     * Whether a library takes this convolution channels-last on the current device (one group, no
+     * dilation), in FP16 when {@code half}: cuDNN (see {@code jitnn.native.cudnnChannelsLast}), or
+     * MLX for a shape the binding reproduces with at least {@code jitnn.native.mlxConvMinFlops}
+     * multiply-adds.
+     */
+    public static boolean convChannelsLast(int n, int c, int h, int w, int o, int k, int stride, int oh, int ow, int groups, int dil, boolean half) {
         if (groups != 1 || dil != 1) {
             return false;
         }
         long flops = 2L * n * o * oh * ow * c * k * k;
+        if (cudnnChannelsLast(half)) {
+            return half || flops >= CONV_MIN_FLOPS;
+        }
         return flops >= MLX_CONV_MIN_FLOPS && mlxConvShape(n, c, h, w, o, k, stride) && Native.use(half ? "convHalf" : "conv", Lib.MLX);
     }
 
     /**
      * out [n, oh, ow, cout] = conv(x [n, h, w, cin], w [cout, cin, r, r]) (+ per-channel bias, ReLU) on
-     * MLX, input and output channels-last; the weight is transposed to [cout, r, r, cin] for MLX.
+     * cuDNN or MLX, input and output channels-last; the weight is transposed to [cout, r, r, cin].
      */
     public static void conv2dChannelsLast(Emitter e, FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow, int r,
             int stride, int pad, int epilogue, boolean weightLast) {
@@ -413,6 +436,16 @@ public final class Libs {
         int nw = cout * cin * r * r;
         int ny = n * cout * oh * ow;
         int kk = r * r;
+        if (cudnnChannelsLast(false)) {
+            // cuDNN reads the arrays by pointer: larger (reused) arrays need no exact-size copies
+            FloatArray wl = weightLast ? w : e.sharedScratch("convWeightLast", nw);
+            if (!weightLast) {
+                e.task(Emitter.grid1D(nw), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLast, e.context(), w, wl, cin, kk, nw));
+            }
+            Cuda.conv2dLast(e, x, wl, out, n, cin, h, wd, cout, r, pad, stride);
+            epilogue(e, out, bias, n * oh * ow, cout, 1, epilogue);
+            return;
+        }
         FloatArray xl = exact(x, nx) ? x : e.sharedScratch("mlxConvIn", nx);
         if (xl != x) {
             e.task(Emitter.grid1D(nx), (g, id) -> g.task(id, LibraryGlueKernels::copy, e.context(), x, xl, nx));
@@ -438,6 +471,19 @@ public final class Libs {
         int nw = cout * cin * r * r;
         int ny = n * cout * oh * ow;
         int kk = r * r;
+        if (cudnnChannelsLast(true)) {
+            HalfFloatArray wl = weightLast ? w : e.sharedScratchF16("convWeightLast", nw);
+            if (!weightLast) {
+                e.task(Emitter.grid1D(nw), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLastHalf, e.context(), w, wl, cin, kk, nw));
+            }
+            Cuda.conv2dLastHalf(e, x, wl, out, n, cin, h, wd, cout, r, pad, stride);
+            if (epilogue != 0) {
+                FloatArray b = bias != null ? bias : e.dummyF32();
+                int rows = n * oh * ow;
+                e.task(Emitter.grid1D(ny), (g, id) -> g.task(id, LibraryGlueKernels::epilogueHalf, e.context(), out, b, rows, cout, ny, epilogue));
+            }
+            return;
+        }
         HalfFloatArray xl = exactCopyHalf(e, x, nx);
         HalfFloatArray wl = weightLast ? w : e.sharedScratchF16("mlxConvWeight", nw);
         if (!weightLast) {
