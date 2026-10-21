@@ -186,7 +186,7 @@ public final class Storage {
     }
 
     /** True when {@code a} is the array class that holds {@code dtype}. */
-    static boolean holds(TornadoNativeArray a, DType dtype) {
+    public static boolean holds(TornadoNativeArray a, DType dtype) {
         return switch (dtype) {
             case F32 -> a instanceof FloatArray;
             case I32 -> a instanceof IntArray;

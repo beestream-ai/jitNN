@@ -376,6 +376,25 @@ Tensor full = Gguf.dequantize(w);                                // FP32 copy, w
 The gradient reaches `x` (through the dequantised weight), not the quantised weight. Q8_0 weights
 go through the same call.
 
+`jitnn-gguf` reads the weights from the file. `GgufFile.open` reads the metadata and the list of
+tensors, and `tensor(name)` returns a persistent tensor: the block formats in their blocks, F32,
+F16 and BF16 as those types, with shapes in jitNN's order (a GGUF weight listed as [in, out] is
+[out, in], ready for `Gguf.linear`). Each tensor is memory-mapped copy-on-write rather than read,
+so loading costs no copy and no Java heap and the file is never changed; a file that cannot be
+opened for writing is copied instead (`tensor(name, true)` asks for a copy).
+
+```java
+GgufFile f = GgufFile.open(Path.of("Llama-3.2-1B-Instruct-Q4_K_M.gguf"));
+int layers = f.integer("llama.block_count");
+float eps = f.floatValue("llama.attention.layer_norm_rms_epsilon");
+String[] tokens = f.strings("tokenizer.ggml.tokens");
+Tensor wq = f.tensor("blk.0.attn_q.weight");                     // Q4_K [2048, 2048]
+Tensor q = Gguf.linear(x, wq, null);
+```
+
+Tensors of types jitNN does not hold (Q5_0, Q5_1, Q2_K, Q3_K and the IQ formats) are listed, and
+`raw(name)` gives their bytes, but they do not load as tensors.
+
 ## FP8
 
 FP8 weights with a per-tensor scale, in a linear layer with an FP32 input:

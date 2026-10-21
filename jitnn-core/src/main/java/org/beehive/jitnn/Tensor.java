@@ -208,15 +208,34 @@ public final class Tensor {
      * must be a multiple of the format's block size.
      */
     public static Tensor quantized(DType type, byte[] blocks, int... dims) {
+        return persistent(uk.ac.manchester.tornado.api.types.arrays.ByteArray.fromArray(blocks), type, dims);
+    }
+
+    /**
+     * A persistent tensor (a weight that stays on the device) over an existing native array, without
+     * copying it: for example an array that wraps a memory-mapped file. The array class must be the one
+     * that holds {@code dtype} ({@code FloatArray} for F32, {@code HalfFloatArray} for F16,
+     * {@code ShortArray} for BF16, {@code IntArray} for I32, {@code ByteArray} for the GGUF block formats) and its size must match
+     * {@code dims}; for a block format the last axis must be a multiple of the block size.
+     */
+    public static Tensor persistent(uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray array, DType dtype, int... dims) {
         Shape s = Shape.of(dims);
-        if (!type.isBlockQuantized() || dims.length == 0 || dims[dims.length - 1] % type.blockValues() != 0) {
-            throw new IllegalArgumentException(type + " weight of shape " + s + ": not a GGUF block format or last axis not a multiple of its block");
+        if (!Storage.holds(array, dtype)) {
+            throw new IllegalArgumentException(dtype + " tensor cannot be held in a " + array.getClass().getSimpleName());
         }
-        long bytes = (long) s.numel() / type.blockValues() * type.blockBytes();
-        if (blocks.length != bytes) {
-            throw new IllegalArgumentException(type + " weight of shape " + s + " needs " + bytes + " bytes, got " + blocks.length);
+        long expected = s.numel();
+        if (dtype.isBlockQuantized()) {
+            if (dims.length == 0 || dims[dims.length - 1] % dtype.blockValues() != 0) {
+                throw new IllegalArgumentException(dtype + " weight of shape " + s + ": last axis not a multiple of its block of " + dtype.blockValues());
+            }
+            expected = expected / dtype.blockValues() * dtype.blockBytes();
+        } else if (dtype == DType.FP8_E4M3 || dtype == DType.FP8_E5M2) {
+            throw new IllegalArgumentException(dtype + " values need their scale: use the Fp8 operators");
         }
-        return new Tensor(s, Storage.ofHost(uk.ac.manchester.tornado.api.types.arrays.ByteArray.fromArray(blocks), type, s.numel(), true));
+        if (array.getSize() != expected) {
+            throw new IllegalArgumentException(dtype + " tensor of shape " + s + " needs " + expected + " array elements, got " + array.getSize());
+        }
+        return new Tensor(s, Storage.ofHost(array, dtype, s.numel(), true));
     }
 
     /** Persistent FP16 storage (weights kept in half precision on the device), from FP32 values rounded to nearest. */

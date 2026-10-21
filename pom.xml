@@ -24,6 +24,7 @@
         <module>jitnn-core</module>
         <module>jitnn-nn</module>
         <module>jitnn-onnx</module>
+        <module>jitnn-gguf</module>
         <module>jitnn-djl</module>
         <module>jitnn-tf</module>
         <module>jitnn-bench</module>

@@ -16,7 +16,7 @@
 
 jitNN itself has no dependencies besides TornadoVM's `tornado-api` and its library modules, all
 provided by the TornadoVM SDK at run time. `jitnn-onnx` reads ONNX files with its own protobuf reader,
-which `jitnn-tf` also uses for TensorFlow models. `jitnn-djl` depends on DJL's `ai.djl:api` (0.38.0).
+which `jitnn-tf` also uses for TensorFlow models, and `jitnn-gguf` reads GGUF files with its own reader. `jitnn-djl` depends on DJL's `ai.djl:api` (0.38.0).
 
 ## TornadoVM
 
@@ -98,6 +98,8 @@ are committed too and are regenerated the same way:
 ~/jitnn-data/torch-venv/bin/pip install scikit-learn onnx onnxruntime
 ~/jitnn-data/torch-venv/bin/python scripts/sklearn/ml_goldens.py jitnn-nn/src/test/resources/ml
 ~/jitnn-data/torch-venv/bin/python scripts/onnx/onnx_goldens.py jitnn-onnx/src/test/resources/onnx
+~/jitnn-data/torch-venv/bin/pip install gguf
+~/jitnn-data/torch-venv/bin/python scripts/gguf/gguf_fixture.py jitnn-gguf/src/test/resources/gguf/fixture.gguf
 ```
 
 The TensorFlow goldens need TensorFlow (CPU is enough), best in a separate environment:
