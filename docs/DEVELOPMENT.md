@@ -59,6 +59,7 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 | `jitnn-nn/.../data` | `Mnist`, `Blobs` |
 | `jitnn-onnx/.../onnx` | `Proto` (protobuf reader), `OnnxModel`, `OnnxSession`, `OnnxOps` (one jitNN mapping per ONNX operator), `Rewrites` (load-time pattern rewrites) |
 | `jitnn-gguf/.../gguf` | `GgufFile` (header, metadata and tensor list; tensors mapped or copied into TornadoVM arrays), `GgmlType`, `GgufTensorInfo` |
+| `jitnn-llm/.../llm` | `Llm` (a jitllm model loaded from a GGUF file, with the file's `GgufFile`) |
 | `jitnn-tf/.../tf` | `TfModel`, `TfGraph`, `TfGraphs` (SavedModel and GraphDef parsing), `Inliner` (function calls), `TensorBundle` (checkpoint variables), `Translator` (TensorFlow operations to the ONNX importer's) |
 | `jitnn-djl/.../djl` | `JitnnEngine` and `JitnnEngineProvider` (registered through `META-INF/services`), `JitnnNDManager`, `JitnnNDArray`, `JitnnNDArrayEx`, `JitnnIndexer`, `JitnnGradientCollector`, `JitnnModel`, `JitnnSymbolBlock` |
 | `jitnn-bench/.../bench` | `Workloads` (the reference workloads, captured as traces), `KernelBench` (every distinct operator call, timed), `ModelProfile` (whole steps), `ClockMonitor` (GPU clock and throttle checks) |

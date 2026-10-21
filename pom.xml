@@ -182,6 +182,13 @@
     </build>
 
     <profiles>
+        <!-- jitnn-llm: needs jitllm installed in the local repository (./mvnw install in a jitllm checkout) -->
+        <profile>
+            <id>llm</id>
+            <modules>
+                <module>jitnn-llm</module>
+            </modules>
+        </profile>
         <profile>
             <id>accel-tests</id>
             <build>

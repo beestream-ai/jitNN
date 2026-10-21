@@ -16,7 +16,9 @@
 
 jitNN itself has no dependencies besides TornadoVM's `tornado-api` and its library modules, all
 provided by the TornadoVM SDK at run time. `jitnn-onnx` reads ONNX files with its own protobuf reader,
-which `jitnn-tf` also uses for TensorFlow models, and `jitnn-gguf` reads GGUF files with its own reader. `jitnn-djl` depends on DJL's `ai.djl:api` (0.38.0).
+which `jitnn-tf` also uses for TensorFlow models, and `jitnn-gguf` reads GGUF files with its own reader. The optional `jitnn-llm`
+(`./mvnw -Pllm ...`) depends on jitllm built against the same TornadoVM SDK: run `./mvnw install`
+in a jitllm checkout first. `jitnn-djl` depends on DJL's `ai.djl:api` (0.38.0).
 
 ## TornadoVM
 

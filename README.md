@@ -54,6 +54,7 @@ Fourier transforms, sparse and graph operators, classical machine learning and a
 | Several devices | collectives (all-reduce, broadcast, reduce-scatter, all-gather) and data-parallel training across any mix of devices and backends |
 | ONNX | `jitnn-onnx` loads ONNX files (about 110 operators) and runs them on jitNN's kernels, no third-party dependencies |
 | GGUF | `jitnn-gguf` reads GGUF files (llama.cpp's format): metadata, and weights as tensors memory-mapped without a copy, in their quantised blocks or as F32, F16 and BF16 |
+| Language models | `jitnn-llm` (optional) generates text from GGUF models through jitllm, with its tokenizers, KV cache and kernels |
 | TensorFlow | `jitnn-tf` loads SavedModels and frozen GraphDefs through the ONNX importer's operators |
 | DJL | `jitnn-djl` is a Deep Java Library engine: DJL's NDArrays, blocks, `Trainer` and `Predictor` run on jitNN |
 | Custom operators | `CustomOp`: a `KernelContext` kernel in plain Java, with an optional host reference and gradient, compiled into the same plans as the built-in operators |
@@ -69,6 +70,7 @@ The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERAT
 | `jitnn-nn` | modules and layers, optimisers, the models, embedding models and text sampling, the classical estimators (`org.beehive.jitnn.ml`), data-parallel training |
 | `jitnn-onnx` | the ONNX importer: `OnnxSession` |
 | `jitnn-gguf` | the GGUF reader: `GgufFile` |
+| `jitnn-llm` | optional (`-Pllm`): text generation from GGUF language models through jitllm, `Llm` |
 | `jitnn-djl` | a Deep Java Library engine, named `jitNN` (rank 0, so the default when on the class path): DJL code (NDArray, blocks, Trainer, Predictor) runs on jitNN |
 | `jitnn-tf` | the TensorFlow importer: SavedModels and frozen GraphDefs, `TfModel` |
 | `jitnn-bench` | kernel and model benchmarks: every operator call of the reference workloads, timed on a device |

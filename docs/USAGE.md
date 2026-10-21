@@ -395,6 +395,25 @@ Tensor q = Gguf.linear(x, wq, null);
 Tensors of types jitNN does not hold (Q5_0, Q5_1, Q2_K, Q3_K and the IQ formats) are listed, and
 `raw(name)` gives their bytes, but they do not load as tensors.
 
+### Text generation
+
+The optional module `jitnn-llm` (built with `-Pllm`) runs a GGUF language model through jitllm,
+which brings the tokenizers, the KV cache and the tuned kernels for Llama, Mistral, Qwen, Phi,
+Granite, Gemma and other families:
+
+```java
+try (Llm llm = Llm.load(Path.of("Llama-3.2-1B-Instruct-Q8_0.gguf"))) {
+    String answer = llm.generate("What is the capital of France?", 64);   // greedy
+    llm.generate("Write a haiku about GPUs.", 64, System.out::print);      // streamed
+    Tensor wq = llm.gguf().tensor("blk.0.attn_q.weight");                  // the same file's weights
+}
+```
+
+`generate(GenerationRequest)` takes jitllm's requests (sampling, stop sequences, chat messages,
+tools), and `model()` is the jitllm model. jitllm runs on TornadoVM's default device, which jitNN
+also uses when `-Djitnn.device` is not set; TornadoVM's backend priorities choose it (for example
+`-Dtornado.cuda.priority=100`).
+
 ## FP8
 
 FP8 weights with a per-tensor scale, in a linear layer with an FP32 input:
