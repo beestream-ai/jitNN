@@ -36,11 +36,20 @@ public final class Emitter {
 
     private String graphName;
     private int node = -1;
+    private Node current;
+    /** The autotuned choices ({@link Autotune#choose}) this plan's operators asked for. */
+    final java.util.Set<String> choices = new java.util.TreeSet<>();
     /** Per node, the arrays its tasks use (identity), in order of first use. */
     final List<List<Object>> uses = new ArrayList<>();
 
+    /** The node whose tasks are being emitted, or null. */
+    public Node node() {
+        return current;
+    }
+
     /** Starts recording the tasks and arrays of the next node. */
-    void beginNode() {
+    void beginNode(Node n) {
+        current = n;
         node++;
         uses.add(new ArrayList<>());
     }

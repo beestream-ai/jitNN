@@ -4,6 +4,7 @@ import org.beehive.jitnn.DType;
 import org.beehive.jitnn.Shape;
 import org.beehive.jitnn.Tensor;
 import org.beehive.jitnn.engine.Emitter;
+import org.beehive.jitnn.engine.Autotune;
 import org.beehive.jitnn.engine.Tuning;
 import org.beehive.jitnn.engine.Node;
 import org.beehive.jitnn.engine.Op;
@@ -406,15 +407,27 @@ public final class MatMul implements Op {
             return;
         }
         String variant = System.getProperty("jitnn.gemm", "auto");
+        boolean big = (long) m * n >= 64L * 64 && k >= 16;
         if (variant.equals("auto") && !e.isMetal()) {
-            // the device's tuning table, measured offline per shape class (Tuning); "auto" keeps the rules below
+            // the device's tuning table, measured offline per shape class (Tuning), else the rules
+            // below; with -Djitnn.autotune the variants are measured on this device (Autotune)
             String tuned = Tuning.gemm(m, n, k, ta, tb);
-            if (tuned != null) {
+            int forward = forwardSlices(m, n, k);
+            String rule = tuned != null ? tuned : forward > 1 ? "splitK" : big ? "gemm64pd" : "gemm16";
+            if (Autotune.enabled()) {
+                java.util.List<String> candidates = new java.util.ArrayList<>(java.util.List.of("gemm64pd", "gemm64p", "gemm128pd", "gemm64x128pd", "gemm128x64pd", "gemm16"));
+                if (forward > 1) {
+                    candidates.add("splitK");
+                }
+                if (!candidates.contains(rule)) {
+                    candidates.add(rule);
+                }
+                variant = Autotune.choose(e, "gemm", Tuning.gemmShape(m, n, k, ta, tb), rule, candidates.toArray(new String[0]));
+            } else if (tuned != null) {
                 variant = tuned;
             }
         }
         boolean auto = variant.equals("auto");
-        boolean big = (long) m * n >= 64L * 64 && k >= 16;
         if ((variant.equals("simdgroup") || (auto && big)) && e.isMetal() && m % 8 == 0 && n % 8 == 0) {
             WorkerGrid grid = Emitter.blocks1D(Emitter.ceilDiv(n, 64) * Emitter.ceilDiv(m, 64), 128);
             e.task(grid, (g, id) -> g.task(id, GemmKernels::gemmSimdgroup, e.context(), a, b, c, m, n, k, ta, tb));
@@ -426,7 +439,7 @@ public final class MatMul implements Op {
         }
         // Every kernel below takes the bias argument; it is only created when one does (J15).
         FloatArray biasArg = bias != null ? bias : e.dummyF32();
-        int slices = auto ? forwardSlices(m, n, k) : 1;
+        int slices = auto || variant.equals("splitK") ? forwardSlices(m, n, k) : 1;
         if (slices > 1) {
             // too few output tiles to fill the GPU: split K, then sum the partials with the epilogue
             int ks = Emitter.ceilDiv(Emitter.ceilDiv(k, slices), 16) * 16;

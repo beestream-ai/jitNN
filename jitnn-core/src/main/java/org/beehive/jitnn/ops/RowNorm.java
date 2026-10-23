@@ -93,6 +93,9 @@ public final class RowNorm implements Op {
             FloatArray rh = e.f32(n.out(2));
             // a warp per row on CUDA with many rows (FP16 rows are short to read), a work-group per row otherwise
             boolean warp = WARP && e.isCuda() && rows >= 256 && cols <= 4096;
+            if (WARP && e.isCuda()) {
+                warp = org.beehive.jitnn.engine.Autotune.choose(e, "rownormHalf", rows + "x" + cols, warp ? "warp" : "group", "warp", "group").equals("warp");
+            }
             WorkerGrid wg = Emitter.blocks1D(Emitter.ceilDiv(rows, NormKernels.WARP_ROWS), 32 * NormKernels.WARP_ROWS);
             if (n.iattr.length > 4 && n.iattr[4] != 0) {
                 // x + residual (an add fused into the norm by Fusion), both FP16
@@ -130,7 +133,11 @@ public final class RowNorm implements Op {
         FloatArray rstd = e.f32(n.out(2));
         // the warp forward wins with many rows of moderate width (A100: 2048-4096 x 768); with few
         // rows (128) or wide ones (1024 x 1024) a work-group per row is faster
-        if (WARP && e.isCuda() && rows >= 1024 && cols <= 768) {
+        boolean warp = WARP && e.isCuda() && rows >= 1024 && cols <= 768;
+        if (WARP && e.isCuda()) {
+            warp = org.beehive.jitnn.engine.Autotune.choose(e, "rownorm", rows + "x" + cols, warp ? "warp" : "group", "warp", "group").equals("warp");
+        }
+        if (warp) {
             WorkerGrid grid = Emitter.blocks1D(Emitter.ceilDiv(rows, NormKernels.WARP_ROWS), 32 * NormKernels.WARP_ROWS);
             e.task(grid, (g, id) -> g.task(id, NormKernels::rowNormForwardWarp, e.context(), x, w, b, y, mean, rstd, rows, cols, eps, mode, hasBias));
             return;

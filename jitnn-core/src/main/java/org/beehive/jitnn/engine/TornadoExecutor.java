@@ -140,6 +140,32 @@ final class TornadoExecutor {
         } finally {
             slotLock.unlock();
         }
+        if (Autotune.enabled()) {
+            // choices met in this plan's compile are measured now, with no lock held
+            Autotune.tunePending();
+        }
+    }
+
+    /**
+     * Closes this device's plans that used any of the measured {@code choices} (their next run
+     * compiles with the decision) and the measurement plans (those with forced variants).
+     */
+    static void forgetTuning(java.util.Set<String> choices) {
+        LOCK.lock();
+        try {
+            var it = CACHE.values().iterator();
+            while (it.hasNext()) {
+                CompiledTrace ct = it.next();
+                boolean measured = ct.key.contains("AT{");
+                boolean stale = !java.util.Collections.disjoint(ct.choices, choices);
+                if ((measured || stale) && !ct.busy && local(ct)) {
+                    close(ct);
+                    it.remove();
+                }
+            }
+        } finally {
+            LOCK.unlock();
+        }
     }
 
     /** Waits (releasing {@link #LOCK}) until no other thread's plan is writing {@code s}. Called with LOCK held. */
@@ -171,7 +197,7 @@ final class TornadoExecutor {
         boolean[] written = new boolean[slots.size()];
         String nativeTag = Native.keyTag();
         String slotTag = SLOTS > 1 ? "S" + slot + "|" : "";
-        StringBuilder key = new StringBuilder(256).append(Devices.key()).append('|').append(slotTag).append(nativeTag);
+        StringBuilder key = new StringBuilder(256).append(Devices.key()).append('|').append(slotTag).append(nativeTag).append(Autotune.keyTag());
         StringBuilder ids = new StringBuilder();
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
@@ -484,7 +510,7 @@ final class TornadoExecutor {
         }
         Emitter e = new Emitter(name, byStorage, unread);
         for (Node n : nodes) {
-            e.beginNode();
+            e.beginNode(n);
             n.op.emit(e, n);
         }
 
@@ -583,6 +609,7 @@ final class TornadoExecutor {
         ct.deviceArrays.addAll(owner.keySet());
         ct.recyclable = recyclable;
         ct.libraries = e.libraries;
+        ct.choices = e.choices;
         ct.taskLabels = labels;
         ct.intermediateBytes = freshBytes;
         uk.ac.manchester.tornado.api.ImmutableTaskGraph[] snapshots = new uk.ac.manchester.tornado.api.ImmutableTaskGraph[graphs.size()];
@@ -677,7 +704,30 @@ final class TornadoExecutor {
         }
     }
 
+    /** The plan this thread executed last (Autotune times it again). */
+    private static final ThreadLocal<CompiledTrace> LAST = new ThreadLocal<>();
+
+    /**
+     * Runs the plan this thread executed last {@code runs} more times, as it is (no recording, no
+     * lookup), and returns the median seconds per execution: the device time of its kernels plus
+     * the plan's launch. For Autotune, on its measurement plans.
+     */
+    static double timeLast(int runs) {
+        CompiledTrace ct = LAST.get();
+        double[] t = new double[runs];
+        for (int r = -2; r < runs; r++) {
+            long t0 = System.nanoTime();
+            ct.plan.execute();
+            if (r >= 0) {
+                t[r] = (System.nanoTime() - t0) / 1e9;
+            }
+        }
+        java.util.Arrays.sort(t);
+        return t[runs / 2];
+    }
+
     private static void execute(CompiledTrace ct, List<Storage> slots) {
+        LAST.set(ct);
         // persistent storages another thread's plan is writing are read or written only after it
         for (int i = 0; i < slots.size(); i++) {
             if (ct.kinds[i] == CompiledTrace.PERSISTENT) {

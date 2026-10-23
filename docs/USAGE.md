@@ -205,6 +205,17 @@ float[] out = logits.toFloatArray();                  // FP16 results read as fl
 
 It needs gradients off; with gradients on, the scope behaves as `Autocast.enable(DType.F16)`.
 
+## Autotuning
+
+jitNN picks a kernel variant for each operator from rules measured on a few GPUs. With
+`-Djitnn.autotune=on` it measures them on yours instead: the first time a shape runs, each
+variant of its GEMMs, 1x1 and 3x3 convolutions and row norms is timed alone on random inputs,
+checked against the rule's result, and the fastest is kept (only when more than 5% faster). The
+decisions are saved per device in `~/.jitnn/autotune` and used by later runs, so the cost (a few
+seconds per new shape, mostly compiling the variants) is paid once; `-Djitnn.autotune=use`
+applies them without measuring new shapes. `Autotune.setMode` and `Autotune.setDirectory` do the
+same from code.
+
 ## Serving
 
 **Concurrent requests.** `-Djitnn.concurrency=N` lets up to N threads run plans on the device at

@@ -37,6 +37,13 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
   tasks wrote. `Engine.transferStats()` counts the resulting traffic.
 - **Tuning tables**: `engine.Tuning` reads the per-device GEMM tables in
   `jitnn-core/src/main/resources/tuning`, written by `scripts/bench/tune.py`.
+- **Autotuning**: an operator with several kernel variants for a shape asks
+  `Autotune.choose(emitter, family, shape, rule, candidates...)` while it emits. With
+  `-Djitnn.autotune=on` a choice not decided yet uses the rule and is recorded; once the plan has
+  run (no lock held) the executor replays the operator alone on random inputs with each variant
+  (plans of 8 copies, executed again 15 times), checks each against the rule's output, keeps the
+  fastest by more than 5%, saves it, and closes the plans that used the choice. Measurement plans
+  carry the forced variants in their cache key.
 - **Devices per thread**: each thread records its own trace, and `Engine.onDevice` sets the device
   its plans compile for; the plan cache is keyed by device, so ranks on different devices (or
   backends) share one process.

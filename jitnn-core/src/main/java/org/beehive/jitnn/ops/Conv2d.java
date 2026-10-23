@@ -131,6 +131,9 @@ public final class Conv2d implements Op {
         // measured per shape on the A10 (ResNet-50 at 32x32): wide planes take 64x128 tiles,
         // many rows on small planes 128x64, the rest 64x64; the narrow 128x16 never wins
         String v = !POINTWISE_VARIANT.equals("auto") ? POINTWISE_VARIANT : n >= 256 && ta == 0 ? "64x128" : m >= 128 ? "128x64" : "64";
+        if (POINTWISE_VARIANT.equals("auto")) {
+            v = org.beehive.jitnn.engine.Autotune.choose(e, "conv1x1", m + "x" + n + "x" + k + "t" + ta + "b" + batch, v, "64", "128x64", "64x128", "128x16");
+        }
         int bm = v.startsWith("128") ? 128 : 64;
         int bn = v.equals("64x128") ? 128 : v.equals("128x16") ? 16 : 64;
         int tilesY = Emitter.ceilDiv(m, bm);
@@ -233,7 +236,13 @@ public final class Conv2d implements Op {
 
     static void emitWinograd(Emitter e, FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow, int pad, int flip,
             int epilogue) {
-        if (winograd4(n, oh, ow)) {
+        emitWinograd(e, x, w, out, bias, n, cin, h, wd, cout, oh, ow, pad, flip, epilogue, winograd4(n, oh, ow));
+    }
+
+    /** {@link #emitWinograd} as F(4x4, 3x3) when {@code f4}, else F(2x2, 3x3). */
+    static void emitWinograd(Emitter e, FloatArray x, FloatArray w, FloatArray out, FloatArray bias, int n, int cin, int h, int wd, int cout, int oh, int ow, int pad, int flip,
+            int epilogue, boolean f4) {
+        if (f4) {
             int th = Emitter.ceilDiv(oh, 4);
             int tw = Emitter.ceilDiv(ow, 4);
             int tiles = n * th * tw;
@@ -348,8 +357,12 @@ public final class Conv2d implements Op {
             return;
         }
         if (winograd(a, oh, ow)) {
-            emitWinograd(e, x, w, out, bias, a[N], cin, h, wd, cout, oh, ow, pd, 0, epilogue);
-            return;
+            String rule = winograd4(a[N], oh, ow) ? "winograd4" : "winograd2";
+            String v = org.beehive.jitnn.engine.Autotune.choose(e, "conv3x3", a[N] + "x" + cin + "x" + h + "x" + wd + "o" + cout + "p" + pd, rule, "winograd4", "winograd2", "implicit");
+            if (!v.equals("implicit")) {
+                emitWinograd(e, x, w, out, bias, a[N], cin, h, wd, cout, oh, ow, pd, 0, epilogue, v.equals("winograd4"));
+                return;
+            }
         }
         int m = a[N] * oh * ow;
         int tilesN = Emitter.ceilDiv(cout / gr, 64);

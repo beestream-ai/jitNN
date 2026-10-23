@@ -266,6 +266,26 @@ gradients on the GPUs and reduces them in one call per step, inside each rank's 
 ResNet-50 at batch 32 needs `-XX:MaxDirectMemorySize` above the 32 GB default for two ranks: each
 rank's training step is one plan, and TornadoVM keeps a host copy of every device buffer.
 
+## Autotuning
+
+`-Djitnn.autotune=on` once (the tuning pass), then `use`; jitNN's kernels (`-Djitnn.native=off`),
+FP32, medians, off and `use` alternated twice (the runs agree within 1%). The A10 also has an
+offline GEMM table; the RTX 5070 Ti has none, so its rules were measured on other GPUs.
+
+| Workload | A10 off | A10 autotuned | RTX 5070 Ti off | RTX 5070 Ti autotuned |
+|---|---|---|---|---|
+| BERT-base b32 x 128 | 127.2 ms | 107.9 ms (-15%) | 73.5 ms | 48.7 ms (-34%) |
+| BERT-base b8 x 512 | 140.2 ms | 120.3 ms (-14%) | 79.3 ms | 54.6 ms (-31%) |
+| BERT-base b1 x 128 | 7.25 ms | 7.01 ms (-3%) | 4.67 ms | 4.09 ms (-12%) |
+| ResNet-50 b32 | 48.9 ms | 48.4 ms (-1%) | 24.8 ms | 24.6 ms (-1%) |
+| ResNet-50 b128 | 189.8 ms | 189.0 ms | 96.2 ms | 96.0 ms |
+| ResNet-18 training, b128 | 1830 samples/s | 1874 samples/s (+2.4%) | 3810 samples/s | 3870 samples/s (+1.6%) |
+
+The BERT gain is its linear layers (4096 x 768 to 3072 products), which take 128 x 128 tiles
+instead of the rule's 64 x 64, and its layer norms. ResNet's convolutions keep the rules' variants.
+The tuning pass took 30-40 s for the training step and 70-100 s for the two inference models
+(54 decisions per device), once.
+
 ## Known gaps
 
 - Convolutions run on the same register-blocked tiles as the GEMM and share its ceiling: about

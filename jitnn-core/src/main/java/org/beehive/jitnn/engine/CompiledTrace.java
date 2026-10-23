@@ -18,6 +18,8 @@ final class CompiledTrace {
     volatile boolean busy;
     /** The vendor libraries its library tasks call (none for a plan of jitNN kernels only). */
     java.util.Set<String> libraries = java.util.Set.of();
+    /** The autotuned choices its operators asked for (closed once they are measured). */
+    java.util.Set<String> choices = java.util.Set.of();
     final String name;
     final int[] kinds;
     final Object[] arrays;

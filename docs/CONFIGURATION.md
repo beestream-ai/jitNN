@@ -35,6 +35,11 @@ working around a backend problem.
 |---|---|---|
 | `jitnn.gemm` | `auto` | FP32 GEMM kernel (see below): `auto`, `simdgroup`, `128`, `64`, `16`, or a padded variant `gemm64p`, `gemm64pd`, `gemm128p`, `gemm128pd`, `gemm128x64pd`, `gemm64x128pd`. A forced variant also turns off forward split-K |
 | `jitnn.tuning` | empty | GEMM tuning table: empty reads `tuning/<backend>-<device>.json` from the class path (jitNN ships tables for the A10 and the A100 80GB PCIe), a path reads that file, `off` ignores tables. Used by `jitnn.gemm=auto` on CUDA and OpenCL |
+| `jitnn.autotune` | `off` | run-time autotuning (`engine.Autotune`): `on` measures the kernel variants of each new GEMM, 1x1 and 3x3 convolution and row-norm shape on the device the first time it runs and keeps the fastest; `use` only applies decisions saved earlier. Decisions override `jitnn.tuning` tables and the size rules |
+| `jitnn.autotune.dir` | `~/.jitnn/autotune` | where decisions are saved: one `<backend>-<device>.properties` file per device, read by later runs |
+| `jitnn.autotune.margin` | `0.05` | a measured variant replaces the rule's only when it is this much faster |
+| `jitnn.autotune.reps`, `jitnn.autotune.runs` | `8`, `15` | operator copies per measurement plan, and timed executions of it (median) |
+| `jitnn.autotune.verbose` | `false` | print each measurement and decision |
 | `jitnn.splitK` | `true` | split the reduction of GEMMs and convolutions whose output fills too few work-groups (A^T B weight gradients, and forward products), summing the partials in order |
 | `jitnn.splitK.groups` | `256` | work-groups a forward product should reach before it stops splitting K (about two per SM on an A100) |
 | `jitnn.tensorCores` | `true` | on CUDA, half-precision products (FP16, BF16 operands) run on tensor cores (`mma.sync` m16n8k16, compute capability 8.0+) |
