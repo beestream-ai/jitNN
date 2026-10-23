@@ -24,7 +24,7 @@ public final class Native {
     /** The libraries jitNN can call. */
     public enum Lib {
         CUBLAS(TornadoVMBackendType.CUDA), CUDNN(TornadoVMBackendType.CUDA), CUFFT(TornadoVMBackendType.CUDA), CUSPARSE(TornadoVMBackendType.CUDA), CUTLASS(
-                TornadoVMBackendType.CUDA), MLX(
+                TornadoVMBackendType.CUDA), NCCL(TornadoVMBackendType.CUDA), MLX(
                 TornadoVMBackendType.METAL);
 
         final TornadoVMBackendType backend;

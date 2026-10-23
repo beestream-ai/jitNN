@@ -26,6 +26,8 @@ public final class ProcessGroup {
             throw new IllegalArgumentException(devices.length + " devices for a collective of " + collective.worldSize() + " ranks");
         }
         ExecutorService pool = Executors.newFixedThreadPool(devices.length);
+        // the failure that made the others abort, reported instead of theirs
+        java.util.concurrent.atomic.AtomicReference<Throwable> first = new java.util.concurrent.atomic.AtomicReference<>();
         try {
             List<Future<T>> futures = new ArrayList<>();
             for (int r = 0; r < devices.length; r++) {
@@ -34,8 +36,8 @@ public final class ProcessGroup {
                     try {
                         return Engine.onDevice(devices[rank], () -> body.apply(rank, collective));
                     } catch (RuntimeException | Error e) {
-                        if (collective instanceof HostCollective hc) {
-                            hc.abort();
+                        if (first.compareAndSet(null, new IllegalStateException("rank " + rank + " on " + devices[rank] + " failed: " + e, e))) {
+                            collective.abort();
                         }
                         throw e;
                     }
@@ -50,6 +52,10 @@ public final class ProcessGroup {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         } catch (ExecutionException e) {
+            Throwable cause = first.get();
+            if (cause instanceof IllegalStateException ise) {
+                throw ise;
+            }
             throw new IllegalStateException("a rank failed: " + e.getCause(), e.getCause());
         } finally {
             pool.shutdownNow();

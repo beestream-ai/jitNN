@@ -33,4 +33,20 @@ public interface Collective {
 
     /** Blocks until every rank has called it. */
     void barrier(int rank);
+
+    /**
+     * The reduction over all ranks of each tensor. A host collective reduces the tensors in place
+     * and returns them; a device collective ({@link NcclCollective}) records the reduction and
+     * returns new tensors, without waiting.
+     */
+    default Tensor[] allReduced(int rank, Tensor[] tensors, ReduceOp op) {
+        for (Tensor t : tensors) {
+            allReduce(rank, t, op);
+        }
+        return tensors;
+    }
+
+    /** Releases the ranks waiting in a collective after another rank failed. */
+    default void abort() {
+    }
 }

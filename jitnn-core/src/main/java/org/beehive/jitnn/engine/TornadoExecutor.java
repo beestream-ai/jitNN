@@ -72,13 +72,22 @@ final class TornadoExecutor {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, CompiledTrace> eldest) {
             // every concurrency slot compiles its own plans, so the cache holds CACHE_SIZE per slot
-            if (size() > Math.max(CACHE_SIZE, RESERVED.get()) * Math.max(1, Integer.getInteger("jitnn.concurrency", 1)) && !eldest.getValue().busy) {
+            if (size() > Math.max(CACHE_SIZE, RESERVED.get()) * Math.max(1, Integer.getInteger("jitnn.concurrency", 1)) && !eldest.getValue().busy && local(eldest.getValue())) {
                 close(eldest.getValue());
                 return true;
             }
             return false;
         }
     };
+
+    /**
+     * Whether {@code ct} runs on this thread's device. Plans are closed only by threads of their own
+     * device: another device's thread may be launching one of that device's plans meanwhile (the
+     * ranks of data-parallel training run their plans at the same time).
+     */
+    private static boolean local(CompiledTrace ct) {
+        return ct.key.startsWith(Devices.key() + "|");
+    }
 
     /** Plan cache room reserved by users that need many plans at once (Engine.reservePlans: shape buckets). */
     static final java.util.concurrent.atomic.AtomicInteger RESERVED = new java.util.concurrent.atomic.AtomicInteger();
@@ -99,30 +108,28 @@ final class TornadoExecutor {
 
     /**
      * The executor's lock: plan cache, storage bookkeeping and counters. It is released while
-     * TornadoVM runs a plan that writes no persistent storage, so threads in different slots run
-     * their plans at the same time.
+     * TornadoVM runs a plan, so threads in different slots, or on different devices, run their plans
+     * at the same time. A plan that writes persistent storages marks them ({@link Storage#writer})
+     * first; other threads wait on {@link #WRITTEN} before touching a marked storage.
      */
     private static final java.util.concurrent.locks.ReentrantLock LOCK = new java.util.concurrent.locks.ReentrantLock();
+    private static final java.util.concurrent.locks.Condition WRITTEN = LOCK.newCondition();
 
     /**
      * Concurrent executions ({@code -Djitnn.concurrency}, default 1): threads are spread over this
      * many slots, each with its own compiled plans (and device buffers, weights included), so up
-     * to this many threads run plans on the device at once. Threads of the same slot take turns.
+     * to this many threads run plans on the device at once. Threads of the same slot and device take
+     * turns; threads on different devices (data-parallel ranks) do not wait for each other.
      */
     private static final int SLOTS = Math.max(1, Integer.getInteger("jitnn.concurrency", 1));
-    private static final java.util.concurrent.locks.ReentrantLock[] SLOT_LOCKS = new java.util.concurrent.locks.ReentrantLock[SLOTS];
+    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.locks.ReentrantLock> SLOT_LOCKS = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.atomic.AtomicInteger NEXT_SLOT = new java.util.concurrent.atomic.AtomicInteger();
     private static final ThreadLocal<Integer> SLOT = ThreadLocal.withInitial(() -> NEXT_SLOT.getAndIncrement() % SLOTS);
 
-    static {
-        for (int i = 0; i < SLOTS; i++) {
-            SLOT_LOCKS[i] = new java.util.concurrent.locks.ReentrantLock();
-        }
-    }
-
     static void run(List<Node> recorded, Tensor[] wanted) {
         int slot = SLOT.get();
-        SLOT_LOCKS[slot].lock();
+        java.util.concurrent.locks.ReentrantLock slotLock = SLOT_LOCKS.computeIfAbsent(Devices.key() + "#" + slot, k -> new java.util.concurrent.locks.ReentrantLock());
+        slotLock.lock();
         try {
             LOCK.lock();
             try {
@@ -131,7 +138,14 @@ final class TornadoExecutor {
                 LOCK.unlock();
             }
         } finally {
-            SLOT_LOCKS[slot].unlock();
+            slotLock.unlock();
+        }
+    }
+
+    /** Waits (releasing {@link #LOCK}) until no other thread's plan is writing {@code s}. Called with LOCK held. */
+    private static void awaitWritten(Storage s, CompiledTrace self) {
+        while (s.writer != null && s.writer != self) {
+            WRITTEN.awaitUninterruptibly();
         }
     }
 
@@ -664,6 +678,12 @@ final class TornadoExecutor {
     }
 
     private static void execute(CompiledTrace ct, List<Storage> slots) {
+        // persistent storages another thread's plan is writing are read or written only after it
+        for (int i = 0; i < slots.size(); i++) {
+            if (ct.kinds[i] == CompiledTrace.PERSISTENT) {
+                awaitWritten(slots.get(i), ct);
+            }
+        }
         // Inputs first: an input may be an intermediate of this plan's previous execution, which
         // must be fetched before its slot is rebound below.
         for (int i = 0; i < slots.size(); i++) {
@@ -718,11 +738,21 @@ final class TornadoExecutor {
         for (boolean w : ct.written) {
             writes |= w;
         }
-        if (writes || ct.printHeader != null) {
-            // persistent storages are written: other plans must not run on them meanwhile
-            ct.last = ct.printHeader != null ? executePrinting(ct) : ct.plan.execute();
+        if (ct.printHeader != null) {
+            ct.last = executePrinting(ct);
         } else {
+            // The persistent storages this plan writes are marked: other threads wait for them
+            // (awaitWritten) instead of for the lock, which is released while TornadoVM runs the plan,
+            // so plans on other devices (data-parallel ranks, whose collectives wait for each
+            // other) run at the same time.
             ct.busy = true;
+            if (writes) {
+                for (int i = 0; i < slots.size(); i++) {
+                    if (ct.written[i]) {
+                        slots.get(i).writer = ct;
+                    }
+                }
+            }
             int holds = LOCK.getHoldCount();
             for (int h = 0; h < holds; h++) {
                 LOCK.unlock();
@@ -734,6 +764,14 @@ final class TornadoExecutor {
                     LOCK.lock();
                 }
                 ct.busy = false;
+                if (writes) {
+                    for (int i = 0; i < slots.size(); i++) {
+                        if (slots.get(i).writer == ct) {
+                            slots.get(i).writer = null;
+                        }
+                    }
+                    WRITTEN.signalAll();
+                }
             }
         }
         executeNanos += System.nanoTime() - t0;
@@ -777,6 +815,7 @@ final class TornadoExecutor {
     static void fetch(Storage s) {
         LOCK.lock();
         try {
+            awaitWritten(s, null);
             if (s.hostValid) {
                 return;
             }
@@ -876,7 +915,7 @@ final class TornadoExecutor {
         var it = CACHE.values().iterator();
         while (it.hasNext()) {
             CompiledTrace ct = it.next();
-            if (ct != running && !ct.busy && ct.intermediateBytes >= IDLE_BYTES && executionsTotal - ct.lastUsed > IDLE_EXECUTIONS) {
+            if (ct != running && !ct.busy && local(ct) && ct.intermediateBytes >= IDLE_BYTES && executionsTotal - ct.lastUsed > IDLE_EXECUTIONS) {
                 if (VERBOSE) {
                     System.err.printf("[jitnn] closed idle plan %s (%.1f MB of intermediates)%n", ct.name, ct.intermediateBytes / 1e6);
                 }
@@ -892,7 +931,7 @@ final class TornadoExecutor {
         var it = CACHE.values().iterator();
         while (it.hasNext()) {
             CompiledTrace ct = it.next();
-            if (ct != keep && !ct.busy) {
+            if (ct != keep && !ct.busy && local(ct)) {
                 close(ct);
                 it.remove();
                 any = true;

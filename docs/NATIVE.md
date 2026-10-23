@@ -86,7 +86,6 @@ Everything else runs on jitNN's kernels, mostly because TornadoVM has no binding
 | Linear algebra (LU, QR, SVD, ...), SDDMM | no cuSOLVER binding, no SDDMM in cuSPARSE's binding |
 | BF16 products | jitNN holds BF16 in `ShortArray`; the bindings take `BFloat16Array` |
 | cuBLASLt epilogues for FP32 products, CUTLASS epilogues | they write FP16; FP32 products keep jitNN's bias and activation kernel |
-| NCCL | jitNN's ranks run one at a time in the executor |
 
 ## Numerics
 

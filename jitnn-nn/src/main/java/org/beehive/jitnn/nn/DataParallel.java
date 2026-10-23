@@ -34,13 +34,22 @@ public final class DataParallel {
         return this;
     }
 
-    /** Replaces each parameter's gradient by its mean over the ranks (parameters without a gradient are skipped on every rank alike). */
+    /**
+     * Replaces each parameter's gradient by its mean over the ranks (parameters without a gradient
+     * are skipped on every rank alike), with one collective for all of them.
+     */
     public void averageGradients() {
+        java.util.List<Tensor> params = new java.util.ArrayList<>();
+        java.util.List<Tensor> grads = new java.util.ArrayList<>();
         for (Tensor p : model.parameters()) {
-            Tensor g = p.grad();
-            if (g != null) {
-                collective.allReduce(rank, g, Collective.ReduceOp.AVG);
+            if (p.grad() != null) {
+                params.add(p);
+                grads.add(p.grad());
             }
+        }
+        Tensor[] mean = collective.allReduced(rank, grads.toArray(new Tensor[0]), Collective.ReduceOp.AVG);
+        for (int i = 0; i < mean.length; i++) {
+            params.get(i).setGrad(mean[i]);
         }
     }
 

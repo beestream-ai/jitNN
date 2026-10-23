@@ -13,7 +13,7 @@ Sizes are in bytes.
 | `jitnn.plan.idleBytes` | `67108864` (64 MiB) | a plan holding at least this much intermediate memory is closed once `jitnn.plan.idleExecutions` executions of other plans pass without it (a first step that never repeats, an evaluation pass between epochs); it is compiled again if it comes back |
 | `jitnn.plan.idleExecutions` | `256` | executions of other plans before an idle large plan is closed (checked every 32 executions) |
 | `jitnn.promoteInputBytes` | `16777216` (16 MiB) | a host input at least this large that a later execution reads again (a dataset, a constant table) becomes persistent device storage instead of being copied in on every execution |
-| `jitnn.concurrency` | `1` | concurrent executions: threads are spread over this many slots, each with its own compiled plans and device buffers (weights included), so up to this many threads run plans on the device at once; plans that write parameters (training) still run one at a time. The plan cache holds `jitnn.plan.cache` plans per slot |
+| `jitnn.concurrency` | `1` | concurrent executions: threads are spread over this many slots, each with its own compiled plans and device buffers (weights included), so up to this many threads run plans on the device at once; plans on different devices (data-parallel ranks) always run at the same time. The plan cache holds `jitnn.plan.cache` plans per slot |
 | `jitnn.cudaGraph` | `true` | on CUDA, capture each plan as a CUDA graph and replay it |
 | `jitnn.graph.maxTasks` | `40` | tasks per TornadoVM task graph; longer traces become a chain of graphs (a graph holds at most 256 tasks and 8 KiB of bytecode) |
 | `jitnn.reuseBuffers` | `true` | reuse dead backward-pass and inference buffers inside a compiled step |
@@ -142,6 +142,8 @@ latter through `jitnn.test.extra`).
 | `jitnn.text` | empty | directory holding `corpus.txt` and the transformer references; the transformer gates are skipped when empty |
 | `jitnn.transformer.steps` | 300 | training steps of the transformer gates (must match the PyTorch reference) |
 | `jitnn.dist.devices` | empty | comma-separated devices of the collective and data-parallel tests, one rank each, e.g. `0:0,1:0`; empty: two ranks on the test device |
+| `jitnn.dist.nccl` | `false` | `DataParallelAccelTest`: also run the collectives and data-parallel training on `NcclCollective` (distinct CUDA devices) |
+| `jitnn.bench.dist` | `false` | `DataParallelBenchAccelTest`: training throughput on one device, and on `jitnn.dist.devices` with the host collective and NCCL; `jitnn.bench.dist.model` (`resnet18`, `resnet50`), `.batch`, `.steps`, `.modes` |
 | `jitnn.bench.dim`, `.layers`, `.seq`, `.batch` | 128, 4, 128, 16 | model and batch sizes of `TransformerBenchAccelTest` |
 | `jitnn.bench.shapes`, `jitnn.bench.tasks` | `false`, empty | with `jitnn.test.profile`, list the device time per GEMM shape, or per task of the operators whose name contains the given text |
 | `jitnn.bench.inference` | `false` | run `InferenceBenchAccelTest` (ResNet-50 and BERT-base latency) |

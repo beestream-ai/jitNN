@@ -12,9 +12,12 @@ import org.beehive.jitnn.F;
 import org.beehive.jitnn.Tensor;
 import org.beehive.jitnn.data.Blobs;
 import org.beehive.jitnn.dist.Collective;
+import org.beehive.jitnn.dist.NcclCollective;
 import org.beehive.jitnn.dist.ProcessGroup;
 import org.beehive.jitnn.engine.Engine;
 import org.beehive.jitnn.nn.optim.SGD;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +25,8 @@ import org.junit.jupiter.api.Test;
  * Collectives and data-parallel training across ranks. The ranks run on the devices listed in
  * {@code -Djitnn.dist.devices} (comma-separated "driver:device"; default: two ranks on the test
  * device). Data-parallel training on two half batches must reproduce single-rank training on the
- * full batch.
+ * full batch. With {@code -Djitnn.dist.nccl=true} the same checks run on {@link NcclCollective}
+ * (the devices must then be distinct CUDA GPUs).
  */
 class DataParallelAccelTest {
 
@@ -113,12 +117,78 @@ class DataParallelAccelTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void dataParallelMatchesFullBatch() {
+        checkDataParallel(null);
+    }
+
+    @Test
+    void ncclCollectives() {
+        assumeTrue(Boolean.getBoolean("jitnn.dist.nccl"), "no -Djitnn.dist.nccl=true");
+        String[] devices = devices();
+        int world = devices.length;
+        List<float[][]> out;
+        try (NcclCollective nccl = new NcclCollective(devices)) {
+            out = ProcessGroup.run(devices, nccl, (rank, c) -> {
+                // in place on persistent tensors
+                float[] v = new float[6];
+                Arrays.fill(v, rank + 1);
+                Tensor x = Tensor.persistent(Tensor.of(v, 2, 3));
+                c.allReduce(rank, x, Collective.ReduceOp.SUM);
+                Tensor y = Tensor.persistent(Tensor.of(new float[] { rank, rank, rank }, 3));
+                c.broadcast(rank, y, world - 1);
+                float[] in = new float[2 * world];
+                for (int i = 0; i < in.length; i++) {
+                    in[i] = i * (rank + 1);
+                }
+                Tensor rs = Tensor.persistent(Tensor.zeros(2));
+                c.reduceScatter(rank, Tensor.of(in, 2 * world).mul(1.0f), rs, Collective.ReduceOp.SUM);
+                Tensor ag = Tensor.persistent(Tensor.zeros(world));
+                c.allGather(rank, Tensor.of(new float[] { 10.0f * rank }, 1).mul(1.0f), ag);
+                // lazy intermediates, reduced into new tensors through one packed buffer
+                Tensor[] m = c.allReduced(rank, new Tensor[] { Tensor.full(rank + 1, 5).mul(2.0f), Tensor.full(-rank, 3, 7).add(1.0f) }, Collective.ReduceOp.AVG);
+                c.barrier(rank);
+                return new float[][] { x.toFloatArray(), y.toFloatArray(), rs.toFloatArray(), ag.toFloatArray(), m[0].toFloatArray(), m[1].toFloatArray() };
+            });
+            Engine.reset();
+        }
+        float sum = world * (world + 1) / 2.0f;
+        for (int r = 0; r < world; r++) {
+            float[][] o = out.get(r);
+            for (float v : o[0]) {
+                assertEquals(sum, v, 0.0f, "all-reduce on rank " + r);
+            }
+            for (float v : o[1]) {
+                assertEquals(world - 1, v, 0.0f, "broadcast on rank " + r);
+            }
+            assertArrayEquals(new float[] { 2 * r * sum, (2 * r + 1) * sum }, o[2], 1e-4f, "reduce-scatter on rank " + r);
+            for (int k = 0; k < world; k++) {
+                assertEquals(10.0f * k, o[3][k], 0.0f, "all-gather on rank " + r);
+            }
+            for (float v : o[4]) {
+                assertEquals(2.0f * sum / world, v, 1e-5f, "allReduced (first) on rank " + r);
+            }
+            for (float v : o[5]) {
+                assertEquals(1.0f - (sum - world) / world, v, 1e-5f, "allReduced (second) on rank " + r);
+            }
+        }
+    }
+
+    @Test
+    void ncclDataParallelMatchesFullBatch() {
+        assumeTrue(Boolean.getBoolean("jitnn.dist.nccl"), "no -Djitnn.dist.nccl=true");
+        try (NcclCollective nccl = new NcclCollective(devices())) {
+            checkDataParallel(nccl);
+            Engine.reset();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void checkDataParallel(Collective collective) {
         String[] devices = devices();
         int world = devices.length;
         Object[] single = Engine.onDevice(devices[0], () -> train(0, null, 1));
-        List<Object[]> ranks = ProcessGroup.run(devices, (rank, c) -> train(rank, c, world));
+        List<Object[]> ranks = collective == null ? ProcessGroup.run(devices, (rank, c) -> train(rank, c, world))
+                : ProcessGroup.run(devices, collective, (rank, c) -> train(rank, c, world));
         List<float[]> ref = (List<float[]>) single[1];
         for (int r = 0; r < world; r++) {
             List<float[]> p = (List<float[]>) ranks.get(r)[1];
@@ -139,6 +209,7 @@ class DataParallelAccelTest {
             }
             assertEquals(full.get(s), mean, 2e-5f * Math.max(1, Math.abs(full.get(s))), "loss at step " + s);
         }
-        System.out.printf("[dist] %d ranks on %s: final loss %.5f, matches full-batch training%n", world, String.join(",", devices), full.get(full.size() - 1));
+        System.out.printf("[dist] %d ranks on %s (%s): final loss %.5f, matches full-batch training%n", world, String.join(",", devices),
+                collective == null ? "host" : "nccl", full.get(full.size() - 1));
     }
 }

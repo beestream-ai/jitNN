@@ -212,7 +212,8 @@ once.
 - Each of N slots has its own compiled plans and device buffers, weights included, so memory
   grows with N.
 - Threads in the same slot take turns.
-- Plans that write parameters (training) still run one at a time.
+- A plan that writes persistent tensors (parameters, optimiser state) runs while plans that do not
+  touch them run too; plans that need those tensors wait for it.
 - On an A100 with 4 threads and 4 slots, throughput is 2.1-2.7x at batch 1 and 1.1-1.35x at large
   batch.
 
@@ -452,11 +453,25 @@ List<Float> last = ProcessGroup.run(devices, (rank, collective) -> {
 });
 ```
 
-The default `HostCollective` moves tensors through host memory, so the ranks can be on any mix of
-devices and backends (two GPUs, or CUDA and OpenCL on the same GPU). Tensors belong to the device
-they were computed on: do not pass them between ranks except through the collective.
-`Engine.onDevice(spec, body)` runs a block on another device from any thread. The ranks run one
-after another inside jitNN, so this gives correct data-parallel training but no speed-up yet.
+The ranks' plans run at the same time, one per device. The default `HostCollective` moves tensors
+through host memory, so the ranks can be on any mix of devices and backends (two GPUs, or CUDA and
+OpenCL on the same GPU), but each collective waits for the host. On NVIDIA GPUs `NcclCollective`
+keeps the collectives on the GPUs: they are recorded into each rank's plan like any operator (and
+captured in its CUDA graph), and `averageGradients` packs every gradient into one buffer reduced
+by one NCCL call, so a training step is one plan per rank:
+
+```java
+String[] devices = { "0:0", "0:1" };                            // distinct CUDA GPUs
+try (NcclCollective nccl = new NcclCollective(devices)) {
+    ProcessGroup.run(devices, nccl, (rank, collective) -> train(rank, collective));
+    Engine.reset();                                              // release the plans before the communicator
+}
+```
+
+With NCCL, results are new tensors (`allReduced`) or persistent tensors written in place
+(parameters, buffers, `Tensor.persistent`). Tensors belong to the device they were computed on: do
+not pass them between ranks except through the collective. `Engine.onDevice(spec, body)` runs a
+block on another device from any thread.
 
 ## ONNX models
 

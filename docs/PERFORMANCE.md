@@ -249,6 +249,23 @@ the models; then
 `./mvnw test -Paccel-tests -pl jitnn-onnx -Dtest=OnnxT1AccelTest -Djitnn.onnx.t1=<dir>` runs
 jitNN on them. `scripts/bench/djl` holds the same comparison through DJL, as a baseline.
 
+## Data-parallel training (2x A10)
+
+Two NVIDIA A10s with no peer-to-peer link (NCCL goes through host shared memory), jitNN's kernels
+(`-Djitnn.native=off`), SGD with momentum, the same batch on every device, median step of 30
+(`DataParallelBenchAccelTest`, one run per mode for ResNet-50).
+
+| Model | Batch per device | 1 device | 2 devices, host collective | 2 devices, NCCL | NCCL scaling |
+|---|---|---|---|---|---|
+| ResNet-18, 32 x 32, 10 classes | 128 | 67.0 ms, 1910 samples/s | 192.8 ms, 1328 samples/s | 69.7 ms, 3674 samples/s | 1.92x |
+| ResNet-50, 224 x 224, 1000 classes | 32 | 213.0 ms, 150 samples/s | 494.3 ms, 129 samples/s | 224.0 ms, 286 samples/s | 1.91x |
+
+With cuBLAS (`-Djitnn.native=cublas`), ResNet-18 scales 1.90-1.95x over six runs. The host
+collective is slower than one device: every gradient goes to the host and back. NCCL keeps the
+gradients on the GPUs and reduces them in one call per step, inside each rank's plan.
+ResNet-50 at batch 32 needs `-XX:MaxDirectMemorySize` above the 32 GB default for two ranks: each
+rank's training step is one plan, and TornadoVM keeps a host copy of every device buffer.
+
 ## Known gaps
 
 - Convolutions run on the same register-blocked tiles as the GEMM and share its ceiling: about
@@ -271,6 +288,6 @@ jitNN on them. `scripts/bench/djl` holds the same comparison through DJL, as a b
 - The MLX path on Metal is written but has not been validated on hardware yet.
 - cuDNN convolutions use TF32 on Ampere and newer GPUs, as PyTorch does by default; set
   `NVIDIA_TF32_OVERRIDE=0` for FP32 arithmetic.
-- Data-parallel ranks run one after another, so several devices give no speed-up yet.
+- Data parallelism runs in one process; the gradient all-reduce does not overlap the backward pass.
 - The Fourier transforms are direct O(n^2) DFTs, and the matrix decompositions use one
   work-group per matrix: fine for the sizes inside models, slow for large inputs.

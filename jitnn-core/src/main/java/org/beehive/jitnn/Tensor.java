@@ -319,7 +319,14 @@ public final class Tensor {
         grad = grad == null ? g : grad.add(g);
     }
 
-    void setGrad(Tensor g) {
+    /**
+     * Replaces the gradient of this leaf tensor (same shape), for example by its average over
+     * data-parallel ranks before the optimiser step.
+     */
+    public void setGrad(Tensor g) {
+        if (g != null && !g.shape.equals(shape)) {
+            throw new IllegalArgumentException("gradient of shape " + g.shape + " for a tensor of shape " + shape);
+        }
         grad = g;
     }
 

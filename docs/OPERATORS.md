@@ -277,12 +277,13 @@ instructions are not used.
 |---|---|
 | `Collective` | `allReduce` (SUM, AVG, MAX, MIN), `broadcast`, `reduceScatter`, `allGather`, `barrier`; every rank calls them in the same order, and each blocks until all ranks arrive |
 | `HostCollective` | stages tensors through host memory, so it works across any mix of devices and backends; reductions run in rank order, so results are deterministic |
+| `NcclCollective` | NCCL on CUDA GPUs (one rank per GPU, one process): collectives recorded into the ranks' plans and CUDA graphs, no host round trip; in place on persistent tensors, or new tensors from `allReduced`; FP32 |
 | `ProcessGroup.run(devices, body)` | one thread per rank, rank r on `devices[r]` (several ranks may share a device); returns the ranks' results in rank order |
 | `Engine.onDevice(spec, body)` | runs a block with this thread's plans on one device |
-| `nn.DataParallel(model, rank, collective)` | `broadcastParameters()` once, then `averageGradients()` after each backward pass, as PyTorch's `DistributedDataParallel` |
+| `nn.DataParallel(model, rank, collective)` | `broadcastParameters()` once, then `averageGradients()` after each backward pass (one collective for all gradients), as PyTorch's `DistributedDataParallel` |
 
-Limitations: jitNN's executor runs the ranks one after another, so data-parallel training is
-correct but not yet faster than one device; there is no NCCL path.
+The ranks' plans run concurrently. Limitations: no overlap of the gradient all-reduce with the
+backward pass, no synchronised BatchNorm, one process (NCCL across processes is not wired in).
 
 ## ONNX models (`jitnn-onnx`)
 
@@ -373,6 +374,7 @@ operators, sparse arrays and strings. Operators jitNN lacks run on the engine na
   autocast keeps them FP32); FP8 tensor-core instructions.
 - GGUF files: jitNN runs GGUF's quantised weights from their raw blocks (`Tensor.quantized`), but
   has no reader for `.gguf` files; the blocks have to be read by the application.
-- Ranks running in parallel; NCCL.
+- Multi-process data parallelism, gradient all-reduce overlapped with the backward pass,
+  synchronised BatchNorm.
 - Metal runs of the operators from "Generative and recurrent models" on.
 

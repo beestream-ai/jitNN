@@ -246,6 +246,10 @@ final class Cuda {
                 g.transferToDevice(DataTransferMode.EVERY_EXECUTION, x).libraryTask("t", CuFft::cufftForwardC2C, x, out, 4, 1);
                 expected = new float[] { 1, 0, 1, 0, 1, 0, 1, 0 };
             }
+            case NCCL -> {
+                // no probe: a communicator needs every rank's device, and NcclCollective builds it
+                return null;
+            }
             case CUTLASS -> {
                 // a 4 x 4 identity times B gives B, in FP16
                 HalfFloatArray a = new HalfFloatArray(16);

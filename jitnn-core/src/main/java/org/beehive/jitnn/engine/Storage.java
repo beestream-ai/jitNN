@@ -28,6 +28,8 @@ public final class Storage {
     final DType dtype;
     final int numel;
     boolean persistent;
+    /** The plan writing this persistent storage on another thread right now (see TornadoExecutor.execute), or null. */
+    CompiledTrace writer;
     /** Executions that read this storage as a host input (see TornadoExecutor's promotion of reused inputs). */
     int inputUses;
 
