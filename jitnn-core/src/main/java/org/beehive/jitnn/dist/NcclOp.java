@@ -134,6 +134,20 @@ final class NcclOp implements Op {
         }
     }
 
+    /**
+     * The gradient of an all-reduce of one tensor (SUM or AVG) is the same all-reduce of the
+     * output's gradient on every rank, recorded on each rank's backward pass alike.
+     */
+    @Override
+    public Tensor[] backward(Node n, Tensor gradOut) {
+        int op = n.iattr[2];
+        boolean linear = op == Collective.ReduceOp.SUM.ordinal() || op == Collective.ReduceOp.AVG.ordinal();
+        if (n.iattr[0] != BUCKET || n.inputs.length != 1 || !linear) {
+            throw new UnsupportedOperationException("only a SUM or AVG all-reduce of one tensor has a gradient");
+        }
+        return new Tensor[] { bucket(n.iattr[1], new Tensor[] { gradOut }, op)[0] };
+    }
+
     @Override
     public void reference(Node n) {
         throw new UnsupportedOperationException("NCCL collectives run on CUDA devices (TornadoVM backend), not on the host reference backend");

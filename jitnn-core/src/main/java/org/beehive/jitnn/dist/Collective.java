@@ -13,8 +13,18 @@ public interface Collective {
         SUM, AVG, MAX, MIN
     }
 
-    /** The number of ranks. */
+    /** The number of ranks, over every process. */
     int worldSize();
+
+    /** The global rank of this process's first rank (0 in a single process). */
+    default int firstRank() {
+        return 0;
+    }
+
+    /** The number of ranks in this process. */
+    default int localRanks() {
+        return worldSize();
+    }
 
     /** Every rank's tensor replaced, in place, by the reduction over all ranks. */
     void allReduce(int rank, Tensor tensor, ReduceOp op);

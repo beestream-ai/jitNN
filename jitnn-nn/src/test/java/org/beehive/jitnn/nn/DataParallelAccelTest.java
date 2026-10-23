@@ -182,6 +182,70 @@ class DataParallelAccelTest {
         }
     }
 
+    /** A small CNN with synchronised batch normalisation: conv, SyncBN, ReLU, pooling, linear. */
+    static Module syncCnn(Collective c, int rank) {
+        return new Sequential(new Conv2d(3, 8, 3, 1, 1, 21), new SyncBatchNorm2d(8, c, rank), new ReLU(), new GlobalAvgPool2d(), new Linear(8, 4, 22));
+    }
+
+    /** Parameters and running statistics after 6 SGD steps on rows [rank * per, (rank + 1) * per) of each batch of 16. */
+    static List<float[]> trainSync(int rank, Collective c, int world) {
+        Module model = syncCnn(world == 1 ? null : c, rank);
+        DataParallel dp = c == null ? null : new DataParallel(model, rank, c).broadcastParameters();
+        SGD opt = new SGD(model.parameters(), 0.05f, 0.9f, 0.0f, false);
+        java.util.Random rnd = new java.util.Random(5);
+        int per = 16 / world;
+        for (int step = 0; step < 6; step++) {
+            float[] xb = new float[16 * 3 * 6 * 6];
+            int[] yb = new int[16];
+            for (int i = 0; i < xb.length; i++) {
+                xb[i] = rnd.nextFloat() * 2 - 1 + (i % 3);
+            }
+            for (int i = 0; i < 16; i++) {
+                yb[i] = rnd.nextInt(4);
+            }
+            Tensor x = Tensor.of(Arrays.copyOfRange(xb, rank * per * 108, (rank + 1) * per * 108), per, 3, 6, 6);
+            Tensor y = Tensor.of(Arrays.copyOfRange(yb, rank * per, (rank + 1) * per), per);
+            Tensor loss = F.crossEntropy(model.forward(x), y);
+            loss.backward();
+            if (dp != null) {
+                dp.averageGradients();
+            }
+            opt.step();
+            opt.zeroGrad();
+        }
+        List<float[]> out = new ArrayList<>();
+        for (Tensor p : model.parameters()) {
+            out.add(p.toFloatArray());
+        }
+        for (Tensor b : model.buffers()) {
+            out.add(b.toFloatArray());
+        }
+        return out;
+    }
+
+    @Test
+    void ncclSyncBatchNormMatchesFullBatch() {
+        assumeTrue(Boolean.getBoolean("jitnn.dist.nccl"), "no -Djitnn.dist.nccl=true");
+        String[] devices = devices();
+        int world = devices.length;
+        List<float[]> single = Engine.onDevice(devices[0], () -> trainSync(0, null, 1));
+        List<List<float[]>> ranks;
+        try (NcclCollective nccl = new NcclCollective(devices)) {
+            ranks = ProcessGroup.run(devices, nccl, (rank, c) -> trainSync(rank, c, world));
+            Engine.reset();
+        }
+        for (int r = 0; r < world; r++) {
+            for (int i = 0; i < single.size(); i++) {
+                float worst = 0;
+                for (int k = 0; k < single.get(i).length; k++) {
+                    worst = Math.max(worst, Math.abs(single.get(i)[k] - ranks.get(r).get(i)[k]));
+                }
+                assertTrue(worst <= 1e-4f, "rank " + r + " tensor " + i + " differs from full-batch training by " + worst);
+            }
+        }
+        System.out.printf("[dist] SyncBatchNorm2d on %d ranks matches batch normalisation of the full batch%n", world);
+    }
+
     @SuppressWarnings("unchecked")
     private static void checkDataParallel(Collective collective) {
         String[] devices = devices();

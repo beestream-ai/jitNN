@@ -12,6 +12,7 @@ import uk.ac.manchester.tornado.api.TornadoExecutionPlan;
 import uk.ac.manchester.tornado.api.common.TornadoDevice;
 import uk.ac.manchester.tornado.api.enums.TornadoVMBackendType;
 import uk.ac.manchester.tornado.nccl.NcclCommunicator;
+import uk.ac.manchester.tornado.nccl.NcclUniqueId;
 
 /**
  * Collectives on the GPUs, through NCCL (TornadoVM's tornado-nccl): one rank per CUDA device, in
@@ -42,10 +43,45 @@ public final class NcclCollective implements Collective, AutoCloseable {
     private final int id;
     private final NcclCommunicator communicator;
     private final int world;
+    private final int first;
+    private final int local;
     private final Map<Integer, Tensor> barrierTensors = new ConcurrentHashMap<>();
 
     /** A communicator over {@code devices} ("driver:device" as for {@code tornado --devices}), rank r on devices[r]: distinct CUDA GPUs. */
     public NcclCollective(String... devices) {
+        this.world = devices.length;
+        this.first = 0;
+        this.local = devices.length;
+        this.communicator = NcclCommunicator.create(cudaDevices(devices));
+        this.id = NEXT.getAndIncrement();
+        COMMUNICATORS.put(id, communicator);
+    }
+
+    /**
+     * This process's share of a communicator over several processes (on one machine or many): ranks
+     * firstRank, firstRank + 1, ... on {@code devices}, out of {@code worldSize}. Every process passes
+     * the same {@code uniqueId}, made once by {@link #uniqueId()} and handed to the others by the
+     * application (a file, an environment variable, the command line). It returns once every rank of
+     * every process has joined; the process that made the id must stay alive until then.
+     */
+    public NcclCollective(String uniqueId, int worldSize, int firstRank, String... devices) {
+        if (firstRank < 0 || firstRank + devices.length > worldSize) {
+            throw new IllegalArgumentException("ranks " + firstRank + ".." + (firstRank + devices.length - 1) + " outside a world of " + worldSize);
+        }
+        this.world = worldSize;
+        this.first = firstRank;
+        this.local = devices.length;
+        this.communicator = NcclCommunicator.create(NcclUniqueId.fromBase64(uniqueId), worldSize, firstRank, cudaDevices(devices));
+        this.id = NEXT.getAndIncrement();
+        COMMUNICATORS.put(id, communicator);
+    }
+
+    /** A new NCCL unique id (base64) for {@link #NcclCollective(String, int, int, String...)}; this process then hosts NCCL's rendezvous. */
+    public static String uniqueId() {
+        return NcclUniqueId.create().toBase64();
+    }
+
+    private static TornadoDevice[] cudaDevices(String[] devices) {
         TornadoDevice[] d = new TornadoDevice[devices.length];
         for (int i = 0; i < devices.length; i++) {
             String[] parts = devices[i].trim().split(":");
@@ -54,10 +90,17 @@ public final class NcclCollective implements Collective, AutoCloseable {
                 throw new IllegalArgumentException("NCCL needs CUDA devices; " + devices[i] + " is " + d[i].getTornadoVMBackend());
             }
         }
-        this.world = devices.length;
-        this.communicator = NcclCommunicator.create(d);
-        this.id = NEXT.getAndIncrement();
-        COMMUNICATORS.put(id, communicator);
+        return d;
+    }
+
+    @Override
+    public int firstRank() {
+        return first;
+    }
+
+    @Override
+    public int localRanks() {
+        return local;
     }
 
     static NcclCommunicator communicator(int id) {
@@ -87,7 +130,11 @@ public final class NcclCollective implements Collective, AutoCloseable {
         NcclOp.inPlace(NcclOp.BROADCAST, id, tensor, root);
     }
 
-    /** The reduction over the ranks of each tensor, as new tensors: one NCCL call for all of them. */
+    /**
+     * The reduction over the ranks of each tensor, as new tensors: one NCCL call for all of them.
+     * A SUM or AVG of a single tensor is differentiable (its gradient is the same all-reduce of the
+     * output's gradient), as synchronised batch normalisation needs.
+     */
     @Override
     public Tensor[] allReduced(int rank, Tensor[] tensors, ReduceOp op) {
         for (Tensor t : tensors) {

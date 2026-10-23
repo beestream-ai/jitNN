@@ -288,6 +288,7 @@ rank's training step is one plan, and TornadoVM keeps a host copy of every devic
 - The MLX path on Metal is written but has not been validated on hardware yet.
 - cuDNN convolutions use TF32 on Ampere and newer GPUs, as PyTorch does by default; set
   `NVIDIA_TF32_OVERRIDE=0` for FP32 arithmetic.
-- Data parallelism runs in one process; the gradient all-reduce does not overlap the backward pass.
+- The gradient all-reduce of data-parallel training does not overlap the backward pass: a rank's
+  plan runs on one TornadoVM stream.
 - The Fourier transforms are direct O(n^2) DFTs, and the matrix decompositions use one
   work-group per matrix: fine for the sizes inside models, slow for large inputs.

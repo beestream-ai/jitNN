@@ -11,9 +11,11 @@ import java.util.function.BiFunction;
 import org.beehive.jitnn.engine.Engine;
 
 /**
- * Runs one rank per device in this process: rank r is a thread whose plans run on devices[r]
- * (see {@link Engine#onDevice}), and all ranks share one {@link Collective}. Several ranks may
- * name the same device.
+ * Runs one rank per device in this process: rank firstRank + r is a thread whose plans run on
+ * devices[r] (see {@link Engine#onDevice}), and all ranks share one {@link Collective}. Several
+ * ranks may name the same device (not with NCCL). With a collective that spans several processes
+ * ({@link NcclCollective#NcclCollective(String, int, int, String...)}), each process runs its own
+ * ranks.
  */
 public final class ProcessGroup {
 
@@ -22,8 +24,8 @@ public final class ProcessGroup {
 
     /** Runs {@code body(rank, collective)} on every rank and returns the ranks' results in rank order. */
     public static <T> List<T> run(String[] devices, Collective collective, BiFunction<Integer, Collective, T> body) {
-        if (collective.worldSize() != devices.length) {
-            throw new IllegalArgumentException(devices.length + " devices for a collective of " + collective.worldSize() + " ranks");
+        if (collective.localRanks() != devices.length) {
+            throw new IllegalArgumentException(devices.length + " devices for a collective of " + collective.localRanks() + " ranks in this process");
         }
         ExecutorService pool = Executors.newFixedThreadPool(devices.length);
         // the failure that made the others abort, reported instead of theirs
@@ -31,12 +33,13 @@ public final class ProcessGroup {
         try {
             List<Future<T>> futures = new ArrayList<>();
             for (int r = 0; r < devices.length; r++) {
-                int rank = r;
+                int rank = collective.firstRank() + r;
+                String device = devices[r];
                 futures.add(pool.submit(() -> {
                     try {
-                        return Engine.onDevice(devices[rank], () -> body.apply(rank, collective));
+                        return Engine.onDevice(device, () -> body.apply(rank, collective));
                     } catch (RuntimeException | Error e) {
-                        if (first.compareAndSet(null, new IllegalStateException("rank " + rank + " on " + devices[rank] + " failed: " + e, e))) {
+                        if (first.compareAndSet(null, new IllegalStateException("rank " + rank + " on " + device + " failed: " + e, e))) {
                             collective.abort();
                         }
                         throw e;

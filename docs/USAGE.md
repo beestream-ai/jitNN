@@ -469,7 +469,23 @@ try (NcclCollective nccl = new NcclCollective(devices)) {
 ```
 
 With NCCL, results are new tensors (`allReduced`) or persistent tensors written in place
-(parameters, buffers, `Tensor.persistent`). Tensors belong to the device they were computed on: do
+(parameters, buffers, `Tensor.persistent`).
+
+`SyncBatchNorm2d(channels, collective, rank)` in place of `BatchNorm2d` normalises with the
+statistics of the whole batch over the ranks (one differentiable NCCL all-reduce per layer), so
+ranks training on shares of a batch match one device training on all of it.
+
+Ranks may also be spread over processes, on one machine or several. One process makes an id and
+hands it to the others (a file, an environment variable, the command line); each then joins with
+its global ranks and devices, and `ProcessGroup.run` runs its own ranks:
+
+```java
+String id = NcclCollective.uniqueId();                          // in one process; pass it on
+try (NcclCollective nccl = new NcclCollective(id, worldSize, firstRank, "0:0")) {
+    ProcessGroup.run(new String[] { "0:0" }, nccl, (rank, collective) -> train(rank, collective));
+    Engine.reset();
+}
+``` Tensors belong to the device they were computed on: do
 not pass them between ranks except through the collective. `Engine.onDevice(spec, body)` runs a
 block on another device from any thread.
 

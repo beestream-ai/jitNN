@@ -277,13 +277,14 @@ instructions are not used.
 |---|---|
 | `Collective` | `allReduce` (SUM, AVG, MAX, MIN), `broadcast`, `reduceScatter`, `allGather`, `barrier`; every rank calls them in the same order, and each blocks until all ranks arrive |
 | `HostCollective` | stages tensors through host memory, so it works across any mix of devices and backends; reductions run in rank order, so results are deterministic |
-| `NcclCollective` | NCCL on CUDA GPUs (one rank per GPU, one process): collectives recorded into the ranks' plans and CUDA graphs, no host round trip; in place on persistent tensors, or new tensors from `allReduced`; FP32 |
+| `NcclCollective` | NCCL on CUDA GPUs, one rank per GPU, in one process or several (`uniqueId()`, then `new NcclCollective(id, worldSize, firstRank, devices)` in each): collectives recorded into the ranks' plans and CUDA graphs, no host round trip; in place on persistent tensors, or new tensors from `allReduced` (differentiable for a SUM or AVG of one tensor); FP32 |
+| `nn.SyncBatchNorm2d(channels, collective, rank)` | batch normalisation with the statistics of the batch over all ranks (needs `NcclCollective`) |
 | `ProcessGroup.run(devices, body)` | one thread per rank, rank r on `devices[r]` (several ranks may share a device); returns the ranks' results in rank order |
 | `Engine.onDevice(spec, body)` | runs a block with this thread's plans on one device |
 | `nn.DataParallel(model, rank, collective)` | `broadcastParameters()` once, then `averageGradients()` after each backward pass (one collective for all gradients), as PyTorch's `DistributedDataParallel` |
 
-The ranks' plans run concurrently. Limitations: no overlap of the gradient all-reduce with the
-backward pass, no synchronised BatchNorm, one process (NCCL across processes is not wired in).
+The ranks' plans run concurrently. Limitation: the gradient all-reduce does not overlap the
+backward pass (a rank's plan runs on one stream).
 
 ## ONNX models (`jitnn-onnx`)
 
@@ -374,7 +375,6 @@ operators, sparse arrays and strings. Operators jitNN lacks run on the engine na
   autocast keeps them FP32); FP8 tensor-core instructions.
 - GGUF files: jitNN runs GGUF's quantised weights from their raw blocks (`Tensor.quantized`), but
   has no reader for `.gguf` files; the blocks have to be read by the application.
-- Multi-process data parallelism, gradient all-reduce overlapped with the backward pass,
-  synchronised BatchNorm.
+- Gradient all-reduce overlapped with the backward pass.
 - Metal runs of the operators from "Generative and recurrent models" on.
 
