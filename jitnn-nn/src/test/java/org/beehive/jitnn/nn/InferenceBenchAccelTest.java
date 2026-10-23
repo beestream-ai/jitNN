@@ -99,15 +99,20 @@ class InferenceBenchAccelTest {
             Engine.kernelBreakdown();
         }
         double[] ms = new double[RUNS];
+        long[] before = Engine.trafficStats();
         for (int i = 0; i < RUNS; i++) {
             long t0 = System.nanoTime();
             call.get();
             ms[i] = (System.nanoTime() - t0) / 1e6;
         }
+        long[] after = Engine.trafficStats();
         Arrays.sort(ms);
         double median = ms[RUNS / 2];
         System.out.printf("[t1] jitnn %-28s median %8.3f ms  p10 %8.3f  p90 %8.3f  %10.1f samples/s  (first call %.0f ms)%n", name, median, ms[RUNS / 10], ms[RUNS * 9 / 10],
                 samples * 1000 / median, compile);
+        // per call: kernel launches, library calls, and the bytes the operators read and write at least
+        System.out.printf("[traffic] %-28s %6.0f kernels %4.0f library calls %10.1f MB%n", name, (after[1] - before[1]) / (double) RUNS, (after[2] - before[2]) / (double) RUNS,
+                (after[3] - before[3]) / 1e6 / RUNS);
         if (profile) {
             printProfile(name, Engine.kernelBreakdown());
         }

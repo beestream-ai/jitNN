@@ -57,7 +57,14 @@ class DataParallelBenchAccelTest {
             y[i] = rnd.nextInt(CLASSES);
         }
         List<Double> times = new ArrayList<>();
+        long[] before = null;
         for (int step = 0; step < WARMUP + STEPS; step++) {
+            if (step == WARMUP) {
+                before = Engine.trafficStats();
+                if (Boolean.getBoolean("jitnn.profile")) {
+                    Engine.kernelBreakdown();
+                }
+            }
             long t0 = System.nanoTime();
             Tensor loss = F.crossEntropy(model.forward(Tensor.wrap(x, BATCH, 3, SIZE, SIZE)), Tensor.wrap(y, BATCH));
             loss.backward();
@@ -73,6 +80,17 @@ class DataParallelBenchAccelTest {
             if (step >= WARMUP) {
                 times.add((System.nanoTime() - t0) / 1e6);
             }
+        }
+        if (c == null && Boolean.getBoolean("jitnn.profile")) {
+            // device time per operator task over the timed steps, largest first
+            java.util.Map<String, long[]> k = Engine.kernelBreakdown();
+            k.entrySet().stream().sorted((p1, p2) -> Long.compare(p2.getValue()[1], p1.getValue()[1])).limit(25)
+                    .forEach(en -> System.out.printf("[profile] %-40s %8.3f ms per step, %d launches%n", en.getKey(), en.getValue()[1] / 1e6 / STEPS, en.getValue()[0] / STEPS));
+        }
+        if (c == null) {
+            long[] after = Engine.trafficStats();
+            System.out.printf("[traffic] %s training step, batch %d: %.0f kernels %.0f library calls %.1f MB%n", MODEL, BATCH, (after[1] - before[1]) / (double) STEPS,
+                    (after[2] - before[2]) / (double) STEPS, (after[3] - before[3]) / 1e6 / STEPS);
         }
         double[] t = times.stream().mapToDouble(Double::doubleValue).sorted().toArray();
         return t[t.length / 2];

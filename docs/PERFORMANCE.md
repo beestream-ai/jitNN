@@ -266,6 +266,34 @@ gradients on the GPUs and reduces them in one call per step, inside each rank's 
 ResNet-50 at batch 32 needs `-XX:MaxDirectMemorySize` above the 32 GB default for two ranks: each
 rank's training step is one plan, and TornadoVM keeps a host copy of every device buffer.
 
+## Fusion: kernels and memory traffic
+
+`-Djitnn.fuse=true` (the default) against `false`, RTX 5070 Ti, TornadoVM develop 801ba0098,
+jitNN's kernels (`-Djitnn.native=off`), FP32, medians. Kernels and MB are per call, from
+`Engine.trafficStats()`: MB counts each operator's input and output tensors once, the least it
+can read and write.
+
+| Workload | Kernels | MB | Time |
+|---|---|---|---|
+| ResNet-50 inference b1 | 200 to 131 (-35%) | 394 to 261 (-34%) | 1.97 to 2.00 ms |
+| ResNet-50 inference b32 | 181 to 112 (-38%) | 9435 to 5177 (-45%) | 28.5 to 24.2 ms (-15%) |
+| ResNet-50 inference b128 | 181 to 112 (-38%) | 37433 to 20400 (-46%) | 116.8 to 95.1 ms (-19%) |
+| BERT-base inference b1 x 128 | 172 to 160 (-7%) | 618 to 580 (-6%) | 4.41 to 4.45 ms |
+| BERT-base inference b32 x 128 | 124 to 112 (-10%) | 6240 to 5032 (-19%) | 76.3 to 75.0 ms (-2%) |
+| BERT-base inference b8 x 512 | 124 to 112 (-10%) | 6243 to 5035 (-19%) | 84.5 to 83.2 ms (-2%) |
+| ResNet-18 training step, b128 | 344 to 327 (-5%) | 5832 to 5387 (-8%) | 31.06 to 31.15 ms |
+
+Nsight Compute's DRAM bytes over the same calls (sum of `dram__bytes_op_read` and
+`dram__bytes_op_write` over the call's kernels, CUDA graphs off) confirm the reductions: ResNet-50
+b32 8395 to 5483 MB (-35%), BERT b32 4433 to 3460 MB (-22%). They differ from the counts because
+the 64 MB L2 cache serves part of the traffic and kernels re-read tiles. ResNet-50 gains most:
+BatchNorm folds into the convolutions and the bias, residual add and ReLU into their epilogues.
+In BERT the products dominate and fusion only joins their neighbours.
+
+The fused element-wise chains that remain in training (gradient chains, mostly two operations)
+run as kernels specialised per chain at compile time (`fusedProgram1` to `6`): an interpreter
+kernel over the same chains made the ResNet-18 step 8% slower than not fusing.
+
 ## Autotuning
 
 `-Djitnn.autotune=on` once (the tuning pass), then `use`; jitNN's kernels (`-Djitnn.native=off`),

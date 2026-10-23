@@ -609,6 +609,16 @@ final class TornadoExecutor {
         ct.deviceArrays.addAll(owner.keySet());
         ct.recyclable = recyclable;
         ct.libraries = e.libraries;
+        for (Emitter.Spec spec : e.tasks) {
+            if (spec.grid() == null) {
+                ct.libraryCalls++;
+            } else {
+                ct.kernels++;
+            }
+        }
+        for (Node n : nodes) {
+            ct.tensorBytes += tensorBytes(n);
+        }
         ct.choices = e.choices;
         ct.taskLabels = labels;
         ct.intermediateBytes = freshBytes;
@@ -838,6 +848,10 @@ final class TornadoExecutor {
             Native.proven(ct.libraries);
         }
         ct.executions++;
+        TRAFFIC[0]++;
+        TRAFFIC[1] += ct.kernels;
+        TRAFFIC[2] += ct.libraryCalls;
+        TRAFFIC[3] += ct.tensorBytes;
         if (PROFILE) {
             lastKernelNanos = ct.last.getProfilerResult().getDeviceKernelTime();
             lastTotalNanos = ct.last.getProfilerResult().getTotalTime();
@@ -1060,6 +1074,39 @@ final class TornadoExecutor {
      * input copies, their elements].
      */
     private static final long[] transfers = new long[6];
+
+    /**
+     * Bytes an operator reads and writes at least: its input and output tensors, once each (a
+     * fused operator no longer writes and reads back the intermediates it replaced).
+     */
+    static long tensorBytes(Node n) {
+        long b = 0;
+        for (Tensor t : n.inputs) {
+            b += t == null ? 0 : bytes(t);
+        }
+        for (Tensor t : n.outputs) {
+            b += bytes(t);
+        }
+        return b;
+    }
+
+    private static long bytes(Tensor t) {
+        org.beehive.jitnn.DType d = t.dtype();
+        long numel = t.numel();
+        return d.isBlockQuantized() ? numel / d.blockValues() * d.blockBytes() : numel * d.bytes();
+    }
+
+    /** Per plan execution so far: {@code [executions, kernels, library calls, tensor bytes]}. */
+    private static final long[] TRAFFIC = new long[4];
+
+    static long[] trafficStats() {
+        LOCK.lock();
+        try {
+            return TRAFFIC.clone();
+        } finally {
+            LOCK.unlock();
+        }
+    }
 
     static long[] transferStats() {
         LOCK.lock();

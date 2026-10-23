@@ -205,6 +205,20 @@ float[] out = logits.toFloatArray();                  // FP16 results read as fl
 
 It needs gradients off; with gradients on, the scope behaves as `Autocast.enable(DType.F16)`.
 
+## Kernels and memory traffic
+
+`Engine.trafficStats()` returns running totals over every plan execution: `[executions, kernel
+launches, library calls, bytes]`, the bytes being each operator's input and output tensors once
+(the least it can read and write). The difference between two calls gives a step's counts, for
+example to see what fusion (`-Djitnn.fuse`) saves:
+
+```java
+long[] before = Engine.trafficStats();
+model.forward(x).toFloatArray();
+long[] after = Engine.trafficStats();
+System.out.printf("%d kernels, %.1f MB%n", after[1] - before[1], (after[3] - before[3]) / 1e6);
+```
+
 ## Autotuning
 
 jitNN picks a kernel variant for each operator from rules measured on a few GPUs. With

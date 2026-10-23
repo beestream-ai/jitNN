@@ -252,6 +252,16 @@ public final class Engine {
      * re-uploads of persistent storages written by another plan, elements re-uploaded, input
      * copies, elements copied].
      */
+    /**
+     * Totals over every plan execution so far: {@code [executions, kernel launches, library calls,
+     * bytes]}, the bytes being what the operators read and write at least (each input and output
+     * tensor once: a lower bound on device-memory traffic that fusion lowers). Differences between
+     * two calls give a step's counts.
+     */
+    public static long[] trafficStats() {
+        return TornadoExecutor.isLoaded() ? TornadoExecutor.trafficStats() : new long[4];
+    }
+
     public static long[] transferStats() {
         return TornadoExecutor.isLoaded() ? TornadoExecutor.transferStats() : new long[6];
     }

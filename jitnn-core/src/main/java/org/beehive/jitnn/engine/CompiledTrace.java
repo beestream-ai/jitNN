@@ -18,6 +18,10 @@ final class CompiledTrace {
     volatile boolean busy;
     /** The vendor libraries its library tasks call (none for a plan of jitNN kernels only). */
     java.util.Set<String> libraries = java.util.Set.of();
+    /** Kernel tasks, library-call tasks, and the bytes its operators read and write at least ({@link TornadoExecutor#tensorBytes}). */
+    int kernels;
+    int libraryCalls;
+    long tensorBytes;
     /** The autotuned choices its operators asked for (closed once they are measured). */
     java.util.Set<String> choices = java.util.Set.of();
     final String name;
