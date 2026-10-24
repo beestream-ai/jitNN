@@ -838,9 +838,11 @@ final class TornadoExecutor {
         if (VERBOSE && ct.executions == 0) {
             String split = "";
             if (PROFILE) {
-                // TornadoVM's per-task compile times: Graal (Java to PTX/OpenCL C) and the driver (to binary)
+                // TornadoVM's per-task compile times: the compiler (Java to CUDA C, OpenCL C, MSL) and the driver (to binary)
                 String log = ct.last.getProfilerResult().getProfileLog();
-                split = String.format(" (Graal %.1f ms, driver %.1f ms)", sumField(log, "TASK_COMPILE_GRAAL_TIME") / 1e6, sumField(log, "TASK_COMPILE_DRIVER_TIME") / 1e6);
+                // Java to kernel source: Graal's time on older TornadoVM, the TC compiler's on newer ones
+                double front = (sumField(log, "TASK_COMPILE_GRAAL_TIME") + sumField(log, "TASK_COMPILE_TC_TIME")) / 1e6;
+                split = String.format(" (compiler %.1f ms, driver %.1f ms)", front, sumField(log, "TASK_COMPILE_DRIVER_TIME") / 1e6);
             }
             System.err.printf("[jitnn] first execution of %s (kernel compilation): %.1f ms%s%n", ct.name, (System.nanoTime() - t0) / 1e6, split);
         }
