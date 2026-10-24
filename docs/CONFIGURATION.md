@@ -92,6 +92,7 @@ See [NATIVE.md](NATIVE.md) for what each library takes and the fallback to jitNN
 | `jitnn.native.mlxCopyMinFlops` | `1073741824` (2^30) | fewest multiply-adds for a product whose operands sit in larger reused buffers to go to MLX through exact-size copies |
 | `jitnn.native.mlxGatherMin` | `67108864` (2^26) | fewest q k^T multiply-adds for attention held in another layout (packed, or [B, T, H, d]) to be gathered into [B, H, T, d] for MLX |
 | `jitnn.native.cudnnChannelsLast` | `all` | cuDNN convolutions in inference run channels-last (NHWC), with the tensors around them kept channels-last: `all`, `half` (FP16 convolutions only) or `off` (NCHW) |
+| `tornado.cuda.payloadAlignment` | `128` when a CUDA library is in use, else TornadoVM's `32` | TornadoVM's alignment, in bytes, of array data on CUDA devices. jitNN raises it to 128 when `jitnn.native` allows a CUDA library: cuBLAS takes slower tensor-core kernels for operands on 32-byte boundaries (BERT-base FP16 11-17% slower on an RTX 5070 Ti). Set it to keep TornadoVM's value |
 | `jitnn.native.attentionFp16` | `false` | FP32 attention in inference through cuDNN's fused FP16 attention (q, k and v rounded to FP16) |
 | `jitnn.native.unavailable` | empty | comma-separated libraries treated as missing, to test the fallback |
 | `jitnn.native.verbose` | `false` | log which libraries were found on each device |

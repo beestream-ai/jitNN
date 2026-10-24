@@ -42,6 +42,12 @@ public final class Native {
         if (WANTED.contains(Lib.MLX) && System.getProperty("tornado.mlx.async") == null) {
             System.setProperty("tornado.mlx.async", "true");
         }
+        // Device arrays start 128-byte aligned unless -Dtornado.cuda.payloadAlignment says otherwise:
+        // TornadoVM's default of 32 makes cuBLAS take slower tensor-core kernels (BERT FP16 11-17%
+        // slower on an RTX 5070 Ti); jitNN's own kernels run the same at either
+        if (WANTED.stream().anyMatch(l -> l.backend == TornadoVMBackendType.CUDA) && System.getProperty("tornado.cuda.payloadAlignment") == null) {
+            System.setProperty("tornado.cuda.payloadAlignment", "128");
+        }
     }
     private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose") || Boolean.getBoolean("jitnn.native.verbose");
     /** Per device key and library: available (probed) or not. */
