@@ -68,11 +68,13 @@ library tasks compiled into plans.
 | `linear` with an FP16 weight (autocast) | FP16 cast + cuBLAS `GemmEx` | – | |
 | Convolution forward | cuDNN `conv2d`, channels-last (NHWC) in inference | `conv2d` (channels-last) | one group, no dilation, at least `jitnn.native.convMinFlops` multiply-adds (FP32) |
 | FP16 convolution forward in `Autocast.enableHalf` inference | cuDNN FP16 `conv2d` on the tensor cores, channels-last (NHWC) | `conv2d` FP16 (channels-last) | one group, no dilation |
-| Convolution gradients, 1x1 convolutions, Winograd | cuBLAS (the GEMMs jitNN expresses them as) | – | |
+| Convolution gradients | cuDNN `ConvolutionBackwardData` and `ConvolutionBackwardFilter` | – | FP32 NCHW, one group, no dilation, at least `jitnn.native.convMinFlops` multiply-adds; needs a TornadoVM whose cuDNN binding has backward convolutions |
+| Convolution gradients otherwise, 1x1 convolutions, Winograd | cuBLAS (the GEMMs jitNN expresses them as) | – | |
+| BF16 products (autocast to BF16, FP32 result) | cuBLAS `GemmEx` BF16 → FP32 | – | needs a TornadoVM whose cuBLAS binding takes BF16 bits in a `ShortArray` |
 | Bias and activation after any of the above | jitNN kernel | jitNN kernel | |
 | `softmax` (not the log form) | cuDNN `softmax` | `softmaxRows` | |
 | `layerNorm`, `rmsNorm` in inference | – | `layerNorm`, `rmsNorm` | statistics not needed (`Grad.inference`), LayerNorm with a bias |
-| FP16 attention in `Autocast.enableHalf` inference | cuDNN's fused attention where it builds a plan on the device (probed once), else CUTLASS batched FP16 GEMMs (S = q k^T, O = P v) around jitNN's softmax | – | no mask tensor, log-sum-exp not needed. cuDNN: head dimension a multiple of 8, at most 256. CUTLASS: key length and head dimension multiples of 4 |
+| FP16 attention in `Autocast.enableHalf` inference | cuDNN's fused attention where it builds a plan on the device (probed once), reading q, k and v in place from a packed projection and writing the merged heads when TornadoVM's binding has that form, else CUTLASS batched FP16 GEMMs (S = q k^T, O = P v) around jitNN's softmax | – | no mask tensor, log-sum-exp not needed. cuDNN: head dimension a multiple of 8, at most 256. CUTLASS: key length and head dimension multiples of 4 |
 | FP16 linear layers in `Autocast.enableHalf` inference | cuBLASLt with the bias and ReLU or GELU in its epilogue; cuBLAS `GemmEx` without a bias | – | cuBLASLt's GELU is the tanh approximation; it also stands in for the exact GELU unless `-Djitnn.native.approximateGelu=false` |
 | Attention in inference | cuDNN fused SDPA (FP16), with `-Djitnn.native.attentionFp16=true`; on the A10 with cuDNN 9.27 it builds no plan, and falls back | `scaledDotProductAttention` | no mask tensor, [B, H, T, D] layout, log-sum-exp not needed. MLX: head dimension 64/72/80/96/128 (decode: 64/96/128/256). cuDNN: head dimension a multiple of 8, at most 256. Causal only with T = S |
 | FFT: complex to complex, real to complex | cuFFT | – | full length, contiguous rows |
@@ -82,18 +84,18 @@ Everything else runs on jitNN's kernels, mostly because TornadoVM has no binding
 
 | Not covered | Reason |
 |---|---|
-| Convolution backward in cuDNN, grouped and dilated convolutions | the cuDNN binding has forward, one-group convolution only |
+| Grouped and dilated convolutions | the cuDNN binding has one-group, undilated convolutions only |
 | BatchNorm, LayerNorm with gradients, pooling, RNN/LSTM/GRU | no binding for them. Max pooling has no padding argument and no argmax for the gradient |
 | Random numbers (cuRAND) | jitNN's Philox streams must match the host and regenerate dropout masks in the backward pass |
 | Linear algebra (LU, QR, SVD, ...), SDDMM | no cuSOLVER binding, no SDDMM in cuSPARSE's binding |
-| BF16 products | jitNN holds BF16 in `ShortArray`; the bindings take `BFloat16Array` |
 | cuBLASLt epilogues for FP32 products, CUTLASS epilogues | they write FP16; FP32 products keep jitNN's bias and activation kernel |
 
 ## Numerics
 
 - **cuBLAS.** FP32 products are FP32. `-Djitnn.native.tf32=true` runs them on TF32 tensor cores.
 - **cuDNN convolutions** use cuDNN's default math, which is TF32 on Ampere and newer GPUs, as in
-  PyTorch by default.
+  PyTorch by default: the forward convolution and, with a TornadoVM that has cuDNN's backward
+  convolutions, both gradients in training.
   - Results differ from FP32 by about 1e-3 relative.
   - `NVIDIA_TF32_OVERRIDE=0` in the environment makes them FP32.
 - **FP16 attention** rounds q, k and v to FP16, with an error of about 5e-3.

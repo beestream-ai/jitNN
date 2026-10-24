@@ -25,6 +25,9 @@ import org.junit.jupiter.api.Test;
  * Wave 2 gates: ResNet-18 and MobileNetV2 (small variants) for 200 MNIST steps against PyTorch
  * from the same initial weights (scripts/pytorch/cnn_train.py): losses step by step, then
  * accuracy in evaluation mode (running BatchNorm statistics) on the first 1000 test images.
+ * The step-0 gradients are held to PyTorch's own FP32 error: with vendor libraries (-Djitnn.native),
+ * cuDNN convolves in TF32 forward and backward on Ampere and newer, as PyTorch does by default, so
+ * the gates need NVIDIA_TF32_OVERRIDE=0 there and are skipped otherwise.
  */
 class CnnAccelTest {
 
@@ -79,6 +82,8 @@ class CnnAccelTest {
 
     private static void run(String name, Module model, Dataset train, Dataset test, int steps, int evalCount, Path reference) throws Exception {
         assumeTrue(Files.exists(reference), "run scripts/pytorch/cnn_train.py to write " + reference);
+        assumeTrue(!org.beehive.jitnn.engine.Native.requested() || "0".equals(System.getenv("NVIDIA_TF32_OVERRIDE")),
+                "with -Djitnn.native cuDNN convolves in TF32: set NVIDIA_TF32_OVERRIDE=0 for the FP32 gates");
         int[] shape = train.sampleShape();
         int sample = train.sampleSize();
         Adam opt = new Adam(model.parameters(), 1e-3f);
