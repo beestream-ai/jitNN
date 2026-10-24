@@ -99,6 +99,23 @@ class OnnxT1AccelTest {
                 ms[i] = (System.nanoTime() - r0) / 1e6;
             }
             Arrays.sort(ms);
+            if (Boolean.getBoolean("jitnn.profile")) {
+                // device time per operator over 10 calls (TornadoVM's profiler slows the calls themselves)
+                Engine.kernelBreakdown();
+                for (int i = 0; i < 10; i++) {
+                    s.run(Map.of(input, x)).get(output).toFloatArray();
+                }
+                Map<String, long[]> perOp = new java.util.TreeMap<>();
+                Engine.kernelBreakdown().forEach((k, v) -> {
+                    long[] a = perOp.computeIfAbsent(k.replaceAll("#.*", ""), q -> new long[2]);
+                    a[0] += v[0];
+                    a[1] += v[1];
+                });
+                double total = perOp.values().stream().mapToLong(v -> v[1]).sum() / 1e7;
+                System.out.printf("[t1-onnx] %s device time per call %.3f ms%n", name, total);
+                perOp.entrySet().stream().sorted((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1])).limit(12)
+                        .forEach(e -> System.out.printf("[t1-onnx]   %-40s %8.3f ms %5d launches%n", e.getKey(), e.getValue()[1] / 1e7, e.getValue()[0] / 10));
+            }
             String err = "no ONNX Runtime output";
             Path ref = work.resolve(name + ".ort.f32");
             double rel = -1;

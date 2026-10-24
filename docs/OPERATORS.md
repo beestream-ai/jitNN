@@ -338,7 +338,9 @@ INT8 models from ONNX Runtime's quantisation tools run as they are:
 
 At load, the integer operators are rewritten into dequantise, the float operator and quantise.
 Every dequantisation of a constant (weights, INT32 biases) is folded into an FP32 weight, so
-weights take FP32 memory. The quantisation of activations is applied exactly: scale, round half to
+weights take FP32 memory. A quantise followed by a dequantise of an activation with the same
+per-tensor scale and zero point becomes one fake-quantise operator, which the element-wise fusion
+merges with the residual add and ReLU before it. The quantisation of activations is applied exactly: scale, round half to
 even, zero point and saturation for UINT8, INT8, UINT16 and INT16. The integer products are
 computed in FP32. Blocked quantisation (`block_size`) and FP8/INT4 targets are not supported.
 
@@ -348,13 +350,13 @@ ResNet-50's top-1 class agrees with FP32 on every image. Times (ms, median):
 
 | Model | jitNN INT8 | jitNN FP32 | ONNX Runtime CUDA, INT8 file |
 |---|---|---|---|
-| BERT-base b1 s128, dynamic | 7.9 | 5.5 | 13.2 |
-| BERT-base b32 s128, dynamic | 101 | 81 | 288 |
-| ResNet-50 b1, QDQ | 4.0 | 1.6 | 3.4 |
-| ResNet-50 b32, QDQ | 46.8 | 22.9 | 23.5 |
+| BERT-base b1 s128, dynamic | 8.5 | 5.5 | 13.2 |
+| BERT-base b32 s128, dynamic | 100 | 81 | 288 |
+| ResNet-50 b1, QDQ | 1.8 | 1.6 | 3.4 |
+| ResNet-50 b32, QDQ | 23.2 | 22.9 | 23.5 |
 
-There are no integer kernels yet, so an INT8 file runs slower than the FP32 one: the extra
-quantise and dequantise passes on the activations cost time and gain none.
+There are no integer kernels yet: an INT8 file runs at about the speed of the FP32 one (QDQ), or
+slower (dynamic quantisation, which finds each activation's range with a reduction per call).
 `scripts/onnx/int8_onnx.py` makes these files and ONNX Runtime's references.
 
 ## TensorFlow models (`jitnn-tf`)

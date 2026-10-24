@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.ops.Unary;
 import org.beehive.jitnn.onnx.OnnxModel.Attribute;
 import org.beehive.jitnn.onnx.OnnxModel.Node;
 import org.beehive.jitnn.onnx.OnnxOps.Handler;
@@ -74,6 +75,7 @@ final class OnnxQuant {
                 default -> out.add(n);
             }
         }
+        out = fakeQuantize(out, constants);
         // fold DequantizeLinear of constants (in order, so a folded value can feed the next)
         List<Node> kept = new ArrayList<>();
         for (Node n : out) {
@@ -90,6 +92,51 @@ final class OnnxQuant {
             }
         }
         return kept;
+    }
+
+    /**
+     * QuantizeLinear then DequantizeLinear with the same per-tensor scale and zero point, on an
+     * activation: one FakeQuantize node (one pass, and fusable into the producer's epilogue). The
+     * QuantizeLinear stays when something else reads its integers.
+     */
+    private static List<Node> fakeQuantize(List<Node> nodes, Map<String, Value> constants) {
+        Map<String, Node> quantizer = new HashMap<>();
+        Map<String, Integer> readers = new HashMap<>();
+        for (Node n : nodes) {
+            if (n.opType().equals("QuantizeLinear")) {
+                quantizer.put(n.outputs().get(0), n);
+            }
+            for (String in : n.inputs()) {
+                readers.merge(in, 1, Integer::sum);
+            }
+        }
+        Map<Node, Integer> replaced = new HashMap<>();
+        List<Node> out = new ArrayList<>();
+        for (Node n : nodes) {
+            Node q = n.opType().equals("DequantizeLinear") ? quantizer.get(n.input(0)) : null;
+            if (q != null && !constants.containsKey(q.input(0)) && n.input(1).equals(q.input(1)) && n.input(2).equals(q.input(2)) && scalar(constants, q.input(1))
+                    && (q.input(2).isEmpty() || scalar(constants, q.input(2))) && q.attrInt("block_size", 0) == 0) {
+                out.add(new Node(n.name(), "FakeQuantize", "", q.inputs(), n.outputs(), q.attributes()));
+                replaced.merge(q, 1, Integer::sum);
+            } else {
+                out.add(n);
+            }
+        }
+        // drop the quantizers whose every reader became a FakeQuantize
+        out.removeIf(n -> replaced.containsKey(n) && replaced.get(n).equals(readers.getOrDefault(n.outputs().get(0), 0)));
+        return out;
+    }
+
+    private static boolean scalar(Map<String, Value> constants, String name) {
+        Value v = constants.get(name);
+        long n = 1;
+        if (v == null) {
+            return false;
+        }
+        for (long d : v.dims) {
+            n *= d;
+        }
+        return n == 1;
     }
 
     private static String dq(List<Node> out, Node n, String x, String scale, String zp, int axis, int[] fresh) {
@@ -150,13 +197,17 @@ final class OnnxQuant {
     // ---------------------------------------------------------------- operators
 
     static void register(Map<String, Handler> h) {
+        h.put("FakeQuantize", (n, in) -> {
+            int type = quantType(n, in);
+            float[] range = range(n, type);
+            float scale = floats(in.get(1))[0];
+            float zp = OnnxOps.present(in, 2) ? floats(in.get(2))[0] : 0.0f;
+            Unary.Kind kind = range[1] - range[0] == 255.0f ? Unary.Kind.FAKE_QUANT8 : Unary.Kind.FAKE_QUANT16;
+            return List.of(Value.of(Unary.apply(kind, OnnxOps.t(in, 0), scale, range[0] - zp), OnnxModel.FLOAT));
+        });
         h.put("DequantizeLinear", (n, in) -> List.of(dequantize(n, in)));
         h.put("QuantizeLinear", (n, in) -> {
-            int type = (int) n.attrInt("output_dtype", OnnxOps.present(in, 2) ? in.get(2).type : OnnxModel.UINT8);
-            if (type == OnnxModel.INT64) {
-                // a zero point created by the load-time rewriting carries no element type of its own
-                type = OnnxModel.UINT8;
-            }
+            int type = quantType(n, in);
             noBlocks(n);
             float[] range = range(n, type);
             Tensor x = OnnxOps.t(in, 0);
@@ -177,6 +228,13 @@ final class OnnxQuant {
             Tensor y = x.div(scale).round().add(zp).clamp(0, 255);
             return List.of(Value.of(y, OnnxModel.UINT8), Value.of(scale, OnnxModel.FLOAT), Value.of(zp, OnnxModel.UINT8));
         });
+    }
+
+    /** The integer type QuantizeLinear produces: output_dtype, else the zero point's, else UINT8. */
+    private static int quantType(Node n, List<Value> in) {
+        int type = (int) n.attrInt("output_dtype", OnnxOps.present(in, 2) ? in.get(2).type : OnnxModel.UINT8);
+        // a zero point created by the load-time rewriting carries no element type of its own
+        return type == OnnxModel.INT64 ? OnnxModel.UINT8 : type;
     }
 
     static Value dequantize(Node n, List<Value> in) {

@@ -176,6 +176,13 @@ public final class ElementwiseKernels {
     public static final int IS_FINITE = 50;
     /** NaN to alpha, +inf to beta, -inf to -beta. */
     public static final int NAN_TO_NUM = 51;
+    /**
+     * Quantise and dequantise in one step, as ONNX's QuantizeLinear then DequantizeLinear:
+     * clamp(round_half_even(x / alpha), beta, beta + 255) * alpha, beta being the lowest code minus
+     * the zero point. FAKE_QUANT16: a range of 65535.
+     */
+    public static final int FAKE_QUANT8 = 52;
+    public static final int FAKE_QUANT16 = 53;
 
     private static final float SQRT_HALF = 0.70710678f;
     private static final float INV_SQRT_2PI = 0.39894228f;
@@ -295,6 +302,14 @@ public final class ElementwiseKernels {
         return ((bits & 0x7F800000) == 0x7F800000) & ((bits & 0x007FFFFF) == 0);
     }
 
+    /** See {@link #FAKE_QUANT8}: the quantisation steps lo .. lo + range, back in x's units. */
+    public static float fakeQuant(float x, float scale, float lo, float range) {
+        float q = roundHalfEven(x / scale);
+        float hi = lo + range;
+        q = q < lo ? lo : (q > hi ? hi : q);
+        return q * scale;
+    }
+
     /** The NaN-aware unary ops. */
     public static float unaryNaN(int op, float x, float alpha, float beta) {
         float r;
@@ -306,6 +321,10 @@ public final class ElementwiseKernels {
             r = (Float.floatToRawIntBits(x) & 0x7F800000) != 0x7F800000 ? 1.0f : 0.0f;
         } else if (op == NAN_TO_NUM) {
             r = isNaN(x) ? alpha : (isInf(x) ? (x > 0.0f ? beta : -beta) : x);
+        } else if (op == FAKE_QUANT8) {
+            r = fakeQuant(x, alpha, beta, 255.0f);
+        } else if (op == FAKE_QUANT16) {
+            r = fakeQuant(x, alpha, beta, 65535.0f);
         } else {
             r = x;
         }

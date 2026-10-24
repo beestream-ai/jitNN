@@ -64,7 +64,9 @@ public final class Unary implements Op {
         IS_NAN(ElementwiseKernels.IS_NAN),
         IS_INF(ElementwiseKernels.IS_INF),
         IS_FINITE(ElementwiseKernels.IS_FINITE),
-        NAN_TO_NUM(ElementwiseKernels.NAN_TO_NUM);
+        NAN_TO_NUM(ElementwiseKernels.NAN_TO_NUM),
+        FAKE_QUANT8(ElementwiseKernels.FAKE_QUANT8),
+        FAKE_QUANT16(ElementwiseKernels.FAKE_QUANT16);
 
         final int code;
 
@@ -190,6 +192,7 @@ public final class Unary implements Op {
             case EXPM1 -> gy.mul(y.add(1.0f));
             case LOGICAL_NOT, IS_NAN, IS_INF, IS_FINITE -> null;
             case NAN_TO_NUM -> gy.mul(x.isFiniteMask());
+            case FAKE_QUANT8, FAKE_QUANT16 -> null;
         };
         return new Tensor[] { gx };
     }

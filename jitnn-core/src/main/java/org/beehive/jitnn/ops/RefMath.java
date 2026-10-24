@@ -132,6 +132,9 @@ final class RefMath {
             case ElementwiseKernels.IS_INF -> Double.isInfinite(x) ? 1 : 0;
             case ElementwiseKernels.IS_FINITE -> Double.isFinite(x) ? 1 : 0;
             case ElementwiseKernels.NAN_TO_NUM -> Double.isNaN(x) ? alpha : (Double.isInfinite(x) ? (x > 0 ? beta : -beta) : x);
+            // in FP32, as the kernels and ONNX define it: rounding x / scale in double could land on the other side of a tie
+            case ElementwiseKernels.FAKE_QUANT8 -> ElementwiseKernels.fakeQuant((float) x, (float) alpha, (float) beta, 255.0f);
+            case ElementwiseKernels.FAKE_QUANT16 -> ElementwiseKernels.fakeQuant((float) x, (float) alpha, (float) beta, 65535.0f);
             default -> alpha;
         };
     }
