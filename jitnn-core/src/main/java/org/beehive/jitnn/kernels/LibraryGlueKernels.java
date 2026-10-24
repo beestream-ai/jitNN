@@ -4,6 +4,7 @@ import uk.ac.manchester.tornado.api.KernelContext;
 import uk.ac.manchester.tornado.api.types.HalfFloat;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
+import uk.ac.manchester.tornado.api.types.vectors.Half2;
 
 /** Small kernels around vendor-library calls: the epilogues and scalings the libraries do not fuse. */
 public final class LibraryGlueKernels {
@@ -157,6 +158,32 @@ public final class LibraryGlueKernels {
                 v = v > 0.0f ? v : 0.0f;
             }
             out.set(i, new HalfFloat(v));
+        }
+    }
+
+    /**
+     * {@link #addBiasLastHalf} two channels per thread, with packed half2 loads and stores: for an even
+     * channel count ({@code pairs} = total / 2).
+     */
+    public static void addBiasLastHalf2(KernelContext kc, HalfFloatArray y, HalfFloatArray r, FloatArray bias, FloatArray bias2, HalfFloatArray out, int c, int pairs, int relu,
+            int hasBias2) {
+        int p = kc.globalIdx;
+        if (p < pairs) {
+            int i = 2 * p;
+            int ch = i % c;
+            Half2 a = y.getHalf2(i);
+            Half2 b = r.getHalf2(i);
+            float v0 = a.getX().getFloat32() + bias.get(ch) + b.getX().getFloat32();
+            float v1 = a.getY().getFloat32() + bias.get(ch + 1) + b.getY().getFloat32();
+            if (hasBias2 != 0) {
+                v0 = v0 + bias2.get(ch);
+                v1 = v1 + bias2.get(ch + 1);
+            }
+            if (relu != 0) {
+                v0 = v0 > 0.0f ? v0 : 0.0f;
+                v1 = v1 > 0.0f ? v1 : 0.0f;
+            }
+            out.setHalf2(i, new Half2(new HalfFloat(v0), new HalfFloat(v1)));
         }
     }
 

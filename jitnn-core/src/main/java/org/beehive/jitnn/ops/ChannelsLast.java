@@ -709,7 +709,12 @@ public final class ChannelsLast {
                 HalfFloatArray y = e.f16(n.in(0));
                 HalfFloatArray r = e.f16(n.in(1));
                 HalfFloatArray o = e.f16(n.out(0));
-                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::addBiasLastHalf, e.context(), y, r, bias, bias2, o, c, total, relu, hasBias2));
+                if (c % 2 == 0) {
+                    int pairs = total / 2;
+                    e.task(Emitter.grid1D(pairs), (g, id) -> g.task(id, LibraryGlueKernels::addBiasLastHalf2, e.context(), y, r, bias, bias2, o, c, pairs, relu, hasBias2));
+                } else {
+                    e.task(Emitter.grid1D(total), (g, id) -> g.task(id, LibraryGlueKernels::addBiasLastHalf, e.context(), y, r, bias, bias2, o, c, total, relu, hasBias2));
+                }
             } else {
                 FloatArray y = e.f32(n.in(0));
                 FloatArray r = e.f32(n.in(1));
