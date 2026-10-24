@@ -20,6 +20,17 @@ public final class Llama extends Module {
     private final RMSNorm norm;
     private final Linear output;
 
+    private boolean checkpointing;
+
+    /**
+     * With {@code on}, training keeps no activations inside the blocks: each block runs again in the
+     * backward pass ({@link org.beehive.jitnn.Grad#checkpoint}), for less memory and about a third more compute.
+     */
+    public Llama checkpointing(boolean on) {
+        checkpointing = on;
+        return this;
+    }
+
     public Llama(int vocab, int dim, int heads, int layers, int hidden, float ropeBase, long seed) {
         Seeds seeds = new Seeds(seed);
         this.tokens = child(new Embedding(Init.uniformStd(seeds.next(), 0.02f, vocab, dim), -1));
@@ -36,7 +47,7 @@ public final class Llama extends Module {
     public Tensor forward(Tensor idx) {
         Tensor x = tokens.forward(idx);
         for (Block b : blocks) {
-            x = b.forward(x);
+            x = checkpointing ? org.beehive.jitnn.Grad.checkpoint(in -> b.forward(in[0]), x) : b.forward(x);
         }
         return output.forward(norm.forward(x));
     }

@@ -23,8 +23,35 @@ public final class Dropout implements Op {
     private Dropout() {
     }
 
+    private static final ThreadLocal<java.util.ArrayDeque<Tensor>> RECORDED = new ThreadLocal<>();
+    private static final ThreadLocal<java.util.ArrayDeque<Tensor>> REPLAYED = new ThreadLocal<>();
+
+    /**
+     * Until the scope closes, the seeds of the dropout operators recorded on this thread are added to
+     * {@code into}; {@link #replaySeeds} hands them out again, so recomputing a forward pass (activation
+     * checkpointing) draws the same masks.
+     */
+    public static AutoCloseable recordSeeds(java.util.ArrayDeque<Tensor> into) {
+        java.util.ArrayDeque<Tensor> previous = RECORDED.get();
+        RECORDED.set(into);
+        return () -> RECORDED.set(previous);
+    }
+
+    /** Until the scope closes, dropout operators take their seeds from {@code from}, in order. */
+    public static AutoCloseable replaySeeds(java.util.ArrayDeque<Tensor> from) {
+        java.util.ArrayDeque<Tensor> previous = REPLAYED.get();
+        REPLAYED.set(from);
+        return () -> REPLAYED.set(previous);
+    }
+
     public static Tensor apply(Tensor x, float p, Tensor seed, int stream) {
         Checks.f32(x);
+        java.util.ArrayDeque<Tensor> replay = REPLAYED.get();
+        if (replay != null && !replay.isEmpty()) {
+            seed = replay.poll();
+        } else if (RECORDED.get() != null) {
+            RECORDED.get().add(seed);
+        }
         if (seed.dtype() != DType.I32 || seed.numel() != 2) {
             throw new IllegalArgumentException("dropout seed must be an INT32 tensor of 2 elements");
         }

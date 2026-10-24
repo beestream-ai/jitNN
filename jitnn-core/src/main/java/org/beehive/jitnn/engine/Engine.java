@@ -196,6 +196,14 @@ public final class Engine {
     }
 
     /**
+     * Device memory for intermediates (activations, gradients and other temporaries, after buffer
+     * reuse) of the last plan that ran, in bytes; 0 on the reference backend.
+     */
+    public static long lastIntermediateBytes() {
+        return TornadoExecutor.isLoaded() ? TornadoExecutor.lastIntermediateBytes() : 0;
+    }
+
+    /**
      * With {@code -Djitnn.profile=true}: {@code [device kernel ns, TornadoVM total ns]} of the
      * last plan execution, from TornadoVM's profiler. Zeros otherwise.
      */

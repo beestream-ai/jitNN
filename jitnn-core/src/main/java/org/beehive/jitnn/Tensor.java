@@ -341,6 +341,12 @@ public final class Tensor implements AutoCloseable {
         return gradFn;
     }
 
+    /** Makes this tensor the output of {@code node} for autograd (activation checkpointing). */
+    void setGradFn(Node node) {
+        this.gradFn = node;
+        this.requiresGrad = true;
+    }
+
     void accumulateGrad(Tensor g) {
         grad = grad == null ? g : grad.add(g);
     }

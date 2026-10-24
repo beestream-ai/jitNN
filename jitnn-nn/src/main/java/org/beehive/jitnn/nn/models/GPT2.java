@@ -23,6 +23,17 @@ public final class GPT2 extends Module {
     private final Block[] blocks;
     private final LayerNorm norm;
 
+    private boolean checkpointing;
+
+    /**
+     * With {@code on}, training keeps no activations inside the blocks: each block runs again in the
+     * backward pass ({@link org.beehive.jitnn.Grad#checkpoint}), for less memory and about a third more compute.
+     */
+    public GPT2 checkpointing(boolean on) {
+        checkpointing = on;
+        return this;
+    }
+
     public GPT2(int vocab, int context, int dim, int heads, int layers, long seed) {
         Seeds seeds = new Seeds(seed);
         this.tokens = child(new Embedding(Init.uniformStd(seeds.next(), 0.02f, vocab, dim), -1));
@@ -86,7 +97,7 @@ public final class GPT2 extends Module {
         }
         Tensor x = tokens.forward(idx).add(positions.forward(Tensor.of(pos, t)));
         for (Block b : blocks) {
-            x = b.forward(x);
+            x = checkpointing ? org.beehive.jitnn.Grad.checkpoint(in -> b.forward(in[0]), x) : b.forward(x);
         }
         return F.linear(norm.forward(x), tokens.weight(), null);
     }

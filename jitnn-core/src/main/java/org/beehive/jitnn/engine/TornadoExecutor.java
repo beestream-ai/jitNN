@@ -296,6 +296,7 @@ final class TornadoExecutor {
             replays++;
         }
         ct.lastUsed = ++executionsTotal;
+        lastIntermediateBytes = ct.intermediateBytes;
         evictIdle(ct);
         try {
             execute(ct, slots);
@@ -1128,6 +1129,18 @@ final class TornadoExecutor {
         LOCK.lock();
         try {
             return new long[] { hostNanos, executeNanos };
+        } finally {
+            LOCK.unlock();
+        }
+    }
+
+    private static long lastIntermediateBytes;
+
+    /** Device bytes of intermediates (buffers other than inputs and persistent storages) of the last plan run. */
+    static long lastIntermediateBytes() {
+        LOCK.lock();
+        try {
+            return lastIntermediateBytes;
         } finally {
             LOCK.unlock();
         }

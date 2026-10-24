@@ -29,6 +29,17 @@ public final class Bert extends Module {
     private final Embedding types;
     private final Linear pooler;
 
+    private boolean checkpointing;
+
+    /**
+     * With {@code on}, training keeps no activations inside the blocks: each block runs again in the
+     * backward pass ({@link org.beehive.jitnn.Grad#checkpoint}), for less memory and about a third more compute.
+     */
+    public Bert checkpointing(boolean on) {
+        checkpointing = on;
+        return this;
+    }
+
     public Bert(int vocab, int context, int dim, int heads, int layers, long seed) {
         this(vocab, context, dim, heads, layers, 4 * dim, 0, false, seed);
     }
@@ -140,7 +151,7 @@ public final class Bert extends Module {
         }
         Tensor x = embNorm.forward(e);
         for (Block b : blocks) {
-            x = b.forward(x, mask);
+            x = checkpointing ? org.beehive.jitnn.Grad.checkpoint(in -> b.forward(in[0], mask), x) : b.forward(x, mask);
         }
         return x;
     }

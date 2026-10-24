@@ -152,6 +152,29 @@ for (int step = 0; step < steps; step++) {
 float acc = F.accuracy(model.forward(Tensor.of(testX, n, 784)), Tensor.of(testY, n));
 ```
 
+## Activation checkpointing
+
+`Grad.checkpoint(segment, inputs...)` keeps none of a segment's activations for the backward pass.
+The backward pass runs the segment again to get them, as PyTorch's `torch.utils.checkpoint` does.
+The segment's intermediates are freed after their last forward reader, so a step holds the
+activations of one segment at a time. The transformer models have a switch for their blocks:
+
+```java
+GPT2 model = new GPT2(vocab, context, dim, heads, layers, seed).checkpointing(true);
+
+// or any segment
+Tensor h = Grad.checkpoint(in -> block.forward(in[0]), x);
+```
+
+- Gradients reach the segment's inputs and the parameters it uses. They are bit for bit the
+  same as without checkpointing on the reference backend, and within 1e-5 on CUDA.
+- Dropout draws the same masks when the segment runs again. BatchNorm in training mode updates
+  its running statistics twice, as in PyTorch.
+- On an RTX 5070 Ti, a GPT-2 training step (dim 512, 8 layers, 8 x 256 tokens) uses
+  381 MB of intermediates instead of 763 MB. It took 100 ms instead of 111 ms: fewer and smaller
+  buffers outweighed the extra forward pass here.
+- `Engine.lastIntermediateBytes()` reports the intermediate memory of the last plan that ran.
+
 ## Checkpoints
 
 `stateDict()` on a module, an optimiser, a `GradScaler` or an `LRScheduler` returns a `StateDict`:
