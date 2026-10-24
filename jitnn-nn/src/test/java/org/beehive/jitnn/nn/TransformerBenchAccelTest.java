@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Where a transformer training step spends its time: wall time per step and, with
  * {@code -Djitnn.test.profile=true}, device time per operator. Random tokens; sizes from
- * {@code -Djitnn.bench.dim}, {@code .layers}, {@code .seq}, {@code .batch}.
+ * {@code -Djitnn.bench.dim}, {@code .layers}, {@code .heads} (dim / 32 by default), {@code .seq}, {@code .batch}.
  */
 class TransformerBenchAccelTest {
 
@@ -27,7 +27,7 @@ class TransformerBenchAccelTest {
     static final int LAYERS = Integer.getInteger("jitnn.bench.layers", 4);
     static final int SEQ = Integer.getInteger("jitnn.bench.seq", 128);
     static final int BATCH = Integer.getInteger("jitnn.bench.batch", 16);
-    static final int HEADS = Math.max(1, DIM / 32);
+    static final int HEADS = Integer.getInteger("jitnn.bench.heads", Math.max(1, DIM / 32));
     static final int WARM = 5;
     static final int STEPS = 20;
 

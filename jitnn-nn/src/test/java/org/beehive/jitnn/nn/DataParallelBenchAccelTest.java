@@ -99,9 +99,11 @@ class DataParallelBenchAccelTest {
     @Test
     void throughput() {
         assumeTrue(Boolean.getBoolean("jitnn.bench.dist"), "no -Djitnn.bench.dist=true");
-        String[] devices = System.getProperty("jitnn.dist.devices", "").split(",");
+        // the one-device step alone runs on the test device too (a training benchmark)
+        String[] devices = System.getProperty("jitnn.dist.devices", System.getProperty("jitnn.test.device", "")).split(",");
         int world = devices.length;
-        assumeTrue(world >= 2, "needs -Djitnn.dist.devices with two or more devices");
+        boolean ranks = MODES.contains("host") || MODES.contains("nccl");
+        assumeTrue(!devices[0].isEmpty() && (!ranks || world >= 2), "needs -Djitnn.dist.devices with two or more devices");
         double one = Double.NaN;
         if (MODES.contains("one")) {
             one = Engine.onDevice(devices[0], () -> train(0, null));
