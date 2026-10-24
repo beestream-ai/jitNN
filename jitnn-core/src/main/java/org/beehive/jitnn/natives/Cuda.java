@@ -9,6 +9,7 @@ import uk.ac.manchester.tornado.api.enums.DataTransferMode;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
+import uk.ac.manchester.tornado.api.types.arrays.ShortArray;
 import uk.ac.manchester.tornado.cublas.CuBlas;
 import uk.ac.manchester.tornado.cublas.CuBlasLt;
 import uk.ac.manchester.tornado.cudnn.CuDnn;
@@ -84,6 +85,48 @@ final class Cuda {
         int ldb = tb == 1 ? k : n;
         int lda = ta == 1 ? m : k;
         e.library(Lib.CUBLAS, "gemm", (g, id) -> g.libraryTask(id, CuBlas::cublasGemmExFP16FP32, opB, opA, n, m, k, 1.0f, b, ldb, a, lda, 0.0f, c, n));
+    }
+
+    /**
+     * Whether this TornadoVM has the library entry points jitNN uses when present: bfloat16 products
+     * with an FP32 result, convolution gradients, and attention read from a packed projection. On an
+     * older TornadoVM those operators keep jitNN's kernels.
+     */
+    static final boolean BF16_GEMM = has(CuBlas.class, "cublasGemmExBF16FP32");
+    static final boolean CONV_BACKWARD = has(CuDnn.class, "cudnnConv2dBackwardData");
+    static final boolean PACKED_ATTENTION = has(CuDnn.class, "sdpaForwardPackedQkv");
+
+    private static boolean has(Class<?> type, String method) {
+        for (var m : type.getMethods()) {
+            if (m.getName().equals(method)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** FP32 C [m, n] = op(A) op(B) for bfloat16 A and B (raw bits): one cuBLAS GemmEx on the tensor cores. */
+    static void gemmBF16(Emitter e, ShortArray a, ShortArray b, FloatArray c, int m, int n, int k, int ta, int tb) {
+        int opB = tb == 1 ? OP_T : OP_N;
+        int opA = ta == 1 ? OP_T : OP_N;
+        int ldb = tb == 1 ? k : n;
+        int lda = ta == 1 ? m : k;
+        e.library(Lib.CUBLAS, "gemmBF16", (g, id) -> g.libraryTask(id, CuBlas::cublasGemmExBF16FP32, opB, opA, n, m, k, 1.0f, b, ldb, a, lda, 0.0f, c, n));
+    }
+
+    /** The gradient of x of a cuDNN convolution (shapes as {@link #conv2d}): dx from w and dy. */
+    static void conv2dBackwardData(Emitter e, FloatArray w, FloatArray dy, FloatArray dx, int n, int c, int h, int wd, int cout, int r, int pad, int stride) {
+        e.library(Lib.CUDNN, "convBackward", (g, id) -> g.libraryTask(id, CuDnn::cudnnConv2dBackwardData, w, dy, dx, n, c, h, wd, cout, r, r, pad, stride));
+    }
+
+    /** The gradient of w of a cuDNN convolution (shapes as {@link #conv2d}): dw from x and dy. */
+    static void conv2dBackwardFilter(Emitter e, FloatArray x, FloatArray dy, FloatArray dw, int n, int c, int h, int wd, int cout, int r, int pad, int stride) {
+        e.library(Lib.CUDNN, "convBackward", (g, id) -> g.libraryTask(id, CuDnn::cudnnConv2dBackwardFilter, x, dy, dw, n, c, h, wd, cout, r, r, pad, stride));
+    }
+
+    /** cuDNN's fused FP16 attention on a packed projection [b, s, 3, h, d], O written as [b, s, h, d]. */
+    static void attentionPacked(Emitter e, HalfFloatArray qkv, HalfFloatArray o, int b, int h, int s, int d, float scale, boolean causal) {
+        e.library(Lib.CUDNN, "sdpa", (g, id) -> g.libraryTask(id, CuDnn::sdpaForwardPackedQkv, qkv, o, b, h, s, d, scale, causal));
     }
 
     /** cuDNN convolution: x [n, c, h, w] (NCHW), w [cout, c, r, r], one group, no dilation, into out [n, cout, oh, ow]. */

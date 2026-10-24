@@ -400,6 +400,11 @@ public final class FlashAttention implements Op {
             }
             if (hm == 0 && e.unread(n.out(1))) {
                 if (useCudnnAttention(t, s, d, causal)) {
+                    if (packed && t == s && org.beehive.jitnn.natives.Libs.packedAttentionAvailable(a[5], d)) {
+                        // cuDNN reads q, k and v in place from the projection and writes the merged heads
+                        org.beehive.jitnn.natives.Libs.attentionPacked(e, qh, oh, z / a[5], a[5], t, d, scale, causal != 0);
+                        return;
+                    }
                     emitCudnnAttention(e, a, qh, kh, vh, oh, scale);
                     return;
                 }

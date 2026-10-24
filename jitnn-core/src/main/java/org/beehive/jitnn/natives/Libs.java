@@ -8,6 +8,7 @@ import org.beehive.jitnn.kernels.LibraryGlueKernels;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
+import uk.ac.manchester.tornado.api.types.arrays.ShortArray;
 
 /**
  * Operators' entry to the vendor libraries. Each method adds the library call (and any epilogue
@@ -242,6 +243,54 @@ public final class Libs {
         Cuda.gemmF16(e, a, b, c, m, n, k, ta, tb);
         epilogue(e, c, bias, m, n, 1, epilogue);
         return true;
+    }
+
+    /** FP32 C [m, n] = op(A) op(B) (+ epilogue) for bfloat16 A and B (raw bits) on cuBLAS; false when it is not available. */
+    public static boolean gemmBF16(Emitter e, ShortArray a, ShortArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        if (!Cuda.BF16_GEMM || !Native.use("gemm", Lib.CUBLAS) || !Native.use("gemmBF16", Lib.CUBLAS)) {
+            return false;
+        }
+        Cuda.gemmBF16(e, a, b, c, m, n, k, ta, tb);
+        epilogue(e, c, bias, m, n, 1, epilogue);
+        return true;
+    }
+
+    /**
+     * The gradient of the input of an FP32 NCHW convolution on cuDNN: one group, no dilation, at
+     * least {@code jitnn.native.convMinFlops} multiply-adds. False when it does not apply.
+     */
+    public static boolean conv2dBackwardData(Emitter e, FloatArray w, FloatArray dy, FloatArray dx, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad,
+            int dil, int groups) {
+        if (!convBackward(n, cin, cout, oh, ow, r, dil, groups)) {
+            return false;
+        }
+        Cuda.conv2dBackwardData(e, w, dy, dx, n, cin, h, wd, cout, r, pad, stride);
+        return true;
+    }
+
+    /** The gradient of the filter of an FP32 NCHW convolution on cuDNN, as {@link #conv2dBackwardData}. */
+    public static boolean conv2dBackwardFilter(Emitter e, FloatArray x, FloatArray dy, FloatArray dw, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad,
+            int dil, int groups) {
+        if (!convBackward(n, cin, cout, oh, ow, r, dil, groups)) {
+            return false;
+        }
+        Cuda.conv2dBackwardFilter(e, x, dy, dw, n, cin, h, wd, cout, r, pad, stride);
+        return true;
+    }
+
+    private static boolean convBackward(int n, int cin, int cout, int oh, int ow, int r, int dil, int groups) {
+        return Cuda.CONV_BACKWARD && groups == 1 && dil == 1 && 2L * n * cout * oh * ow * cin * r * r >= CONV_MIN_FLOPS && Native.use("conv", Lib.CUDNN)
+                && Native.use("convBackward", Lib.CUDNN);
+    }
+
+    /** Whether cuDNN's fused attention can read a packed projection directly ({@link #attentionPacked}). */
+    public static boolean packedAttentionAvailable(int heads, int d) {
+        return Cuda.PACKED_ATTENTION && (heads * d) % 8 == 0 && fusedAttentionAvailable() && Native.use("sdpaPacked", Lib.CUDNN);
+    }
+
+    /** cuDNN's fused FP16 self-attention on a packed projection [b, t, 3, heads, d], O written as [b, t, heads, d]. */
+    public static void attentionPacked(Emitter e, HalfFloatArray qkv, HalfFloatArray o, int b, int heads, int t, int d, float scale, boolean causal) {
+        Cuda.attentionPacked(e, qkv, o, b, heads, t, d, scale, causal);
     }
 
     /**

@@ -475,6 +475,9 @@ public final class Conv2d implements Op {
             FloatArray w = e.f32(node.in(1));
             FloatArray dx = e.f32(node.out(0));
             int cin = a[CIN], h = a[H], wd = a[W], cout = a[COUT], oh = a[OH], ow = a[OW], k = a[K], st = a[STRIDE], pd = a[PAD], dl = a[DIL], gr = a[GROUPS];
+            if (org.beehive.jitnn.natives.Libs.conv2dBackwardData(e, w, dy, dx, a[N], cin, h, wd, cout, oh, ow, k, st, pd, dl, gr)) {
+                return;
+            }
             if (depthwise(a)) {
                 int total = a[N] * cin * h * wd;
                 e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ConvKernels::depthwiseBackwardData, e.context(), dy, w, dx, cin, h, wd, oh, ow, k, st, pd, dl, total));
@@ -583,6 +586,9 @@ public final class Conv2d implements Op {
             int cin = a[CIN], h = a[H], wd = a[W], cout = a[COUT], oh = a[OH], ow = a[OW], k = a[K], st = a[STRIDE], pd = a[PAD], dl = a[DIL], gr = a[GROUPS];
             int p = a[N] * oh * ow;
             int weights = node.out(0).numel();
+            if (org.beehive.jitnn.natives.Libs.conv2dBackwardFilter(e, x, dy, dw, a[N], cin, h, wd, cout, oh, ow, k, st, pd, dl, gr)) {
+                return;
+            }
             if (depthwise(a)) {
                 int splits = Math.max(1, Math.min(Emitter.ceilDiv(1 << 16, weights), p / 64));
                 int chunk = Emitter.ceilDiv(p, splits);

@@ -4,10 +4,11 @@ and momentum 0.9, and a GPT-2 decoder (byte vocabulary) with AdamW and gradient 
 FP32 and under BF16 autocast.
 
 Protocol, as DataParallelBenchAccelTest and TransformerBenchAccelTest: random inputs, 5 warm-up
-steps, then the median of 30 steps, each ending with loss.item(). TF32 off; cudnn.benchmark on (the
-tuning PyTorch recommends).
+steps, then the median of 30 steps, each ending with loss.item(). TF32 off, unless --cudnn-tf32 lets
+cuDNN's convolutions use it as PyTorch does by default (jitNN's cuDNN convolutions do too, unless
+NVIDIA_TF32_OVERRIDE=0); cudnn.benchmark on (the tuning PyTorch recommends).
 
-usage: python train_bench.py [--device cuda] [--dim 768] [--layers 12] [--heads 12] [--seq 128] [--batch 16]
+usage: python train_bench.py [--device cuda] [--cudnn-tf32] [--dim 768] [--layers 12] [--heads 12] [--seq 128] [--batch 16]
 """
 import argparse
 import os
@@ -87,13 +88,18 @@ def main():
     ap.add_argument("--heads", type=int, default=12)
     ap.add_argument("--seq", type=int, default=128)
     ap.add_argument("--batch", type=int, default=16)
+    ap.add_argument("--cudnn-tf32", action="store_true", help="cuDNN convolutions in TF32 (PyTorch's default)")
+    ap.add_argument("--only", default="", help="cnn or gpt2 to run one family")
     args = ap.parse_args()
+    torch.backends.cudnn.allow_tf32 = args.cudnn_tf32
     dev = torch.device(args.device)
-    print(f"[train] torch {torch.__version__}, {torch.cuda.get_device_name() if dev.type == 'cuda' else dev}", flush=True)
-    cnn("ResNet-50 224x224", models.resnet50(3, 1000, False, 7), 224, 32, 1000, dev)
-    cnn("ResNet-18 32x32", models.resnet18(3, 10, True, 7), 32, 128, 10, dev)
-    gpt2(args, dev, None)
-    gpt2(args, dev, torch.bfloat16)
+    print(f"[train] torch {torch.__version__}, {torch.cuda.get_device_name() if dev.type == 'cuda' else dev}, cuDNN TF32 {'on' if args.cudnn_tf32 else 'off'}", flush=True)
+    if args.only in ("", "cnn"):
+        cnn("ResNet-50 224x224", models.resnet50(3, 1000, False, 7), 224, 32, 1000, dev)
+        cnn("ResNet-18 32x32", models.resnet18(3, 10, True, 7), 32, 128, 10, dev)
+    if args.only in ("", "gpt2"):
+        gpt2(args, dev, None)
+        gpt2(args, dev, torch.bfloat16)
 
 
 if __name__ == "__main__":

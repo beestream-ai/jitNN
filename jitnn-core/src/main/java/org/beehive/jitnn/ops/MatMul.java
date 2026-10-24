@@ -199,6 +199,9 @@ public final class MatMul implements Op {
         int[] a = node.iattr;
         FloatArray c = e.f32(node.out(0));
         if (HostValues.isHalf(node.in(0))) {
+            if (a.length == 5 && node.in(0).dtype() == DType.BF16 && node.in(1).dtype() == DType.BF16) {
+                return org.beehive.jitnn.natives.Libs.gemmBF16(e, e.bf16(node.in(0)), e.bf16(node.in(1)), c, null, a[0], a[1], a[2], a[3], a[4], 0);
+            }
             return a.length == 5 && node.in(0).dtype() == DType.F16 && node.in(1).dtype() == DType.F16
                     && org.beehive.jitnn.natives.Libs.gemmF16(e, e.f16(node.in(0)), e.f16(node.in(1)), c, null, a[0], a[1], a[2], a[3], a[4], 0);
         }
@@ -341,6 +344,9 @@ public final class MatMul implements Op {
     /** C = op(A) op(B) (+ epilogue) for half-precision A and B of the same type, FP32 C. */
     static void emitGemmHalf(Emitter e, Tensor at, Tensor bt, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (at.dtype() == DType.F16 && bt.dtype() == DType.F16 && org.beehive.jitnn.natives.Libs.gemmF16(e, e.f16(at), e.f16(bt), c, bias, m, n, k, ta, tb, epilogue)) {
+            return;
+        }
+        if (at.dtype() == DType.BF16 && bt.dtype() == DType.BF16 && org.beehive.jitnn.natives.Libs.gemmBF16(e, e.bf16(at), e.bf16(bt), c, bias, m, n, k, ta, tb, epilogue)) {
             return;
         }
         if (useTensorCores(e)) {

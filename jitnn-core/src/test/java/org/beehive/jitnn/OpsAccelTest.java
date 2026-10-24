@@ -5,6 +5,7 @@ import static org.beehive.jitnn.Checks.seq;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Arrays;
 import java.util.function.Supplier;
 
 import org.beehive.jitnn.engine.Engine;
@@ -487,13 +488,28 @@ class OpsAccelTest {
         for (int[] sh : shapes) {
             int n = sh[0], cin = sh[1], hw = sh[2], cout = sh[3];
             String what = "1x1 conv " + n + "x" + cin + "x" + hw + "x" + hw + " -> " + cout;
-            same(what, () -> {
+            Supplier<Tensor> f = () -> {
                 Tensor x = Tensor.uniform(91, -1, 1, n, cin, hw, hw).requiresGrad(true);
                 Tensor w = Tensor.uniform(92, -0.1f, 0.1f, cout, cin, 1, 1).requiresGrad(true);
                 Tensor y = F.conv2d(x, w, Tensor.uniform(93, -1, 1, cout), 1, 0, 1, 1);
                 y.mul(Tensor.uniform(94, -1, 1, n, cout, hw, hw)).sum().backward();
                 return Tensor.cat(0, y.reshape(-1), x.grad().reshape(-1), w.grad().reshape(-1));
-            }, convTol(1e-4), convTol(1e-4));
+            };
+            float[] expected = on(Backend.REFERENCE, f);
+            float[] actual = on(Backend.TORNADO, f);
+            int weights = cout * cin;
+            int rest = expected.length - weights;
+            close(Arrays.copyOf(expected, rest), Arrays.copyOf(actual, rest), convTol(1e-4), convTol(1e-4), what);
+            // the weight gradient sums N H W products that largely cancel: in TF32 (cuDNN's backward
+            // filter), compared against its largest element rather than element by element
+            float[] we = Arrays.copyOfRange(expected, rest, expected.length);
+            float[] wa = Arrays.copyOfRange(actual, rest, actual.length);
+            double scale = 0;
+            for (float v : we) {
+                scale = Math.max(scale, Math.abs(v));
+            }
+            double atol = convTol(1e-4) > 1e-4 ? 1e-2 * scale : 1e-4;
+            close(we, wa, convTol(1e-4), atol, what + ", weight gradient");
         }
     }
 
