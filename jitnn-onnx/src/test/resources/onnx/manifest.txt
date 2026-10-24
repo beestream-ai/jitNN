@@ -226,3 +226,25 @@ torch_cnn in:x f32 56160 1536 2 3 16 16
 torch_cnn out:y f32 62304 10 2 5
 torch_transformer_block in:x f32 62344 640 2 10 32
 torch_transformer_block out:y f32 64904 640 2 10 32
+quantize_uint8 in:x f32 67464 24 4 6
+quantize_uint8 out:y i32 67560 24 4 6
+quantize_int8_axis in:x f32 67656 24 2 3 4
+quantize_int8_axis out:y i32 67752 24 2 3 4
+qdq_roundtrip in:x f32 67848 35 5 7
+qdq_roundtrip out:y f32 67988 35 5 7
+dequantize_weight_matmul in:x f32 68128 24 3 8
+dequantize_weight_matmul out:y f32 68224 18 3 6
+dequantize_weight_conv in:x f32 68296 108 1 3 6 6
+dequantize_weight_conv out:y f32 68728 144 1 4 6 6
+dynamic_quantize in:x f32 69304 64 4 16
+dynamic_quantize out:y i32 69560 64 4 16
+dynamic_quantize out:ys f32 69816 1 
+dynamic_quantize out:yz i32 69820 1 
+matmul_integer in:x f32 69824 64 4 16
+matmul_integer out:y f32 70080 20 4 5
+qlinear_matmul in:x f32 70160 24 3 8
+qlinear_matmul out:y i32 70256 12 3 4
+qlinear_conv in:x f32 70304 192 1 3 8 8
+qlinear_conv out:y i32 71072 64 1 4 4 4
+conv_integer in:x f32 71328 50 1 2 5 5
+conv_integer out:y f32 71528 75 1 3 5 5

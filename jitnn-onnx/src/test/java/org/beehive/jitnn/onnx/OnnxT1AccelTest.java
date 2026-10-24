@@ -56,6 +56,8 @@ class OnnxT1AccelTest {
         return out;
     }
 
+    static final double INT8_TOLERANCE = 5e-2;
+
     @Test
     void t1Models() throws Exception {
         String dir = System.getProperty("jitnn.onnx.t1", "");
@@ -115,7 +117,10 @@ class OnnxT1AccelTest {
             System.out.printf("[t1-onnx] jitnn %-24s median %8.3f ms  p10 %8.3f  p90 %8.3f  (load %.0f ms, first call %.0f ms)  %s%n", name, ms[RUNS / 2], ms[RUNS / 10],
                     ms[RUNS * 9 / 10], loadMs, compile, err);
             if (rel >= 0) {
-                assertTrue(rel <= (fp16 ? 3e-2 : 1e-3), name + ": " + err);
+                // INT8 files: ONNX Runtime runs integer kernels, jitNN the float definition of the
+                // operators, so an activation now and then lands one quantisation step apart
+                double tol = name.contains("int8") ? INT8_TOLERANCE : fp16 ? 3e-2 : 1e-3;
+                assertTrue(rel <= tol, name + ": " + err);
             }
             Engine.reset();
         }

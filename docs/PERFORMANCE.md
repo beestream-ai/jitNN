@@ -93,6 +93,9 @@ To reproduce: `python scripts/bench/t1.py <dir>` exports the models and times Py
 Runtime; `python scripts/onnx/t1_onnx.py <dir>` writes ONNX Runtime's outputs and timings next to
 the models; `./mvnw test -Paccel-tests -pl jitnn-onnx -Dtest=OnnxT1AccelTest -Djitnn.onnx.t1=<dir>`
 runs the same files through `jitnn-onnx`.
+`python scripts/onnx/int8_onnx.py <dir> <int8 dir>` quantises them with ONNX Runtime (BERT dynamic,
+ResNet-50 QDQ) and the same test with `-Djitnn.onnx.t1=<int8 dir> -Djitnn.onnx.t1.match=int8` runs
+the INT8 files (results in OPERATORS.md, "Quantised models").
 
 ### DJL examples
 

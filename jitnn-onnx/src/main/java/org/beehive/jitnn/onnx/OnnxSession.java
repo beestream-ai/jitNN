@@ -41,8 +41,18 @@ public final class OnnxSession implements AutoCloseable {
     private OnnxSession(OnnxModel model, boolean half) {
         this.model = model;
         this.half = half;
-        TreeSet<String> missing = new TreeSet<>();
+        for (TensorData t : model.graph().initializers().values()) {
+            constants.put(t.name(), constant(t));
+        }
         for (Node n : model.graph().nodes()) {
+            if (n.opType().equals("Constant") && n.outputs().size() == 1) {
+                constants.put(n.outputs().get(0), constantNode(n));
+            }
+        }
+        // quantised operators become float ones around (de)quantisation; constant weights are dequantised once here
+        List<Node> lowered = OnnxQuant.lower(model.graph().nodes(), constants);
+        TreeSet<String> missing = new TreeSet<>();
+        for (Node n : lowered) {
             if (!n.opType().equals("Constant") && !OnnxOps.supports(n.opType())) {
                 missing.add(n.opType());
             }
@@ -53,16 +63,8 @@ public final class OnnxSession implements AutoCloseable {
         if (!missing.isEmpty()) {
             throw new UnsupportedOperationException("ONNX operators not supported by jitNN: " + missing);
         }
-        for (TensorData t : model.graph().initializers().values()) {
-            constants.put(t.name(), constant(t));
-        }
-        for (Node n : model.graph().nodes()) {
-            if (n.opType().equals("Constant") && n.outputs().size() == 1) {
-                constants.put(n.outputs().get(0), constantNode(n));
-            }
-        }
         java.util.Set<String> outs = new java.util.HashSet<>(outputNames());
-        nodes = Boolean.parseBoolean(System.getProperty("jitnn.onnx.rewrite", "true")) ? Rewrites.apply(model.graph().nodes(), constants, outs, half) : model.graph().nodes();
+        nodes = Boolean.parseBoolean(System.getProperty("jitnn.onnx.rewrite", "true")) ? Rewrites.apply(lowered, constants, outs, half) : lowered;
     }
 
     public static OnnxSession load(Path file) throws IOException {
@@ -117,6 +119,9 @@ public final class OnnxSession implements AutoCloseable {
                 Tensor host = Tensor.of(f.length == 0 ? new float[1] : f, dims.length == 0 ? new int[] { 1 } : dims);
                 Tensor p = Tensor.persistent(host.reshape(dims));
                 return Value.constant(p, f);
+            }
+            case OnnxModel.INT8, OnnxModel.UINT8, OnnxModel.INT16, OnnxModel.UINT16 -> {
+                return Value.host(t.longs(), t.dims(), t.dataType());
             }
             default -> {
                 return Value.host(t.longs(), t.dims());
@@ -386,7 +391,10 @@ public final class OnnxSession implements AutoCloseable {
             }
             for (OnnxModel.ValueInfo vi : model.graph().outputs()) {
                 Value v = env.get(vi.name());
-                result.put(vi.name(), v.tensor(v.type != OnnxModel.INT64 && v.type != OnnxModel.INT32));
+                Tensor t = v.tensor(v.type != OnnxModel.INT64 && v.type != OnnxModel.INT32);
+                boolean quantised = v.type == OnnxModel.INT8 || v.type == OnnxModel.UINT8 || v.type == OnnxModel.INT16 || v.type == OnnxModel.UINT16 || v.type == OnnxModel.INT32;
+                // quantised values are carried as FP32 integers; integer outputs are handed out as INT32
+                result.put(vi.name(), quantised && t.dtype() == DType.F32 ? t.to(DType.I32) : t);
             }
         } catch (RuntimeException e) {
             throw e;

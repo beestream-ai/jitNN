@@ -64,6 +64,11 @@ final class Value {
         return new Value(null, ints, dims, OnnxModel.INT64);
     }
 
+    /** Host integers of ONNX element type {@code type} (INT8 and UINT8 constants keep theirs: quantisation reads it). */
+    static Value host(long[] ints, long[] dims, int type) {
+        return new Value(null, ints, dims, type);
+    }
+
     static Value scalar(long v) {
         return host(new long[] { v }, new long[0]);
     }

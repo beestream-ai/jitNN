@@ -24,6 +24,8 @@ public final class OnnxModel {
     public static final int FLOAT = 1;
     public static final int UINT8 = 2;
     public static final int INT8 = 3;
+    public static final int UINT16 = 4;
+    public static final int INT16 = 5;
     public static final int INT32 = 6;
     public static final int INT64 = 7;
     public static final int BOOL = 9;
@@ -56,6 +58,8 @@ public final class OnnxModel {
                     case INT64 -> b.getLong(8 * i);
                     case INT32 -> b.getInt(4 * i);
                     case INT8 -> b.get(i);
+                    case INT16 -> b.getShort(2 * i);
+                    case UINT16 -> b.getShort(2 * i) & 0xFFFF;
                     case UINT8, BOOL -> b.get(i) & 0xFF;
                     default -> throw new UnsupportedOperationException("ONNX data type " + dataType + " of " + name);
                 };
@@ -73,6 +77,8 @@ public final class OnnxModel {
                     case INT64 -> b.getLong(8 * i);
                     case INT32 -> b.getInt(4 * i);
                     case INT8 -> b.get(i);
+                    case INT16 -> b.getShort(2 * i);
+                    case UINT16 -> b.getShort(2 * i) & 0xFFFF;
                     case UINT8, BOOL -> b.get(i) & 0xFF;
                     case FLOAT -> (long) b.getFloat(4 * i);
                     case DOUBLE -> (long) b.getDouble(8 * i);
@@ -407,7 +413,7 @@ public final class OnnxModel {
                 b = ByteBuffer.allocate(4 * ints.size()).order(ByteOrder.LITTLE_ENDIAN);
                 ints.forEach(v -> b.putInt((int) (long) v));
             }
-            case FLOAT16, BFLOAT16 -> {
+            case FLOAT16, BFLOAT16, INT16, UINT16 -> {
                 b = ByteBuffer.allocate(2 * ints.size()).order(ByteOrder.LITTLE_ENDIAN);
                 ints.forEach(v -> b.putShort((short) (long) v));
             }

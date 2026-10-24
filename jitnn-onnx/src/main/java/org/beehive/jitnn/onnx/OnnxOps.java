@@ -26,6 +26,10 @@ final class OnnxOps {
 
     static final Map<String, Handler> HANDLERS = new HashMap<>();
 
+    static {
+        OnnxQuant.register(HANDLERS);
+    }
+
     /** Fused attention up to this many (batch x heads) rows, unfused beyond ({@code -Djitnn.onnx.fusedAttentionRows}). */
     static final int FUSED_ATTENTION_ROWS = Integer.getInteger("jitnn.onnx.fusedAttentionRows", 32);
 

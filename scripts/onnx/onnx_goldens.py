@@ -195,12 +195,60 @@ def torch_models():
 
 torch_models()
 
+
+# ---- quantisation (appended after the PyTorch models, so the earlier cases keep their inputs)
+QUANT_FROM = len(cases)
+def grid(scale, lo, hi, *shape):
+    """Values (k + u) * scale with |u| <= 0.35: quantising them never lands near a rounding tie."""
+    k = rng.integers(lo, hi + 1, size=shape)
+    return ((k + rng.uniform(-0.35, 0.35, size=shape)) * scale).astype(np.float32)
+
+
+u8 = lambda *s: rng.integers(0, 256, size=s).astype(np.uint8)
+i8 = lambda *s: rng.integers(-128, 128, size=s).astype(np.int8)
+f32 = lambda v: np.array(v, np.float32)
+model("quantize_uint8", [N("QuantizeLinear", ["x", "s", "z"], ["y"])], [("x", grid(0.05, -40, 300, 4, 6))], ["y"], [("s", f32(0.05)), ("z", np.array(30, np.uint8))])
+model("quantize_int8_axis", [N("QuantizeLinear", ["x", "s", "z"], ["y"], axis=1)], [("x", grid(0.1, -150, 150, 2, 3, 4))], ["y"],
+      [("s", f32([0.1, 0.1, 0.1])), ("z", np.array([0, 5, -5], np.int8))])
+model("qdq_roundtrip", [N("QuantizeLinear", ["x", "s", "z"], ["q"]), N("DequantizeLinear", ["q", "s", "z"], ["y"])], [("x", grid(0.02, -200, 200, 5, 7))], ["y"],
+      [("s", f32(0.02)), ("z", np.array(0, np.int8))])
+model("dequantize_weight_matmul", [N("DequantizeLinear", ["w", "s", "z"], ["wf"], axis=1), N("MatMul", ["x", "wf"], ["y"])], [("x", rnd(3, 8))], ["y"],
+      [("w", i8(8, 6)), ("s", rnd(6, lo=0.01, hi=0.05)), ("z", i8(6) // 16)])
+model("dequantize_weight_conv", [N("DequantizeLinear", ["w", "s", "z"], ["wf"], axis=0), N("Conv", ["x", "wf"], ["y"], pads=[1, 1, 1, 1])], [("x", rnd(1, 3, 6, 6))], ["y"],
+      [("w", i8(4, 3, 3, 3)), ("s", rnd(4, lo=0.01, hi=0.05)), ("z", np.zeros(4, np.int8))])
+# DynamicQuantizeLinear: min and max are grid points, so the scale is (hi - lo) / 255 exactly as ORT computes it
+lo_, hi_ = np.float32(-1.7), np.float32(2.3)
+ds = np.float32((np.float32(hi_ - lo_)) / np.float32(255))
+dx = grid(ds, int(np.ceil(lo_ / ds)) + 1, int(hi_ / ds) - 1, 4, 16)
+dx[0, 0], dx[0, 1] = lo_, hi_
+model("dynamic_quantize", [N("DynamicQuantizeLinear", ["x"], ["y", "ys", "yz"])], [("x", dx)], ["y", "ys", "yz"])
+model("matmul_integer", [N("DynamicQuantizeLinear", ["x"], ["xq", "xs", "xz"]), N("MatMulInteger", ["xq", "w", "xz", "wz"], ["acc"]),
+                         N("Cast", ["acc"], ["accf"], to=TensorProto.FLOAT), N("Mul", ["xs", "ws"], ["s"]), N("Mul", ["accf", "s"], ["y"])],
+      [("x", dx)], ["y"], [("w", i8(16, 5)), ("wz", np.zeros(5, np.int8)), ("ws", f32(0.02))], opset=18)
+model("qlinear_matmul", [N("QuantizeLinear", ["x", "xs", "xz"], ["xq"]), N("QLinearMatMul", ["xq", "xs", "xz", "w", "ws", "wz", "ys", "yz"], ["y"])],
+      [("x", grid(0.04, -50, 200, 3, 8))], ["y"],
+      [("xs", f32(0.04)), ("xz", np.array(50, np.uint8)), ("w", u8(8, 4)), ("ws", f32(0.01)), ("wz", np.array(128, np.uint8)), ("ys", f32(0.3)), ("yz", np.array(100, np.uint8))])
+model("qlinear_conv", [N("QuantizeLinear", ["x", "xs", "xz"], ["xq"]),
+                       N("QLinearConv", ["xq", "xs", "xz", "w", "ws", "wz", "ys", "yz", "b"], ["y"], pads=[1, 1, 1, 1], strides=[2, 2])],
+      [("x", grid(0.05, -100, 100, 1, 3, 8, 8))], ["y"],
+      [("xs", f32(0.05)), ("xz", np.array(0, np.int8)), ("w", i8(4, 3, 3, 3)), ("ws", rnd(4, lo=0.002, hi=0.006)), ("wz", np.zeros(4, np.int8)),
+       ("ys", f32(0.07)), ("yz", np.array(-3, np.int8)), ("b", rng.integers(-500, 500, size=4).astype(np.int32))])
+model("conv_integer", [N("QuantizeLinear", ["x", "xs", "xz"], ["xq"]), N("ConvInteger", ["xq", "w", "xz", "wz"], ["acc"], pads=[1, 1, 1, 1]),
+                       N("Cast", ["acc"], ["y"], to=TensorProto.FLOAT)],
+      [("x", grid(0.05, -20, 230, 1, 2, 5, 5))], ["y"], [("xs", f32(0.05)), ("xz", np.array(20, np.uint8)), ("w", u8(3, 2, 3, 3)), ("wz", np.array(120, np.uint8))])
+
+QUANT = {c[0] for c in cases[QUANT_FROM:]}
 offset = 0
 with open(os.path.join(OUT, "manifest.txt"), "w") as man, open(os.path.join(OUT, "data.bin"), "wb") as data:
     for name, m, feeds in cases:
         path = os.path.join(OUT, name + ".onnx")
         onnx.save(m, path)
-        sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+        opts = ort.SessionOptions()
+        if name in QUANT:
+            # ORT's optimiser would turn DequantizeLinear + MatMul into a dynamically quantised MatMul:
+            # the references are the operators' own definitions instead
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+        sess = ort.InferenceSession(path, opts, providers=["CPUExecutionProvider"])
         outs = sess.run(None, feeds)
         arrays = [(f"in:{k}", v) for k, v in feeds.items()] + [(f"out:{o.name}", r) for o, r in zip(sess.get_outputs(), outs)]
         for role, a in arrays:

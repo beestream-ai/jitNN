@@ -303,6 +303,7 @@ About 110 ONNX operators are supported:
 | Pooling | `MaxPool`, `AveragePool`, `GlobalAveragePool`, `GlobalMaxPool` |
 | Normalisation | `BatchNormalization`, `LayerNormalization`, `InstanceNormalization`, `GroupNormalization`, `LRN` |
 | Softmax and reductions | `Softmax`, `LogSoftmax`, `ReduceSum`/`Mean`/`Max`/`Min`/`SumSquare`, `ArgMax`, `ArgMin`, `CumSum`, `TopK` |
+| Quantisation | `QuantizeLinear`, `DequantizeLinear`, `DynamicQuantizeLinear`, `MatMulInteger`, `ConvInteger`, `QLinearMatMul`, `QLinearConv` |
 | Shapes and indexing | `Reshape`, `Transpose`, `Squeeze`, `Unsqueeze`, `Flatten`, `Concat`, `Split`, `Slice`, `Gather`, `GatherND` (first axis), `Expand`, `Tile`, `Cast`, `Range`, `ConstantOfShape`, `Shape`, `Size`, `Pad`, `Resize`, `NonZero` |
 
 Integer shape arithmetic (for example `Shape` -> `Gather` -> `Concat` -> `Reshape`) is folded on
@@ -324,6 +325,37 @@ The attention operator uses the fused attention kernel when batch x heads is at 
 `OnnxSession.load(path, true)` runs in half precision: the matrix products (linear layers and
 attention) take FP16 operands with FP32 accumulation and the linear weights are stored in FP16;
 convolutions stay FP32.
+
+### Quantised models
+
+INT8 models from ONNX Runtime's quantisation tools run as they are:
+
+- the QDQ format (`QuantizeLinear` and `DequantizeLinear` around float operators, what
+  `quantize_static` writes), per-tensor or per-channel;
+- dynamic quantisation (`DynamicQuantizeLinear`, `MatMulInteger`, `ConvInteger`, what
+  `quantize_dynamic` writes);
+- `QLinearMatMul` and `QLinearConv`.
+
+At load, the integer operators are rewritten into dequantise, the float operator and quantise.
+Every dequantisation of a constant (weights, INT32 biases) is folded into an FP32 weight, so
+weights take FP32 memory. The quantisation of activations is applied exactly: scale, round half to
+even, zero point and saturation for UINT8, INT8, UINT16 and INT16. The integer products are
+computed in FP32. Blocked quantisation (`block_size`) and FP8/INT4 targets are not supported.
+
+On the RTX 5070 Ti, jitNN's outputs differ from ONNX Runtime's integer CPU kernels by 0.75-1.2% of
+the largest value, which is the size of the INT8 model's own difference from the FP32 model.
+ResNet-50's top-1 class agrees with FP32 on every image. Times (ms, median):
+
+| Model | jitNN INT8 | jitNN FP32 | ONNX Runtime CUDA, INT8 file |
+|---|---|---|---|
+| BERT-base b1 s128, dynamic | 7.9 | 5.5 | 13.2 |
+| BERT-base b32 s128, dynamic | 101 | 81 | 288 |
+| ResNet-50 b1, QDQ | 4.0 | 1.6 | 3.4 |
+| ResNet-50 b32, QDQ | 46.8 | 22.9 | 23.5 |
+
+There are no integer kernels yet, so an INT8 file runs slower than the FP32 one: the extra
+quantise and dequantise passes on the activations cost time and gain none.
+`scripts/onnx/int8_onnx.py` makes these files and ONNX Runtime's references.
 
 ## TensorFlow models (`jitnn-tf`)
 
