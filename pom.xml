@@ -48,6 +48,7 @@
         <jitnn.test.deviceMemory>12GB</jitnn.test.deviceMemory>
         <!-- Directory with the MNIST IDX files; the MNIST gate test is skipped when empty. -->
         <jitnn.mnist></jitnn.mnist>
+        <jitnn.hf></jitnn.hf>
         <!-- Directory with cifar-10-batches-bin; the CIFAR-10 gates are skipped when empty. -->
         <jitnn.cifar10></jitnn.cifar10>
         <!-- Directory with corpus.txt and the PyTorch references; the transformer gates are skipped when empty. -->
@@ -222,6 +223,7 @@
                                     -Djitnn.device=${jitnn.test.device}
                                     -Djitnn.verbose=${jitnn.test.verbose}
                                     -Djitnn.mnist=${jitnn.mnist}
+                                    -Djitnn.hf=${jitnn.hf}
                                     -Djitnn.cifar10=${jitnn.cifar10}
                                     -Djitnn.text=${jitnn.text}
                                     -Djitnn.profile=${jitnn.test.profile}

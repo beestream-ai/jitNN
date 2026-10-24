@@ -67,8 +67,8 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 | `jitnn-core/.../kernels` | the KernelContext kernels; `jitllm/` and `jitrex/` hold kernels copied from those projects |
 | `jitnn-core/.../natives` | `Libs` (the entry point operators call), `Cuda` and `Mlx` (the library tasks) |
 | `jitnn-core/.../dist` | `Collective`, `HostCollective`, `NcclCollective` and `NcclOp` (NCCL calls recorded into each rank's plan), `ProcessGroup` |
-| `jitnn-core/.../io` | `SafeTensors` (file format), `StateDict` (checkpoints: named tensors and values) |
-| `jitnn-nn/.../nn` | `Module` and the layers, `DataParallel`, `SyncBatchNorm2d`, `optim/`, `models/` (CNNs, transformers, generative and recurrent models, embedding models), `text/` (`Vocabulary`, `Corpus`) |
+| `jitnn-core/.../io` | `SafeTensors` (file format), `StateDict` (checkpoints: named tensors and values), `Json` |
+| `jitnn-nn/.../nn` | `Module` and the layers, `DataParallel`, `SyncBatchNorm2d`, `optim/`, `models/` (CNNs, transformers, generative and recurrent models, embedding models; `HfCheckpoint` reads Hugging Face model directories), `text/` (`Vocabulary`, `Corpus`, `Tokenizer` for Hugging Face `tokenizer.json`) |
 | `jitnn-nn/.../ml` | the classical machine-learning estimators, `Lbfgs`, `Binner` and `TreeGrower` |
 | `jitnn-nn/.../data` | `Mnist`, `Blobs` |
 | `jitnn-onnx/.../onnx` | `Proto` (protobuf reader), `OnnxModel`, `OnnxSession`, `OnnxOps` (one jitNN mapping per ONNX operator), `Rewrites` (load-time pattern rewrites) |

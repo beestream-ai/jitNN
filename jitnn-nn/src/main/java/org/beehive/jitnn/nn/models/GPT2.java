@@ -1,5 +1,7 @@
 package org.beehive.jitnn.nn.models;
 
+import java.nio.file.Path;
+
 import org.beehive.jitnn.F;
 import org.beehive.jitnn.Tensor;
 import org.beehive.jitnn.nn.Embedding;
@@ -30,6 +32,48 @@ public final class GPT2 extends Module {
             blocks[i] = child(new Block(dim, heads, seeds));
         }
         this.norm = child(new LayerNorm(dim));
+    }
+
+    /**
+     * GPT-2 from a Hugging Face model directory ({@code gpt2}, {@code gpt2-medium}, ... or a fine-tuned
+     * copy): {@code config.json} and safetensors weights, as {@code GPT2Model} or {@code GPT2LMHeadModel}
+     * save them. The language-model head is the tied token embedding, as in GPT-2.
+     */
+    public static GPT2 fromHuggingFace(Path dir) {
+        HfCheckpoint w = HfCheckpoint.open(dir);
+        int dim = w.configInt("n_embd");
+        if (w.config().get("n_inner") instanceof Number inner && inner.intValue() != 4 * dim) {
+            throw new IllegalArgumentException("n_inner " + inner + " is not 4 x n_embd");
+        }
+        String act = w.configString("activation_function", "gelu_new");
+        if (!act.equals("gelu_new") && !act.equals("gelu_pytorch_tanh")) {
+            throw new IllegalArgumentException("activation " + act + " is not supported (GPT-2 uses gelu_new)");
+        }
+        if (w.configFloat("layer_norm_epsilon", 1e-5f) != 1e-5f) {
+            throw new IllegalArgumentException("layer_norm_epsilon other than 1e-5 is not supported");
+        }
+        GPT2 m = new GPT2(w.configInt("vocab_size"), w.configInt("n_positions", "n_ctx"), dim, w.configInt("n_head"), w.configInt("n_layer"), 0);
+        w.load(m.tokens.weight(), "wte.weight");
+        w.load(m.positions.weight(), "wpe.weight");
+        for (int i = 0; i < m.blocks.length; i++) {
+            Block b = m.blocks[i];
+            String h = "h." + i + ".";
+            w.load(b.ln1.weight(), h + "ln_1.weight");
+            w.load(b.ln1.bias(), h + "ln_1.bias");
+            w.loadTransposed(b.qkv.weight(), h + "attn.c_attn.weight");
+            w.load(b.qkv.bias(), h + "attn.c_attn.bias");
+            w.loadTransposed(b.proj.weight(), h + "attn.c_proj.weight");
+            w.load(b.proj.bias(), h + "attn.c_proj.bias");
+            w.load(b.ln2.weight(), h + "ln_2.weight");
+            w.load(b.ln2.bias(), h + "ln_2.bias");
+            w.loadTransposed(b.fc.weight(), h + "mlp.c_fc.weight");
+            w.load(b.fc.bias(), h + "mlp.c_fc.bias");
+            w.loadTransposed(b.fcProj.weight(), h + "mlp.c_proj.weight");
+            w.load(b.fcProj.bias(), h + "mlp.c_proj.bias");
+        }
+        w.load(m.norm.weight(), "ln_f.weight");
+        w.load(m.norm.bias(), "ln_f.bias");
+        return m;
     }
 
     /** Logits [B, T, vocab] for INT32 tokens [B, T]. */

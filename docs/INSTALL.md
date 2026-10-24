@@ -86,6 +86,15 @@ done
 ./mvnw test -Paccel-tests -Djitnn.text=$HOME/jitnn-data/text -Dtest=TransformerAccelTest
 ```
 
+The Hugging Face test downloads `gpt2` and `bert-base-uncased` and compares jitNN's tokenizers and
+models with the `tokenizers` and `transformers` libraries:
+
+```bash
+pip install torch transformers tokenizers huggingface_hub safetensors
+python <jitnn>/scripts/hf/hf_reference.py ~/jitnn-data/hf
+./mvnw test -Paccel-tests -Djitnn.hf=$HOME/jitnn-data/hf -Dtest=HfAccelTest
+```
+
 ## PyTorch environment
 
 ```bash

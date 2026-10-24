@@ -185,6 +185,32 @@ int epoch = in.intValue("epoch");
   Supported types are F32, F16, BF16, I32 and the two FP8 formats. GGUF block-quantised weights
   cannot be saved.
 
+## Hugging Face models and tokenizers
+
+`GPT2.fromHuggingFace` and `Bert.fromHuggingFace` build a model from a Hugging Face model directory
+(`config.json` and `model.safetensors`, or sharded safetensors with their index), as
+`huggingface-cli download` or `snapshot_download` leave it. `Tokenizer.load` reads the
+directory's `tokenizer.json`.
+
+```java
+Path dir = Path.of("bert-base-uncased");
+Bert bert = Bert.fromHuggingFace(dir);
+Tokenizer tok = Tokenizer.load(dir);
+Tokenizer.Batch batch = tok.encodeBatch(List.of("The capital of France is [MASK].", "Hello world!"), 128);
+Tensor hidden = bert.encode(batch.ids(), batch.typeIds(), batch.additiveMask());
+Tensor pooled = bert.pooled(hidden);
+```
+
+- Supported: GPT-2 checkpoints (`GPT2Model`, `GPT2LMHeadModel`) and BERT checkpoints (`BertModel`,
+  `BertForMaskedLM`, `BertForPreTraining`). The BERT MLM head and pooler are loaded when present.
+  Task heads, such as a classifier, are read with `HfCheckpoint` (`load`, `floats`, `unused()`).
+- Tokenizers: WordPiece with the BERT normaliser, and byte-level BPE (GPT-2, RoBERTa). Other
+  tokenizer models (Unigram, SentencePiece-style BPE) are rejected when loading.
+- On an RTX 5070 Ti, outputs match `transformers` FP32 on the CPU within 2e-6 of the largest value
+  (BERT) and 2.3e-6 (GPT-2 logits). Token ids match the `tokenizers` library on the test texts.
+- PyTorch `.bin` checkpoints are not read; most models on the Hub also ship safetensors.
+- Llama-family checkpoints are not mapped: use jitllm for them.
+
 ## Mixed precision
 
 `Tensor.half()`, `bfloat16()` and `to(DType)` convert between FP32, FP16 and BF16 (round to
