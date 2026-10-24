@@ -3,12 +3,15 @@ package org.beehive.jitnn.nn.optim;
 import java.util.List;
 
 import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.io.StateDict;
 
 /** Updates parameters in place from their gradients. */
 public abstract class Optimizer {
 
     protected final List<Tensor> params;
     protected float lr;
+    /** Steps taken (the bias corrections of the adaptive methods use it). */
+    protected int t;
 
     protected Optimizer(List<Tensor> params, float lr) {
         this.params = List.copyOf(params);
@@ -89,5 +92,75 @@ public abstract class Optimizer {
     /** Changes the learning rate; takes effect at the next step without recompiling. */
     public void setLearningRate(float lr) {
         this.lr = lr;
+    }
+
+    /** Per-parameter state by slot name, each array indexed like the parameters (null where none). */
+    protected java.util.Map<String, Tensor[]> state() {
+        return java.util.Map.of();
+    }
+
+    /** Scalar state beyond the step count and learning rate, for checkpoints. */
+    protected void saveScalars(StateDict d) {
+    }
+
+    protected void loadScalars(StateDict d) {
+    }
+
+    /**
+     * The optimiser's state for a checkpoint: its type, learning rate, step count and per-parameter
+     * state ({@code state.<slot>.<parameter index>}), which refers to the live tensors. The
+     * hyper-parameters are not included: build the optimiser with the same arguments before loading.
+     */
+    public StateDict stateDict() {
+        StateDict d = new StateDict().put("type", getClass().getName()).put("lr", lr).put("step", t);
+        saveScalars(d);
+        new java.util.TreeMap<>(state()).forEach((slot, ts) -> {
+            for (int i = 0; i < ts.length; i++) {
+                if (ts[i] != null) {
+                    d.put("state." + slot + "." + i, ts[i]);
+                }
+            }
+        });
+        return d;
+    }
+
+    /** Restores {@link #stateDict()} into this optimiser, in place; type and state shapes must match. */
+    public void loadStateDict(StateDict d) {
+        if (!d.value("type").equals(getClass().getName())) {
+            throw new IllegalArgumentException("state of a " + d.value("type") + ", not a " + getClass().getName());
+        }
+        java.util.Set<String> expected = new java.util.HashSet<>();
+        state().forEach((slot, ts) -> {
+            for (int i = 0; i < ts.length; i++) {
+                if (ts[i] != null) {
+                    expected.add("state." + slot + "." + i);
+                }
+            }
+        });
+        if (!expected.equals(d.tensorNames())) {
+            java.util.Set<String> missing = new java.util.TreeSet<>(expected);
+            missing.removeAll(d.tensorNames());
+            java.util.Set<String> extra = new java.util.TreeSet<>(d.tensorNames());
+            extra.removeAll(expected);
+            throw new IllegalArgumentException("optimiser state does not match: missing " + missing + ", unexpected " + extra);
+        }
+        // every entry is checked before any is written
+        state().forEach((slot, ts) -> {
+            for (int i = 0; i < ts.length; i++) {
+                if (ts[i] != null) {
+                    d.check("state." + slot + "." + i, ts[i]);
+                }
+            }
+        });
+        state().forEach((slot, ts) -> {
+            for (int i = 0; i < ts.length; i++) {
+                if (ts[i] != null) {
+                    d.copyInto("state." + slot + "." + i, ts[i]);
+                }
+            }
+        });
+        lr = d.floatValue("lr");
+        t = d.intValue("step");
+        loadScalars(d);
     }
 }

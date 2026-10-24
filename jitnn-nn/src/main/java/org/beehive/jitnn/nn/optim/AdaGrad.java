@@ -14,7 +14,6 @@ public final class AdaGrad extends Optimizer {
     private final float eps;
     private final Tensor[] sum;
     private final float init;
-    private int t;
 
     public AdaGrad(List<Tensor> params, float lr, float lrDecay, float weightDecay, float initialAccumulator, float eps) {
         super(params, lr);
@@ -51,5 +50,10 @@ public final class AdaGrad extends Optimizer {
     @Override
     void rewindStep() {
         t--;
+    }
+
+    @Override
+    protected java.util.Map<String, Tensor[]> state() {
+        return java.util.Map.of("sum", sum);
     }
 }

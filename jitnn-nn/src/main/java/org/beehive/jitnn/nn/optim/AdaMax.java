@@ -15,7 +15,6 @@ public final class AdaMax extends Optimizer {
     private final float weightDecay;
     private final Tensor[] m;
     private final Tensor[] u;
-    private int t;
 
     public AdaMax(List<Tensor> params, float lr, float beta1, float beta2, float eps, float weightDecay) {
         super(params, lr);
@@ -56,5 +55,10 @@ public final class AdaMax extends Optimizer {
     @Override
     void rewindStep() {
         t--;
+    }
+
+    @Override
+    protected java.util.Map<String, Tensor[]> state() {
+        return java.util.Map.of("m", m, "u", u);
     }
 }

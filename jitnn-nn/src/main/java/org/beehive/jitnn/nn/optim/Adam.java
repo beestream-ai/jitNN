@@ -19,7 +19,6 @@ public final class Adam extends Optimizer {
     private final Tensor[] m;
     private final Tensor[] v;
     private final Tensor[] vmax;
-    private int t;
 
     public Adam(List<Tensor> params, float lr) {
         this(params, lr, 0.9f, 0.999f, 1e-8f, 0, false);
@@ -87,5 +86,10 @@ public final class Adam extends Optimizer {
     @Override
     void rewindStep() {
         t--;
+    }
+
+    @Override
+    protected java.util.Map<String, Tensor[]> state() {
+        return vmax == null ? java.util.Map.of("m", m, "v", v) : java.util.Map.of("m", m, "v", v, "vmax", vmax);
     }
 }

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.io.StateDict;
 import org.beehive.jitnn.ops.OptimStep;
 
 /** NAdam (Dozat), PyTorch's semantics: momentum decay psi (default 0.004), L2 weight decay. */
@@ -17,7 +18,6 @@ public final class NAdam extends Optimizer {
     private double muProduct = 1;
     private final Tensor[] m;
     private final Tensor[] v;
-    private int t;
 
     public NAdam(List<Tensor> params, float lr, float beta1, float beta2, float eps, float weightDecay, float momentumDecay) {
         super(params, lr);
@@ -63,5 +63,20 @@ public final class NAdam extends Optimizer {
     void rewindStep() {
         muProduct /= beta1 * (1 - 0.5 * Math.pow(0.96, t * momentumDecay));
         t--;
+    }
+
+    @Override
+    protected java.util.Map<String, Tensor[]> state() {
+        return java.util.Map.of("m", m, "v", v);
+    }
+
+    @Override
+    protected void saveScalars(StateDict d) {
+        d.put("muProduct", Double.toString(muProduct));
+    }
+
+    @Override
+    protected void loadScalars(StateDict d) {
+        muProduct = Double.parseDouble(d.value("muProduct"));
     }
 }

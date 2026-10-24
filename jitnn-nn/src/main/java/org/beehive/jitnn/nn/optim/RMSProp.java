@@ -17,7 +17,6 @@ public final class RMSProp extends Optimizer {
     private final Tensor[] square;
     private final Tensor[] buffer;
     private final Tensor[] average;
-    private int t;
 
     public RMSProp(List<Tensor> params, float lr, float alpha, float eps, float weightDecay, float momentum, boolean centered) {
         super(params, lr);
@@ -63,5 +62,10 @@ public final class RMSProp extends Optimizer {
     @Override
     void rewindStep() {
         t--;
+    }
+
+    @Override
+    protected java.util.Map<String, Tensor[]> state() {
+        return java.util.Map.of("square", square, "buffer", buffer, "average", average);
     }
 }

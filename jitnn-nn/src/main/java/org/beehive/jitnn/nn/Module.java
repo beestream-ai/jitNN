@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.List;
 
 import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.io.StateDict;
 
 /** A differentiable building block with parameters and child modules. */
 public abstract class Module {
@@ -79,5 +80,55 @@ public abstract class Module {
             n += p.numel();
         }
         return n;
+    }
+
+    /**
+     * The parameters ({@code parameters.<i>}) and buffers ({@code buffers.<i>}) in registration
+     * order, referring to the live tensors: save it with {@link StateDict#save}. Names are positions,
+     * so a checkpoint loads into a model built the same way.
+     */
+    public StateDict stateDict() {
+        StateDict d = new StateDict();
+        List<Tensor> ps = parameters();
+        for (int i = 0; i < ps.size(); i++) {
+            d.put("parameters." + i, ps.get(i));
+        }
+        List<Tensor> bs = buffers();
+        for (int i = 0; i < bs.size(); i++) {
+            d.put("buffers." + i, bs.get(i));
+        }
+        return d;
+    }
+
+    /**
+     * Overwrites the parameters and buffers with those of {@code d}, in place, so compiled plans keep
+     * using them. Every name, dtype and shape must match.
+     */
+    public void loadStateDict(StateDict d) {
+        List<Tensor> ps = parameters();
+        List<Tensor> bs = buffers();
+        java.util.Set<String> expected = new java.util.LinkedHashSet<>();
+        for (int i = 0; i < ps.size(); i++) {
+            expected.add("parameters." + i);
+        }
+        for (int i = 0; i < bs.size(); i++) {
+            expected.add("buffers." + i);
+        }
+        if (!expected.equals(d.tensorNames())) {
+            throw new IllegalArgumentException("checkpoint has " + d.tensorNames().size() + " tensors, model has " + ps.size() + " parameters and " + bs.size() + " buffers");
+        }
+        // every entry is checked before any is written
+        for (int i = 0; i < ps.size(); i++) {
+            d.check("parameters." + i, ps.get(i));
+        }
+        for (int i = 0; i < bs.size(); i++) {
+            d.check("buffers." + i, bs.get(i));
+        }
+        for (int i = 0; i < ps.size(); i++) {
+            d.copyInto("parameters." + i, ps.get(i));
+        }
+        for (int i = 0; i < bs.size(); i++) {
+            d.copyInto("buffers." + i, bs.get(i));
+        }
     }
 }

@@ -3,6 +3,7 @@ package org.beehive.jitnn.nn.optim;
 import java.util.List;
 
 import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.io.StateDict;
 
 /**
  * Dynamic loss scaling for FP16 training, as PyTorch's {@code torch.amp.GradScaler}: the loss is
@@ -91,5 +92,15 @@ public final class GradScaler {
         last = null;
         unscaled = false;
         return overflow;
+    }
+
+    /** The scale and the count of clean steps since it last changed, for checkpoints. */
+    public StateDict stateDict() {
+        return new StateDict().put("scale", scale).put("cleanSteps", cleanSteps);
+    }
+
+    public void loadStateDict(StateDict d) {
+        scale = d.floatValue("scale");
+        cleanSteps = d.intValue("cleanSteps");
     }
 }

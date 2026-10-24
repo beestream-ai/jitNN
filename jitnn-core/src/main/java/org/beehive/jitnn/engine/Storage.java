@@ -179,7 +179,8 @@ public final class Storage {
         return array;
     }
 
-    static TornadoNativeArray newArray(DType dtype, int numel) {
+    /** A host array that holds {@code numel} values of {@code dtype}. */
+    public static TornadoNativeArray newArray(DType dtype, int numel) {
         int n = Math.max(numel, 1);
         return switch (dtype) {
             case F32 -> new FloatArray(n);

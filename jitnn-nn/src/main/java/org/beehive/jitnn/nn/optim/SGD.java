@@ -51,4 +51,9 @@ public final class SGD extends Optimizer {
             OptimStep.apply(OptimStep.Kind.SGD, ps, gs, List.of(), hyper, stats);
         }
     }
+
+    @Override
+    protected java.util.Map<String, Tensor[]> state() {
+        return java.util.Map.of("buffers", buffers);
+    }
 }

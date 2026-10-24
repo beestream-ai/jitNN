@@ -152,6 +152,39 @@ for (int step = 0; step < steps; step++) {
 float acc = F.accuracy(model.forward(Tensor.of(testX, n, 784)), Tensor.of(testY, n));
 ```
 
+## Checkpoints
+
+`stateDict()` on a module, an optimiser, a `GradScaler` or an `LRScheduler` returns a `StateDict`:
+named tensors and values that refer to the live objects. Combine the parts under prefixes and save
+them as one safetensors file. Loading copies each tensor into the existing parameter or optimiser
+state in place, so plans already compiled keep running on the loaded values.
+
+```java
+new StateDict()
+        .put("model", model.stateDict())
+        .put("optimizer", opt.stateDict())
+        .put("scheduler", scheduler.stateDict())
+        .put("epoch", epoch)
+        .save(Path.of("run.safetensors"));
+
+StateDict in = StateDict.load(Path.of("run.safetensors"));
+model.loadStateDict(in.sub("model"));
+opt.loadStateDict(in.sub("optimizer"));
+scheduler.loadStateDict(in.sub("scheduler"));
+int epoch = in.intValue("epoch");
+```
+
+- Model tensors are named by position (`parameters.<i>`, `buffers.<i>`), so a checkpoint loads into a
+  model built the same way. Names, dtypes and shapes are all checked before anything is written.
+- The optimiser part holds its type, learning rate, step count and per-parameter state
+  (`state.<slot>.<i>`, e.g. Adam's `m` and `v`). Build the optimiser with the same hyper-parameters
+  before loading.
+- Resuming reproduces an uninterrupted run bit for bit on the same device.
+- The files are standard safetensors: `safetensors.torch.load_file` reads them in Python.
+  `StateDict.load(...).tensor(name)` reads a tensor from any safetensors file as a new weight.
+  Supported types are F32, F16, BF16, I32 and the two FP8 formats. GGUF block-quantised weights
+  cannot be saved.
+
 ## Mixed precision
 
 `Tensor.half()`, `bfloat16()` and `to(DType)` convert between FP32, FP16 and BF16 (round to

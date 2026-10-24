@@ -1,5 +1,7 @@
 package org.beehive.jitnn.nn.optim;
 
+import org.beehive.jitnn.io.StateDict;
+
 /**
  * Sets an optimiser's learning rate per epoch; call {@link #step()} once at the end of each
  * epoch, as with PyTorch's schedulers. The new rate takes effect without recompiling. The
@@ -23,6 +25,15 @@ public abstract class LRScheduler {
     public void step() {
         epoch++;
         optimizer.setLearningRate(rate(epoch));
+    }
+
+    /** The epoch (or step) count, for checkpoints; the rate itself is restored with the optimiser. */
+    public StateDict stateDict() {
+        return new StateDict().put("epoch", epoch);
+    }
+
+    public void loadStateDict(StateDict d) {
+        epoch = d.intValue("epoch");
     }
 
     public float currentRate() {

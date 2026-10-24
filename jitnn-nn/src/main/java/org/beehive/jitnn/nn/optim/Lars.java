@@ -40,4 +40,9 @@ public final class Lars extends Optimizer {
             }
         }
     }
+
+    @Override
+    protected java.util.Map<String, Tensor[]> state() {
+        return java.util.Map.of("buf", buf);
+    }
 }

@@ -17,7 +17,6 @@ public final class Lamb extends Optimizer {
     private final float weightDecay;
     private final Tensor[] m;
     private final Tensor[] v;
-    private int t;
 
     public Lamb(List<Tensor> params, float lr, float beta1, float beta2, float eps, float weightDecay) {
         super(params, lr);
@@ -50,5 +49,10 @@ public final class Lamb extends Optimizer {
     @Override
     void rewindStep() {
         t--;
+    }
+
+    @Override
+    protected java.util.Map<String, Tensor[]> state() {
+        return java.util.Map.of("m", m, "v", v);
     }
 }

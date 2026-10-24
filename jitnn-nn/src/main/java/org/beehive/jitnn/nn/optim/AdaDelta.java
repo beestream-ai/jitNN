@@ -14,7 +14,6 @@ public final class AdaDelta extends Optimizer {
     private final float weightDecay;
     private final Tensor[] square;
     private final Tensor[] delta;
-    private int t;
 
     public AdaDelta(List<Tensor> params, float lr, float rho, float eps, float weightDecay) {
         super(params, lr);
@@ -54,5 +53,10 @@ public final class AdaDelta extends Optimizer {
     @Override
     void rewindStep() {
         t--;
+    }
+
+    @Override
+    protected java.util.Map<String, Tensor[]> state() {
+        return java.util.Map.of("square", square, "delta", delta);
     }
 }
