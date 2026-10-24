@@ -35,7 +35,17 @@ Five layers of checks run on the host and on every device.
    `Model.load`) on the reference (`DjlEngineTest`) and step by step against it on a device
    (`DjlEngineAccelTest`). With `-Djitnn.native`, `NativeAccelTest` checks every operator that
    calls a vendor library, forward and backward, against the reference, and the fallback to
-   jitNN's kernels on shapes the libraries cannot take.
+   jitNN's kernels on shapes the libraries cannot take. `HalfInferenceAccelTest` checks FP16 inference
+   (`Autocast.enableHalf`: transformer encoder blocks and attention) against the FP32 host
+   reference, with or without vendor libraries. `FusionAccelTest` checks fused inference
+   (convolution + BatchNorm folding, residual add + ReLU, linear + GELU) against the unfused host
+   reference. `AutotuneAccelTest` checks that every variant an autotuning pass measures reproduces
+   the host reference, and that saved decisions are read back. `GgufFileTest` and `GgufAccelTest`
+   read a fixture written by llama.cpp's `gguf` package (`scripts/gguf/gguf_fixture.py`), mapped
+   and copied, and `LlmAccelTest` (`-Pllm`) generates text from a GGUF model through jitllm.
+   `DataParallelAccelTest` trains ranks in one process on host collectives and on NCCL
+   (`-Djitnn.dist.nccl=true`), and `DataParallelMultiProcessAccelTest` two ranks in two processes
+   over NCCL, both against single-device training on the full batch.
 5. **Model parity.** Models start from bit-identical initial weights (`scripts/pytorch/jitnn_init.py`
    reimplements jitNN's Philox initialisation; `models.py` builds ResNet-18 and MobileNetV2 with the
    same seeds) and train on the same batches as PyTorch.

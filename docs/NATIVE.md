@@ -44,17 +44,19 @@ library tasks compiled into plans.
 
 ## Requirements
 
-- **TornadoVM:** develop, 7.2.1-dev or later, built with the CUDA backend
-  (`bin/compile --jdk jdk22plus --backend cuda`). Its SDK includes the library modules, and its
-  `tornado-argfile` adds them.
+- **TornadoVM:** develop, 7.3.2-dev or later, built with the CUDA or Metal backend
+  (`make jdk22plus BACKEND=cuda`). Its SDK includes the library modules, and its
+  `tornado-argfile` adds them. On Blackwell GPUs (RTX 50 series) TornadoVM must load the CUDA 13
+  libraries before older ones (beehive-lab/TornadoVM#1280): cuBLAS 12.0, found first on many
+  systems, has no kernels for them and runs 3-6x slower.
 - **cuDNN:** 9 (`libcudnn.so.9`) on the library path. cuBLAS, cuFFT and cuSPARSE come with the
   CUDA toolkit.
 - **MLX:**
   - TornadoVM's Metal backend.
   - `brew install mlx`, for MLX's `mlx.metallib`; `-Dtornado.mlx.metallib` names another copy.
-  - An Apple M4-class GPU or newer.
-
-  The MLX path has not been validated on hardware yet.
+  - An Apple M4-class GPU or newer. Validated on an M4 Pro with MLX 0.32.3.
+  - jitNN sets `-Dtornado.mlx.async=true` whenever MLX is in use, so MLX calls are committed without
+    waiting for the GPU.
 
 ## Operators
 
@@ -113,23 +115,32 @@ convolutions, `off` turns it off. It needs a TornadoVM whose cuDNN binding has t
 
 ## Results
 
-A10, TornadoVM develop e3381a277, medians. The same models against PyTorch and ONNX Runtime are in
-[PERFORMANCE.md](PERFORMANCE.md#against-pytorch-and-onnx-runtime-on-an-a10).
+jitNN's own kernels against vendor libraries, median ms (2026-10-23 on NVIDIA, 2026-10-18 on the
+M4 Pro). The same models against PyTorch and ONNX Runtime are in
+[PERFORMANCE.md](PERFORMANCE.md#inference-against-pytorch-and-onnx-runtime).
 
-| Workload | jitNN kernels | `--with-native` | Speedup |
-|---|---|---|---|
-| ResNet-50 inference, batch 1 | 4.05 ms | 4.04 ms | 1.00x |
-| ResNet-50 inference, batch 32 | 52.2 ms | 33.3 ms | 1.57x |
-| ResNet-50 inference, batch 128 | 217.9 ms | 126.9 ms | 1.72x |
-| BERT-base FP32, batch 1 × 128 | 7.08 ms | 4.11 ms | 1.72x |
-| BERT-base FP32, batch 32 × 128 | 125.6 ms | 82.4 ms | 1.52x |
-| BERT-base FP32, batch 8 × 512 | 139.2 ms | 96.0 ms | 1.45x |
-| BERT-base FP16, batch 1 × 128 | 4.79 ms | 2.95 ms | 1.62x |
-| BERT-base FP16, batch 32 × 128 | 48.3 ms | 38.5 ms | 1.25x |
-| BERT-base FP16, batch 8 × 512 | 61.1 ms | 51.4 ms | 1.19x |
-| DJL `TrainResnetWithCifar10`, 100 batches of 32 (whole run) | 60.3 s | 39.4 s | 1.53x |
-| DJL `TrainMnist`, 1 epoch (whole run) | 7.3 s | 6.2 s | 1.18x |
-| DJL `YoloDetection` (yolo11n), per prediction | 24.9 ms | 26.8 ms | 0.93x |
+| Workload | A100 kernels | A100 libraries | RTX 5070 Ti kernels | RTX 5070 Ti libraries | M4 Pro kernels | M4 Pro MLX |
+|---|---|---|---|---|---|---|
+| ResNet-50 b1 FP32 | 3.46 | 3.40 | 1.99 | 1.98 | 7.99 | 7.80 |
+| ResNet-50 b32 FP32 | 24.1 | 11.3 | 24.2 | 14.8 | 115.4 | 82.7 |
+| ResNet-50 b128 FP32 | 86.9 | 37.8 | 95.7 | 58.8 | 455.7 | 320.9 |
+| ResNet-50 b1 FP16 | 2.92 | 1.60 | 1.94 | 0.88 | 7.76 | 7.51 |
+| ResNet-50 b32 FP16 | 24.3 | 7.81 | 24.7 | 9.06 | 115.6 | 66.3 |
+| ResNet-50 b128 FP16 | 87.9 | 26.3 | 97.8 | 35.3 | 460.0 | 258.9 |
+| BERT-base b1 x 128 FP32 | 4.95 | 3.90 | 4.50 | 3.00 | 21.3 | 8.94 |
+| BERT-base b32 x 128 FP32 | 62.9 | 50.2 | 76.1 | 41.4 | 388.4 | 164.4 |
+| BERT-base b8 x 512 FP32 | 69.2 | 55.4 | 82.9 | 47.4 | 508.4 | 176.5 |
+| BERT-base b1 x 128 FP16 | 3.50 | 1.49 | 2.16 | 0.95 | 16.8 | 7.43 |
+| BERT-base b32 x 128 FP16 | 20.1 | 7.27 | 20.5 | 11.9 | 351.5 | 144.6 |
+| BERT-base b8 x 512 FP16 | 26.0 | 8.19 | 27.2 | 12.6 | 473.5 | 176.2 |
+
+DJL's examples on an A10, unchanged:
+
+| Example | jitNN kernels | `--with-native` |
+|---|---|---|
+| `TrainResnetWithCifar10`, 100 batches of 32 (whole run) | 60.3 s | 39.4 s |
+| `TrainMnist`, 1 epoch (whole run) | 7.3 s | 6.2 s |
+| `YoloDetection` (yolo11n), per prediction | 24.9 ms | 26.8 ms |
 
 Validation accuracy matches with and without the libraries:
 - DJL ResNet-50: 0.324 and 0.321.

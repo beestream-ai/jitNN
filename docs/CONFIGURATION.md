@@ -17,6 +17,7 @@ Sizes are in bytes.
 | `jitnn.cudaGraph` | `true` | on CUDA, capture each plan as a CUDA graph and replay it |
 | `jitnn.graph.maxTasks` | `40` | tasks per TornadoVM task graph; longer traces become a chain of graphs (a graph holds at most 256 tasks and 8 KiB of bytecode) |
 | `jitnn.reuseBuffers` | `true` | reuse dead backward-pass and inference buffers inside a compiled step |
+| `jitnn.reuseBuffers.exact` | `auto` | intermediates reuse only dead buffers of exactly their size, so vendor-library operands need no copies: `auto` on Metal with MLX, `true` always, `false` never |
 | `jitnn.verbose` | `false` | log every compiled plan (device, nodes, tasks, build time) and the vendor libraries found |
 | `jitnn.debugKeys` | `false` | print the cache key of every newly compiled plan to standard error, to find what makes a trace recompile |
 | `jitnn.printKernels` | `false` | print each compiled plan's operators and generated kernel source: `true` for standard output, or a file name (appended); see [Printing the kernels](USAGE.md#printing-the-kernels) |
@@ -60,6 +61,8 @@ working around a backend problem.
 | `jitnn.rnn` | `fused` | LSTM layers of up to 512 hidden units and 256 batch rows run the whole sequence in one launch (forward and backward); `steps` launches the tiled kernels once per timestep, `simple` the thread-per-cell kernels. GRU layers always run per timestep (tiled, or thread-per-cell with `simple`) |
 | `jitnn.gguf.tiledRows` | `32` | GGUF weights: up to this many input rows use the quantised matrix-vector kernels; more rows dequantise the weight and use the GEMM |
 | `jitnn.fuse` | `true` | operator fusion before compilation: convolution + BatchNorm (+ ReLU) on folded weights, GELU in the GEMM epilogue, add + ReLU in one kernel |
+| `jitnn.channelsLast` | `true` | in inference, keep the image tensors that convolutions, element-wise operators and casts read and write in [N, H, W, C] after BatchNorm folding, converting only around operators that need [N, C, H, W]; `false` turns the pass off |
+| `jitnn.channelsLast.verbose` | `false` | log each layout conversion the channels-last pass leaves and the operator that needs it |
 | `jitnn.fuse.elementwise` | `true` | chains of FP32 unary and binary operators whose intermediates nothing else reads run as one generated kernel |
 
 ## Imported models and DJL
@@ -85,6 +88,9 @@ See [NATIVE.md](NATIVE.md) for what each library takes and the fallback to jitNN
 | `jitnn.native.biasEpilogue` | `true` | FP16 linear layers in `Autocast.enableHalf` inference add their bias (and ReLU) in cuBLASLt's GEMM epilogue; `false` runs the bias as a separate kernel |
 | `jitnn.native.tf32` | `false` | cuBLAS FP32 products on TF32 tensor cores |
 | `jitnn.native.convMinFlops` | `1073741824` (2^30) | fewest multiply-adds for a convolution to go to cuDNN; smaller ones keep jitNN's kernels |
+| `jitnn.native.mlxConvMinFlops` | `268435456` (2^28) | fewest multiply-adds for a convolution to go to MLX; below it the layout transposes cost more than they save |
+| `jitnn.native.mlxCopyMinFlops` | `1073741824` (2^30) | fewest multiply-adds for a product whose operands sit in larger reused buffers to go to MLX through exact-size copies |
+| `jitnn.native.mlxGatherMin` | `67108864` (2^26) | fewest q k^T multiply-adds for attention held in another layout (packed, or [B, T, H, d]) to be gathered into [B, H, T, d] for MLX |
 | `jitnn.native.cudnnChannelsLast` | `all` | cuDNN convolutions in inference run channels-last (NHWC), with the tensors around them kept channels-last: `all`, `half` (FP16 convolutions only) or `off` (NCHW) |
 | `jitnn.native.attentionFp16` | `false` | FP32 attention in inference through cuDNN's fused FP16 attention (q, k and v rounded to FP16) |
 | `jitnn.native.unavailable` | empty | comma-separated libraries treated as missing, to test the fallback |

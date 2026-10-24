@@ -191,8 +191,10 @@ one compiled plan. BF16 needs TornadoVM with float-bit reinterpretation (Tornado
   them, with half the memory traffic of autocast.
 - **Other operators** take FP32 copies of FP16 inputs and return FP32.
 - **Weights** are cast to FP16 once per version, as with `Autocast.enable`.
-- **With `-Djitnn.native`**, the products go to cuBLAS, and attention goes to CUTLASS's batched FP16
-  GEMMs; see [NATIVE.md](NATIVE.md).
+- **With `-Djitnn.native`**, convolutions run in FP16 too: on cuDNN's tensor cores, channels-last, on
+  CUDA, and on MLX on Metal. Products go to cuBLASLt with the bias and activation in its epilogue,
+  and attention to cuDNN's fused kernel (or CUTLASS's batched FP16 GEMMs, or MLX); see
+  [NATIVE.md](NATIVE.md).
 
 ```java
 Tensor logits = Grad.inference(() -> {
@@ -564,7 +566,7 @@ files. NDArrays follow DJL's types: integer division truncates, and an integer a
 floating scalar gives FLOAT32, as in PyTorch. Operators jitNN lacks run on the engine named by
 `-Djitnn.djl.fallback` when it is on the class path. DJL's own examples (`TrainMnist`,
 `TrainResnetWithCifar10`, `ImageClassification`, `YoloDetection`) run unchanged; see
-[PERFORMANCE.md](PERFORMANCE.md#against-pytorch-and-onnx-runtime-on-an-a10).
+[PERFORMANCE.md](PERFORMANCE.md#djl-examples).
 
 ## Custom operators
 

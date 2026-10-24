@@ -371,10 +371,9 @@ operators, sparse arrays and strings. Operators jitNN lacks run on the engine na
 - Conv1D and Conv3D with groups, grouped 1-D convolutions in ONNX models; NaN-propagating
   reductions.
 - General (non-symmetric) eigendecomposition; complex tensors outside the Fourier transforms.
-- FP16 convolutions; FP16 end to end (activations, attention and norms in half precision:
-  autocast keeps them FP32); FP8 tensor-core instructions.
-- GGUF files: jitNN runs GGUF's quantised weights from their raw blocks (`Tensor.quantized`), but
-  has no reader for `.gguf` files; the blocks have to be read by the application.
+- FP8 tensor-core instructions; FP16 training end to end (training uses autocast with FP32
+  activations; `Autocast.enableHalf` is for inference).
+- GGUF's Q5_0, Q5_1, Q2_K, Q3_K and IQ formats: `jitnn-gguf` loads them only as raw bytes.
 - Gradient all-reduce overlapped with the backward pass.
 - Metal runs of the operators from "Generative and recurrent models" on.
 

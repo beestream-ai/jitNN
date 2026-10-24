@@ -51,7 +51,8 @@ Fourier transforms, sparse and graph operators, classical machine learning and a
 | Sparse | sparse x dense products with learnable values, GCN adjacency |
 | Data-dependent sizes | nonzero, masked select, unique |
 | Classical machine learning | k-means, kNN, PCA, linear and logistic regression, linear SVM, naive Bayes, decision trees, random forests, gradient boosting, t-SNE |
-| Several devices | collectives (all-reduce, broadcast, reduce-scatter, all-gather) and data-parallel training across any mix of devices and backends |
+| Several devices | collectives (all-reduce, broadcast, reduce-scatter, all-gather) and data-parallel training across any mix of devices and backends; on NVIDIA GPUs through NCCL inside each rank's plan (1.9x on two GPUs), with synchronised BatchNorm and ranks in several processes |
+| Runtime specialisation | plans cached per shape, shape buckets for serving, plan reuse after a reload, and run-time autotuning of kernel variants, saved per device (`-Djitnn.autotune`) |
 | ONNX | `jitnn-onnx` loads ONNX files (about 110 operators) and runs them on jitNN's kernels, no third-party dependencies |
 | GGUF | `jitnn-gguf` reads GGUF files (llama.cpp's format): metadata, and weights as tensors memory-mapped without a copy, in their quantised blocks or as F32, F16 and BF16 |
 | Language models | `jitnn-llm` (optional) generates text from GGUF models through jitllm, with its tokenizers, KV cache and kernels |
@@ -88,7 +89,7 @@ The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERAT
 
 ## Quick start
 
-You need JDK 22+ and a TornadoVM SDK built from `develop` (7.2.1-dev or newer), installed in your
+You need JDK 22+ and a TornadoVM SDK built from `develop` (7.3.2-dev or newer), installed in your
 local Maven repository. The full guide is in [docs/INSTALL.md](docs/INSTALL.md).
 
 ```bash
@@ -139,48 +140,36 @@ Tensors, autograd, sync points, modules, optimisers, and examples for every area
 
 ## Performance
 
-KernelContext baseline. Kernel times come from the TornadoVM profiler; training rows are end to
-end (MNIST, Adam).
+Inference against PyTorch 2.14 and ONNX Runtime on the same GPU, model and inputs: host input in,
+host output out, median ms of 50 calls (2026-10-23). jitNN with vendor libraries
+(`-Djitnn.native=auto`), fusion on; FP16 rows are FP16 end to end in every framework.
 
-| | RTX 5070 Ti (CUDA) | M4 Pro (Metal) | M4 Pro, PyTorch MPS |
-|---|---|---|---|
-| Element-wise, 16M elements | 790 GB/s (88% of peak) | 235 GB/s (86%) | add: 239 GB/s |
-| Reductions and softmax | 740-755 GB/s | 120-200 GB/s | softmax: 183 GB/s |
-| SGEMM 2048 | 12.7 TFLOP/s | 2.3 TFLOP/s | 5.4 TFLOP/s |
-| Conv 3x3, 64 channels, 28x28, batch 64 | | 1.9 TFLOP/s | 6.1 TFLOP/s |
-| MLP training, batch 128 | 210k samples/s | 28.7k samples/s | |
-| ResNet-18 training, batch 64 | 160 ms/step | 165 ms/step | 54 ms/step |
-| MobileNetV2 training, batch 64 | | 148 ms/step | 62 ms/step |
-| GPT-2 style training, 16 x 128 tokens, 0.84M parameters | 12.7 ms/step (A10; 6.7 with BF16) | 87 ms/step | |
+| Workload | A100: jitNN | PyTorch | ONNX Runtime | RTX 5070 Ti: jitNN | PyTorch | ONNX Runtime |
+|---|---|---|---|---|---|---|
+| ResNet-50 b1 FP32 | **3.40** | 8.12 | 4.05 | **1.98** | 3.91 | 3.18 |
+| ResNet-50 b32 FP32 | **11.3** | 31.7 | 29.3 | **14.8** | 22.3 | 18.7 |
+| ResNet-50 b128 FP32 | **37.8** | 87.1 | 78.7 | **58.8** | 93.9 | 78.7 |
+| ResNet-50 b1 FP16 | **1.60** | 9.78 | 3.57 | **0.88** | 1.72 | 0.90 |
+| ResNet-50 b32 FP16 | **7.81** | 14.6 | 8.16 | 9.06 | 11.4 | **7.6** |
+| ResNet-50 b128 FP16 | 26.3 | 28.3 | **20.5** | 35.3 | 50.5 | **34.2** |
+| BERT-base b1 x 128 FP32 | 3.90 | 5.56 | **3.59** | 3.00 | 2.95 | **2.40** |
+| BERT-base b32 x 128 FP32 | 50.2 | **45.7** | 53.6 | 41.4 | **36.8** | 39.5 |
+| BERT-base b8 x 512 FP32 | 55.4 | **49.2** | 60.4 | 47.4 | **40.8** | 45.5 |
+| BERT-base b1 x 128 FP16 | **1.49** | 6.13 | 2.59 | **0.95** | 1.35 | 1.28 |
+| BERT-base b32 x 128 FP16 | 7.27 | **6.24** | 10.4 | 11.9 | **9.8** | 14.1 |
+| BERT-base b8 x 512 FP16 | 8.19 | **6.70** | 12.0 | 12.6 | **10.5** | 17.0 |
 
-Inference on an A10 against PyTorch 2.11 and ONNX Runtime 1.30 on the same model files (CUDA,
-median ms), jitNN with its own kernels and with vendor libraries (`--with-native`):
+jitNN is the fastest on 6 of 12 workloads on the A100 and 5 on the RTX 5070 Ti, and at most 1.28x
+behind the faster of PyTorch and ONNX Runtime on the rest. On an Apple M4 Pro with MLX, ResNet-50
+runs 1.2-1.3x faster than PyTorch MPS and BERT-base at its level; ONNX Runtime with CoreML is
+1.1-1.4x ahead on ResNet-50.
 
-| Model | PyTorch | ONNX Runtime | jitNN kernels | jitNN `--with-native` |
-|---|---|---|---|---|
-| ResNet-50 b1 FP32 | 4.93 | 2.98 | 4.05 | 4.04 |
-| ResNet-50 b32 FP32 | 43.9 | 39.1 | 52.2 | 33.3 |
-| ResNet-50 b128 FP32 | 168.2 | 145.7 | 217.9 | 126.9 |
-| BERT-base b1 x 128 FP32 | 3.67 | 4.08 | 7.08 | 4.11 |
-| BERT-base b32 x 128 FP32 | 79.2 | 86.1 | 125.6 | 82.4 |
-| BERT-base b8 x 512 FP32 | 89.2 | 98.2 | 139.2 | 96.0 |
-| BERT-base b1 x 128 FP16 | 3.44 | 1.82 | 4.79 | 2.95 |
-| BERT-base b32 x 128 FP16 | 16.3 | 27.0 | 48.3 | 38.5 |
-| BERT-base b8 x 512 FP16 | 17.3 | 31.3 | 61.1 | 51.4 |
-
-In FP32 with vendor libraries, ResNet-50 at batch 32 and 128 is ahead of both, and BERT-base is
-at or ahead of ONNX Runtime and within 8% of PyTorch. FP16 is behind:
-jitNN's FP16 is autocast (FP16 weights and products, FP32 activations, attention and norms), while
-PyTorch and ONNX Runtime run the whole model in half precision. On its own kernels jitNN is about
-1.5x behind ONNX Runtime at large batch in FP32, set by the speed of its convolution and GEMM
-kernels against cuDNN and cuBLAS.
-
-On Apple GPUs a training step is dominated by TornadoVM's per-kernel dispatch cost (about 0.15 ms
-per kernel, 268 kernels in a ResNet-18 step), and the convolutions share the scalar GEMM's
-~2 TFLOP/s ceiling. The RTX 5070 Ti ResNet-18 figure predates a TornadoVM fix for reading results
-from multi-graph plans; on an A10 with it, a ResNet-18 step takes 66 ms and a MobileNetV2 step
-47 ms. Method, all results (including the earlier A100 inference comparison) and the remaining
-gaps are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+On its own kernels (no vendor libraries) jitNN is level with PyTorch on ResNet-50 FP32 and
+1.3-3x behind on BERT and FP16. Fusion removes 38% of ResNet-50's kernels and 45% of its memory
+traffic; autotuning makes BERT-base 15-34% faster. The baseline element-wise kernels reach 86-88%
+of peak bandwidth on CUDA and Metal, reductions and softmax 83-84% on CUDA, and SGEMM 12.7 TFLOP/s
+on an RTX 5070 Ti. Training, per-kernel, fusion, autotuning and multi-GPU results are in
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Documentation
 
