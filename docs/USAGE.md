@@ -244,6 +244,20 @@ once.
 - On an A100 with 4 threads and 4 slots, throughput is 2.1-2.7x at batch 1 and 1.1-1.35x at large
   batch.
 
+**Release outputs once read.** An output stays valid after its plan runs again: before the next
+run, jitNN copies it out of the plan's buffer into a host array of its own. Releasing the output
+once it is read (`Tensor.release`, or try-with-resources) skips that copy, and the host arrays of
+released or collected outputs are reused for later ones (up to `-Djitnn.hostPool.bytes`). On an
+RTX 5070 Ti this takes BERT-base FP16 at batch 32 from 11.2 to 9.75 ms per call. Reading a released
+tensor is an error.
+
+```java
+try (Tensor logits = Grad.inference(() -> model.forward(x))) {
+    float[] out = logits.toFloatArray();
+    // ...
+}
+```
+
 **Request shapes.** jitNN compiles one plan per shape: kernels are specialised on their sizes, so
 a new batch size or sequence length costs a compilation (seconds). `OnnxSession.withBuckets`
 pads requests to a few shapes instead. On the A100, 40 encoder requests of random batch sizes and
