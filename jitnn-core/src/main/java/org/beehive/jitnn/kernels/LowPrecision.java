@@ -84,21 +84,38 @@ public final class LowPrecision {
     }
 
 
+    /** Threads of the one work-group that runs {@link #gradStats}. */
+    public static final int STATS_GROUP = 256;
+
     /**
-     * stats = [norm, factor, skip] from the partials of {@code count} tensors: norm = preScale *
-     * sqrt(sum), factor = preScale * min(1, maxNorm / (norm + 1e-6)) when clipping (else
-     * preScale), skip = 1 when any value was NaN or infinite. One thread.
+     * stats = [norm, factor, skip] from {@code count} partials: norm = preScale * sqrt(sum),
+     * factor = preScale * min(1, maxNorm / (norm + 1e-6)) when clipping (else preScale), skip = 1
+     * when any value was NaN or infinite. One work-group of {@link #STATS_GROUP} threads.
      */
     public static void gradStats(KernelContext kc, FloatArray partial, FloatArray preScale, FloatArray stats, int count, float maxNorm, int clip) {
-        if (kc.globalIdx == 0) {
-            float total = 0.0f;
-            float bad = 0.0f;
-            for (int i = 0; i < count; i++) {
-                total += partial.get(2 * i);
-                bad = partial.get(2 * i + 1) > bad ? partial.get(2 * i + 1) : bad;
+        float[] sq = kc.allocateFloatLocalArray(STATS_GROUP);
+        float[] bd = kc.allocateFloatLocalArray(STATS_GROUP);
+        int l = kc.localIdx;
+        float total = 0.0f;
+        float bad = 0.0f;
+        for (int i = l; i < count; i += STATS_GROUP) {
+            total += partial.get(2 * i);
+            float b = partial.get(2 * i + 1);
+            bad = b > bad ? b : bad;
+        }
+        sq[l] = total;
+        bd[l] = bad;
+        kc.localBarrier();
+        for (int r = STATS_GROUP / 2; r > 0; r = r / 2) {
+            if (l < r) {
+                sq[l] = sq[l] + sq[l + r];
+                bd[l] = bd[l + r] > bd[l] ? bd[l + r] : bd[l];
             }
+            kc.localBarrier();
+        }
+        if (l == 0) {
             float scale = preScale.get(0);
-            float norm = TornadoMath.sqrt(total) * scale;
+            float norm = TornadoMath.sqrt(sq[0]) * scale;
             float factor = scale;
             if (clip != 0) {
                 float c = maxNorm / (norm + 1e-6f);
@@ -106,7 +123,7 @@ public final class LowPrecision {
             }
             stats.set(0, norm);
             stats.set(1, factor);
-            stats.set(2, bad);
+            stats.set(2, bd[0]);
         }
     }
 }

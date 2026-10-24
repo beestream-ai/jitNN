@@ -331,61 +331,65 @@ public final class MultiTensorKernels {
     }
 
     /**
-     * Sum of squares and a NaN/infinity flag of up to 8 gradients: work-group k writes
-     * partial[2 (slot0 + k)] and partial[2 (slot0 + k) + 1]. Launch 8 groups of 256 threads.
+     * Sum of squares and a NaN/infinity flag of up to 8 gradients, each split into {@code chunks}
+     * pieces: work-group g reads piece g % chunks of gradient k = g / chunks and writes
+     * partial[2 ((slot0 + k) chunks + g % chunks)] and the next element. Launch 8 chunks groups of 256
+     * threads; one group per gradient left a large gradient on a single multiprocessor.
      */
-    public static void sumSquaresFinite(KernelContext kc, FloatArray g0, FloatArray g1, FloatArray g2, FloatArray g3, FloatArray g4, FloatArray g5, FloatArray g6, FloatArray g7, FloatArray partial, IntArray sizes, int slot0) {
+    public static void sumSquaresFinite(KernelContext kc, FloatArray g0, FloatArray g1, FloatArray g2, FloatArray g3, FloatArray g4, FloatArray g5, FloatArray g6, FloatArray g7, FloatArray partial, IntArray sizes, int slot0, int chunks) {
         float[] sq = kc.allocateFloatLocalArray(GROUP);
         int[] bad = kc.allocateIntLocalArray(GROUP);
         int l = kc.localIdx;
-        int k = kc.groupIdx;
+        int k = kc.groupIdx / chunks;
+        int c = kc.groupIdx - k * chunks;
         int n = sizes.get(k);
+        int step = chunks * GROUP;
         float s = 0.0f;
         int b = 0;
         if (k == 0) {
-            for (int i = l; i < n; i += GROUP) {
+            for (int i = c * GROUP + l; i < n; i += step) {
                 float x = g0.get(i);
                 s += x * x;
                 b = b | LowPrecision.nonFinite(x);
             }
         } else if (k == 1) {
-            for (int i = l; i < n; i += GROUP) {
+            for (int i = c * GROUP + l; i < n; i += step) {
                 float x = g1.get(i);
                 s += x * x;
                 b = b | LowPrecision.nonFinite(x);
             }
         } else if (k == 2) {
-            for (int i = l; i < n; i += GROUP) {
+            for (int i = c * GROUP + l; i < n; i += step) {
                 float x = g2.get(i);
                 s += x * x;
                 b = b | LowPrecision.nonFinite(x);
             }
         } else if (k == 3) {
-            for (int i = l; i < n; i += GROUP) {
+            for (int i = c * GROUP + l; i < n; i += step) {
                 float x = g3.get(i);
                 s += x * x;
                 b = b | LowPrecision.nonFinite(x);
             }
         } else if (k == 4) {
-            for (int i = l; i < n; i += GROUP) {
+            for (int i = c * GROUP + l; i < n; i += step) {
                 float x = g4.get(i);
                 s += x * x;
                 b = b | LowPrecision.nonFinite(x);
             }
         } else if (k == 5) {
-            for (int i = l; i < n; i += GROUP) {
+            for (int i = c * GROUP + l; i < n; i += step) {
                 float x = g5.get(i);
                 s += x * x;
                 b = b | LowPrecision.nonFinite(x);
             }
         } else if (k == 6) {
-            for (int i = l; i < n; i += GROUP) {
+            for (int i = c * GROUP + l; i < n; i += step) {
                 float x = g6.get(i);
                 s += x * x;
                 b = b | LowPrecision.nonFinite(x);
             }
         } else if (k == 7) {
-            for (int i = l; i < n; i += GROUP) {
+            for (int i = c * GROUP + l; i < n; i += step) {
                 float x = g7.get(i);
                 s += x * x;
                 b = b | LowPrecision.nonFinite(x);
@@ -402,8 +406,9 @@ public final class MultiTensorKernels {
             kc.localBarrier();
         }
         if ((l == 0) & (n > 0)) {
-            partial.set(2 * (slot0 + k), sq[0]);
-            partial.set(2 * (slot0 + k) + 1, bad[0]);
+            int at = 2 * ((slot0 + k) * chunks + c);
+            partial.set(at, sq[0]);
+            partial.set(at + 1, bad[0]);
         }
     }
 }

@@ -205,21 +205,25 @@ kernel("nadam", "NAdam over 4 parameters; hyper = [lr, beta1, beta2, eps, weight
 # local array to a helper method, J12)
 params = ", ".join(f"FloatArray g{k}" for k in range(STATS))
 w("    /**")
-w("     * Sum of squares and a NaN/infinity flag of up to 8 gradients: work-group k writes")
-w("     * partial[2 (slot0 + k)] and partial[2 (slot0 + k) + 1]. Launch 8 groups of 256 threads.")
+w("     * Sum of squares and a NaN/infinity flag of up to 8 gradients, each split into {@code chunks}")
+w("     * pieces: work-group g reads piece g % chunks of gradient k = g / chunks and writes")
+w("     * partial[2 ((slot0 + k) chunks + g % chunks)] and the next element. Launch 8 chunks groups of 256")
+w("     * threads; one group per gradient left a large gradient on a single multiprocessor.")
 w("     */")
-w(f"    public static void sumSquaresFinite(KernelContext kc, {params}, FloatArray partial, IntArray sizes, int slot0) {{")
+w(f"    public static void sumSquaresFinite(KernelContext kc, {params}, FloatArray partial, IntArray sizes, int slot0, int chunks) {{")
 w("        float[] sq = kc.allocateFloatLocalArray(GROUP);")
 w("        int[] bad = kc.allocateIntLocalArray(GROUP);")
 w("        int l = kc.localIdx;")
-w("        int k = kc.groupIdx;")
+w("        int k = kc.groupIdx / chunks;")
+w("        int c = kc.groupIdx - k * chunks;")
 w("        int n = sizes.get(k);")
+w("        int step = chunks * GROUP;")
 w("        float s = 0.0f;")
 w("        int b = 0;")
 for k in range(STATS):
     kw = "if" if k == 0 else "} else if"
     w(f"        {kw} (k == {k}) {{")
-    w(f"            for (int i = l; i < n; i += GROUP) {{")
+    w(f"            for (int i = c * GROUP + l; i < n; i += step) {{")
     w(f"                float x = g{k}.get(i);")
     w(f"                s += x * x;")
     w(f"                b = b | LowPrecision.nonFinite(x);")
@@ -236,8 +240,9 @@ w("""        sq[l] = s;
             kc.localBarrier();
         }
         if ((l == 0) & (n > 0)) {
-            partial.set(2 * (slot0 + k), sq[0]);
-            partial.set(2 * (slot0 + k) + 1, bad[0]);
+            int at = 2 * ((slot0 + k) * chunks + c);
+            partial.set(at, sq[0]);
+            partial.set(at + 1, bad[0]);
         }
     }
 }""")

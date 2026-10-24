@@ -18,8 +18,9 @@ import uk.ac.manchester.tornado.api.types.arrays.IntArray;
  * Statistics of a set of gradients in one operator: stats = [norm, factor, skip] where norm is the
  * global L2 norm of the gradients times {@code preScale} (a loss scaler's 1 / scale, or 1),
  * factor = preScale times the clip coefficient min(1, maxNorm / (norm + 1e-6)) when clipping,
- * and skip = 1 when any gradient holds a NaN or infinity (tested on the bit pattern). One
- * work-group per gradient, eight gradients per launch, and one combining thread. Inputs [preScale, g_1 .. g_P]; iattr = [P,
+ * and skip = 1 when any gradient holds a NaN or infinity (tested on the bit pattern). Each
+ * gradient is split over up to 128 work-groups, eight gradients per launch, and one work-group
+ * combines the partial sums. Inputs [preScale, g_1 .. g_P]; iattr = [P,
  * clip]; fattr = [maxNorm].
  */
 public final class GradStats implements Op {
@@ -53,8 +54,14 @@ public final class GradStats implements Op {
         float maxNorm = n.fattr[0];
         FloatArray preScale = e.f32(n.in(0));
         FloatArray stats = e.f32(n.out(0));
-        FloatArray partial = e.scratch(2 * count);
         int per = MultiTensorKernels.STATS_SLOTS;
+        // pieces per gradient: about 32 elements per thread of the largest, at most 128 groups each
+        long largest = 1;
+        for (int i = 1; i <= count; i++) {
+            largest = Math.max(largest, n.in(i).numel());
+        }
+        int chunks = (int) Math.max(1, Math.min(128, (largest + 256L * 32 - 1) / (256L * 32)));
+        FloatArray partial = e.scratch(2 * count * chunks);
         for (int start = 0; start < count; start += per) {
             // up to 8 gradients per launch, one work-group each; unused slots have size 0
             FloatArray[] g = new FloatArray[per];
@@ -66,10 +73,11 @@ public final class GradStats implements Op {
             }
             IntArray sz = e.constant(sizes);
             int slot0 = start;
-            e.task(Emitter.blocks1D(per, 256), (tg, id) -> tg.task(id, MultiTensorKernels::sumSquaresFinite, e.context(), g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7],
-                    partial, sz, slot0));
+            e.task(Emitter.blocks1D(per * chunks, 256), (tg, id) -> tg.task(id, MultiTensorKernels::sumSquaresFinite, e.context(), g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7],
+                    partial, sz, slot0, chunks));
         }
-        e.task(Emitter.grid1D(1), (tg, id) -> tg.task(id, LowPrecision::gradStats, e.context(), partial, preScale, stats, count, maxNorm, clip));
+        int partials = count * chunks;
+        e.task(Emitter.blocks1D(1, LowPrecision.STATS_GROUP), (tg, id) -> tg.task(id, LowPrecision::gradStats, e.context(), partial, preScale, stats, partials, maxNorm, clip));
     }
 
     @Override
