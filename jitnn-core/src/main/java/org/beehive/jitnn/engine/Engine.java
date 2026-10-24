@@ -99,9 +99,12 @@ public final class Engine {
         }
     }
 
+    /** Set while {@link #capture} records: operators are kept, never run, on every backend. */
+    private static final ThreadLocal<Boolean> CAPTURING = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
     /** Records a node: executes it now on REFERENCE, defers it on TORNADO. */
     public static void record(Node node) {
-        if (backend() == Backend.REFERENCE) {
+        if (backend() == Backend.REFERENCE && !CAPTURING.get()) {
             ReferenceExecutor.run(node);
         } else {
             Trace.record(node);
@@ -131,6 +134,9 @@ public final class Engine {
 
     /** Runs everything recorded on this thread, fetching {@code wanted} to the host. */
     public static void sync(Tensor... wanted) {
+        if (CAPTURING.get()) {
+            throw new IllegalStateException("the code being captured reads a tensor, which would run the operators being captured");
+        }
         List<Node> nodes = Trace.drain();
         if (!nodes.isEmpty()) {
             TornadoExecutor.run(nodes, wanted);
@@ -142,13 +148,20 @@ public final class Engine {
 
     /**
      * Runs {@code body} and returns the operators it recorded on this thread without running them
-     * (anything recorded before is run first). For tools that inspect or replay a model's
-     * operators, such as the kernel benchmark; the returned operators' outputs are never computed.
+     * (anything recorded before is run first), on either backend. For tools that inspect, replay
+     * or export a model's operators, such as the kernel benchmark and the ONNX export; the returned
+     * operators' outputs are never computed, and reading a tensor inside {@code body} is an error.
      */
     public static List<Node> capture(Runnable body) {
         sync();
-        body.run();
-        return Trace.drain();
+        CAPTURING.set(Boolean.TRUE);
+        try {
+            body.run();
+            return Trace.drain();
+        } finally {
+            CAPTURING.set(Boolean.FALSE);
+            Trace.drain();
+        }
     }
 
     /** Number of operators recorded and not yet run on this thread. */

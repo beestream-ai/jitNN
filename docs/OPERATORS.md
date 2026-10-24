@@ -359,6 +359,13 @@ There are no integer kernels yet: an INT8 file runs at about the speed of the FP
 slower (dynamic quantisation, which finds each activation's range with a reduction per call).
 `scripts/onnx/int8_onnx.py` makes these files and ONNX Runtime's references.
 
+### Export
+
+`OnnxExport` writes jitNN models as ONNX files (see USAGE.md, "Exporting to ONNX"). It maps
+linear, matmul, convolution, pooling, BatchNorm, LayerNorm and RMSNorm, attention (fused and
+softmax forms), RoPE, embedding, element-wise, reduction, softmax, slicing, concatenation,
+transposition, cast, dropout and fake-quantisation operators.
+
 ## TensorFlow models (`jitnn-tf`)
 
 `TfModel.load(path)` reads a SavedModel directory (TensorFlow 2, Keras `export` or

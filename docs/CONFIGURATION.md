@@ -154,6 +154,7 @@ latter through `jitnn.test.extra`).
 | `jitnn.mnist` | empty | MNIST directory; the MNIST gate is skipped when empty |
 | `jitnn.cifar10` | empty | directory holding `cifar-10-batches-bin`; the CIFAR-10 gates are skipped when empty |
 | `jitnn.text` | empty | directory holding `corpus.txt` and the transformer references; the transformer gates are skipped when empty |
+| `jitnn.onnx.exportDir` | empty | `OnnxExportTest` and `OnnxExportAccelTest` keep the exported files, inputs and outputs there for `scripts/onnx/check_export.py` |
 | `jitnn.hf` | empty | directory written by `scripts/hf/hf_reference.py` (gpt2, bert-base-uncased and their references); `HfAccelTest` is skipped when empty |
 | `jitnn.transformer.steps` | 300 | training steps of the transformer gates (must match the PyTorch reference) |
 | `jitnn.dist.devices` | empty | comma-separated devices of the collective and data-parallel tests, one rank each, e.g. `0:0,1:0`; empty: two ranks on the test device |

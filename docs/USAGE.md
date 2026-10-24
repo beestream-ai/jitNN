@@ -211,6 +211,35 @@ Tensor pooled = bert.pooled(hidden);
 - PyTorch `.bin` checkpoints are not read; most models on the Hub also ship safetensors.
 - Llama-family checkpoints are not mapped: use jitllm for them.
 
+## Exporting to ONNX
+
+`OnnxExport` (in `jitnn-onnx`) writes a forward pass as an ONNX model (opset 20) for ONNX Runtime
+and other ONNX tools. The forward pass is recorded once on example inputs without running it.
+Parameters and other constants become initializers, and the example inputs become the graph
+inputs.
+
+```java
+model.train(false);
+OnnxExport.export(Path.of("resnet.onnx"), model::forward, Tensor.uniform(1, -1, 1, 1, 3, 224, 224));
+
+// several inputs, e.g. BERT with token types and a padding mask
+OnnxExport.export(Path.of("bert.onnx"), x -> bert.encode(x[0], x[1], x[2]),
+        new Tensor[] { ids, types, mask }, new String[] { "input_ids", "token_type_ids", "mask" }, "hidden");
+```
+
+- Shapes are fixed to those of the example inputs; there are no dynamic axes.
+- Weights are written in FP32. Files are limited by protobuf to 2 GB (no external data yet).
+- Every operator of the models in `jitnn-nn` is mapped, including MLPs, ResNet, MobileNetV2,
+  GPT-2, BERT (with masks, pooler and MLM head) and Llama (RoPE). Attention becomes
+  `MatMul`/`Softmax`, and RMSNorm its arithmetic. An operator without a mapping is reported by
+  name.
+- Code in the forward pass must not read tensors (no `item()` or `toFloatArray()`), as nothing
+  runs while it is recorded.
+- On an RTX 5070 Ti, ONNX Runtime on the exported Hugging Face `bert-base-uncased` and `gpt2`
+  agrees with jitNN within 2e-6 of the largest output. `OnnxExportTest` and
+  `OnnxExportAccelTest` check every model with jitNN's importer, and `scripts/onnx/check_export.py`
+  checks them with ONNX Runtime and `onnx.checker`.
+
 ## Mixed precision
 
 `Tensor.half()`, `bfloat16()` and `to(DType)` convert between FP32, FP16 and BF16 (round to

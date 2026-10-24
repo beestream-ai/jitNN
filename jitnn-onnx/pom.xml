@@ -24,6 +24,13 @@
             <artifactId>tornado-api</artifactId>
         </dependency>
         <dependency>
+            <!-- models to export in the tests -->
+            <groupId>io.github.beehive-lab</groupId>
+            <artifactId>jitnn-nn</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>
         </dependency>
