@@ -780,11 +780,15 @@ final class TornadoExecutor {
             Storage s = slots.get(i);
             Storage previous = ct.bound[i];
             if (previous != null && previous != s) {
-                if (previous.hostValid) {
-                    // Keep the host copy the user may still read: detach it from the plan's array.
-                    TornadoNativeArray own = Storage.newArray(previous.dtype, previous.numel);
+                if (previous.dropped) {
+                    // released by the user: nothing to keep
+                } else if (previous.hostValid) {
+                    // Keep the host copy the user may still read: detach it from the plan's array,
+                    // into a pooled array that returns when the tensor is released or collected.
+                    TornadoNativeArray own = HostPool.take(previous.dtype, previous.numel);
                     copy((TornadoNativeArray) previous.array, own);
                     previous.array = own;
+                    previous.lease = HostPool.lease(previous, own);
                 } else {
                     previous.stale = true;
                 }

@@ -24,7 +24,7 @@ import uk.ac.manchester.tornado.api.types.arrays.IntArray;
  * sync point ({@link #item()}, {@link #toFloatArray()}, {@link Engine#sync}). Tensors are always
  * contiguous and row-major; {@link #reshape} shares storage, {@link #permute} copies.
  */
-public final class Tensor {
+public final class Tensor implements AutoCloseable {
 
     private final Shape shape;
     private final Storage storage;
@@ -315,12 +315,26 @@ public final class Tensor {
     }
 
     /**
-     * Declares a persistent tensor (a weight) no longer used, as when its model is closed:
-     * compiled plans that use it can then run another model of the same structure without
-     * compiling again. Using the tensor afterwards is an error.
+     * Declares the tensor no longer used; using it, or a view of it, afterwards is an error.
+     *
+     * <ul>
+     * <li>A persistent tensor (a weight), as when its model is closed: compiled plans that use it can
+     * then run another model of the same structure without compiling again.</li>
+     * <li>Any other tensor, typically an output once read: its contents are dropped. When its plan
+     * runs again they need not be copied out of the plan's buffer first, and a host array of its own
+     * goes back to a pool for later outputs. Serving loops that read each output and release it (or
+     * use try-with-resources) avoid an allocation and a copy per call; without it, the array is
+     * recycled only when the tensor is collected.</li>
+     * </ul>
      */
     public void release() {
         storage.release();
+    }
+
+    /** {@link #release()}, for try-with-resources. */
+    @Override
+    public void close() {
+        release();
     }
 
     public Node gradFn() {

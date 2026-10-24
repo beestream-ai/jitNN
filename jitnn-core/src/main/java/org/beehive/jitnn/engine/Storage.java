@@ -63,6 +63,10 @@ public final class Storage {
     boolean released;
     /** A persistent storage some compiled plan binds (its array is that plan's buffer). */
     boolean planBound;
+    /** A non-persistent storage whose tensor was released ({@link #drop}): its contents are gone. */
+    boolean dropped;
+    /** The pool's claim on {@link #array} when the executor gave this storage an array of its own. */
+    HostPool.Lease lease;
 
     public Storage(DType dtype, int numel, boolean persistent) {
         this.dtype = dtype;
@@ -205,9 +209,10 @@ public final class Storage {
     }
 
     /**
-     * Declares that a persistent storage is no longer used (its model was closed). A compiled plan
-     * that binds it can then be reused for another model of the same structure without compiling
-     * again; using the storage afterwards is an error.
+     * Declares that the storage is no longer used. A persistent storage (its model was closed): a
+     * compiled plan that binds it can then be reused for another model of the same structure without
+     * compiling again. Any other storage drops its contents ({@link #drop}). Using the storage
+     * afterwards is an error.
      */
     public void release() {
         if (persistent) {
@@ -216,6 +221,32 @@ public final class Storage {
                 Engine.sync();
             }
             released = true;
+        } else {
+            drop();
+        }
+    }
+
+    /**
+     * Drops the contents of a non-persistent storage whose tensors the user no longer needs
+     * ({@code Tensor.release}): an output no longer needs copying out of its plan's buffer when the
+     * plan runs again, and an array of its own goes back to the pool. Reading it afterwards is an
+     * error. Persistent storages (weights) are released with their model instead: nothing happens.
+     */
+    public void drop() {
+        if (persistent || dropped) {
+            return;
+        }
+        // work recorded before the release may still read it
+        if (Engine.pending() > 0) {
+            Engine.sync();
+        }
+        dropped = true;
+        hostValid = false;
+        heap = null;
+        array = null;
+        if (lease != null) {
+            lease.run();
+            lease = null;
         }
     }
 

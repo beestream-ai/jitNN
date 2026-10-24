@@ -90,9 +90,11 @@ class InferenceBenchAccelTest {
         if (!name.contains(System.getProperty("jitnn.bench.only", ""))) {
             return;
         }
+        // as a serving loop does: the output is fetched to the host, read, and released
         Supplier<Object> call = () -> {
             Tensor y = forward.get();
             Engine.sync(y);
+            y.release();
             return y;
         };
         long c0 = System.nanoTime();

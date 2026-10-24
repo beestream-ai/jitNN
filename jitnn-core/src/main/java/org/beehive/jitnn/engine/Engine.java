@@ -157,6 +157,9 @@ public final class Engine {
     }
 
     static void ensureHost(Storage s) {
+        if (s.dropped) {
+            throw new IllegalStateException("tensor data is gone: the tensor was released (Tensor.release or close)");
+        }
         if (s.stale) {
             throw new IllegalStateException("tensor data is gone: its buffer was reused, by a later execution of the same trace or by a later "
                     + "tensor of the same trace once nothing needed it; pass the tensor to the sync that runs it (Engine.sync(t), t.item()) or read it before "
