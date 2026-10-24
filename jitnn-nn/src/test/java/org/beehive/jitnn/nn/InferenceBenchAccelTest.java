@@ -46,6 +46,14 @@ class InferenceBenchAccelTest {
     }
 
     /** The deterministic inputs t1.py builds: pixels in [-1, 1) and token ids spread over the vocabulary. */
+    static uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray half(float[] x) {
+        var h = new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(x.length);
+        for (int i = 0; i < x.length; i++) {
+            h.set(i, new uk.ac.manchester.tornado.api.types.HalfFloat(x[i]));
+        }
+        return h;
+    }
+
     static float[] images(int n) {
         float[] x = new float[n];
         for (int i = 0; i < n; i++) {
@@ -241,10 +249,12 @@ class InferenceBenchAccelTest {
         for (String mode : new String[] { "fp32", "fp16h" }) {
             for (int b : new int[] { 1, 32, 128 }) {
                 float[] x = images(b * 3 * 224 * 224);
+                // FP16 runs take an FP16 image, as PyTorch and ONNX Runtime do in t1.py
+                uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray xh = mode.equals("fp16h") ? half(x) : null;
                 String name = "resnet50_b" + b + "_" + mode;
                 Supplier<Tensor> forward = () -> Grad.inference(() -> {
                     try (Grad.Scope ignored = mode.equals("fp16h") ? Autocast.enableHalf() : null) {
-                        return model.forward(Tensor.wrap(x, b, 3, 224, 224));
+                        return model.forward(xh != null ? Tensor.of(xh, b, 3, 224, 224) : Tensor.wrap(x, b, 3, 224, 224));
                     }
                 });
                 if (Boolean.getBoolean("jitnn.bench.split")) {

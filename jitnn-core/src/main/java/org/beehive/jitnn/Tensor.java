@@ -63,6 +63,18 @@ public final class Tensor {
         return new Tensor(s, Storage.ofHeap(data, DType.F32, data.length));
     }
 
+    /**
+     * An FP16 input over {@code data}, held without a copy (an FP16 image batch for half-precision
+     * inference, say): plans read it as they read any host input.
+     */
+    public static Tensor of(uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray data, int... dims) {
+        Shape s = Shape.of(dims);
+        if (s.numel() != data.getSize() || data.getSize() == 0) {
+            throw new IllegalArgumentException(data.getSize() + " values for shape " + s);
+        }
+        return new Tensor(s, Storage.ofHost(data, DType.F16, false));
+    }
+
     /** {@link #wrap(float[], int...)} for int data. */
     public static Tensor wrap(int[] data, int... dims) {
         Shape s = dims.length == 0 && data.length != 1 ? Shape.of(data.length) : Shape.of(dims);
