@@ -21,8 +21,8 @@ import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
  * Channels-last inference for convolutions a library runs channels-last (cuDNN on CUDA, MLX on Metal). Tensors keep
  * their NCHW shape, but those that only convolutions and same-shape element-wise operators read and
  * write are stored [N, H, W, C]: the convolution reads and writes them directly, the element-wise
- * operators do not care, and a layout conversion runs only where an operator needs NCHW (pooling,
- * convolutions on jitNN's kernels, outputs). Without the pass, every library convolution transposes
+ * operators and pooling do not care, and a layout conversion runs only where an operator needs NCHW
+ * (convolutions on jitNN's kernels, other reshapes and reductions, outputs). Without the pass, every library convolution transposes
  * its input and output. {@code -Djitnn.channelsLast=false} turns it off.
  */
 public final class ChannelsLast {
@@ -35,6 +35,7 @@ public final class ChannelsLast {
     static final Winograd WINOGRAD = new Winograd();
     static final Layout TO_HALF = new Layout(2);
     static final AddBias ADD_BIAS = new AddBias();
+    static final Pool POOL = new Pool();
 
     /** iattr index (after Conv2d's) set to 1 when the convolution's weight is a channels-last copy. */
     private static final int WEIGHT_LAST = 14;
@@ -126,6 +127,13 @@ public final class ChannelsLast {
                 written.add(t.storage());
             }
         }
+        // storages some operator reads (a max pooling's argmax nobody reads is not computed)
+        Set<Storage> read = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Node n : nodes) {
+            for (Tensor t : n.inputs) {
+                read.add(t.storage());
+            }
+        }
         // storages holding [N, H, W, C] data, and the converted copies made so far
         Set<Storage> last = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         IdentityHashMap<Storage, Tensor> asLast = new IdentityHashMap<>();
@@ -185,6 +193,15 @@ public final class ChannelsLast {
                     last.add(y.storage());
                     dims.put(y.storage(), yd);
                 }
+                continue;
+            }
+            if (n.op == Pool2d.OP && last.contains(n.in(0).storage()) && !pinned(n.out(0), wanted)
+                    && (n.outputs.length == 1 || !read.contains(n.out(1).storage()) && !wanted.contains(n.out(1).storage()))) {
+                // pooling on [N, H, W, C] data, without the argmax (inference)
+                int[] a = n.iattr;
+                out.add(new Node(POOL, new Tensor[] { n.in(0) }, new Tensor[] { n.out(0) }, java.util.Arrays.copyOf(a, 11), null, true));
+                last.add(n.out(0).storage());
+                dims.put(n.out(0).storage(), new int[] { a[0], a[1], a[4] * a[5] });
                 continue;
             }
             boolean anyLast = false;
@@ -268,10 +285,10 @@ public final class ChannelsLast {
     }
 
     /**
-     * The bias and ReLU of a channels-last MLX convolution moved into its only reader, so no pass of
-     * their own runs: a residual add that already takes one convolution's bias takes this one's as a
-     * second, the input transform of a Winograd convolution applies them as it reads, and a conversion
-     * back to NCHW applies them as it writes.
+     * The bias and ReLU of a channels-last library convolution moved into its only reader, so no pass
+     * of their own runs: a residual add that already takes one convolution's bias takes this one's as
+     * a second, the input transform of a Winograd convolution applies them as it reads, a max pooling
+     * applies them to its maxima, and a conversion back to NCHW applies them as it writes.
      */
     private static List<Node> deferEpilogues(List<Node> nodes, Set<Storage> wanted) {
         IdentityHashMap<Storage, Integer> uses = new IdentityHashMap<>();
@@ -306,6 +323,11 @@ public final class ChannelsLast {
                 Tensor[] rin = java.util.Arrays.copyOf(r.inputs, r.inputs.length + 1);
                 rin[rin.length - 1] = bias;
                 replaced = new Node(WINOGRAD, rin, r.outputs, ra, r.fattr, true);
+            } else if (r.op == POOL && r.iattr[9] == 0 && r.iattr[10] == 0 && r.inputs.length == 1 && r.in(0).storage() == y) {
+                int[] ra = r.iattr.clone();
+                ra[10] = (hasBias ? GemmKernels.BIAS : 0) | (c.iattr[RELU] != 0 ? GemmKernels.RELU : 0);
+                Tensor[] rin = hasBias ? new Tensor[] { r.in(0), bias } : new Tensor[] { r.in(0) };
+                replaced = new Node(POOL, rin, r.outputs, ra, r.fattr, true);
             } else if (r.op == TO_FIRST && r.inputs.length == 1 && r.in(0).storage() == y) {
                 int ep = (hasBias ? GemmKernels.BIAS : 0) | (c.iattr[RELU] != 0 ? GemmKernels.RELU : 0);
                 int[] ra = java.util.Arrays.copyOf(r.iattr, 4);
@@ -631,6 +653,38 @@ public final class ChannelsLast {
      * out = y + bias[c] + other (+ bias2[c]) (+ ReLU) on channels-last tensors: inputs [y, other, bias
      * (, bias2)], iattr [C, relu].
      */
+    /**
+     * {@link Pool2d} forward on [N, H, W, C] input and output, without the argmax: iattr as Pool2d's,
+     * then the bias and ReLU of the producing convolution for max pooling (iattr[10], bias input 1).
+     */
+    static final class Pool implements Op {
+
+        @Override
+        public String name() {
+            return "pool2d_channels_last";
+        }
+
+        @Override
+        public void emit(Emitter e, Node n) {
+            int[] a = n.iattr;
+            int c = a[1], h = a[2], w = a[3], oh = a[4], ow = a[5], k = a[6], st = a[7], pd = a[8], ep = a[10];
+            int total = n.out(0).numel();
+            FloatArray x = e.f32(n.in(0));
+            FloatArray y = e.f32(n.out(0));
+            if (a[9] == 0) {
+                FloatArray b = n.inputs.length > 1 ? e.f32(n.in(1)) : e.dummyF32();
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, org.beehive.jitnn.kernels.PoolKernels::maxForwardLast, e.context(), x, y, b, c, h, w, oh, ow, k, st, pd, total, ep));
+            } else {
+                e.task(Emitter.grid1D(total), (g, id) -> g.task(id, org.beehive.jitnn.kernels.PoolKernels::avgForwardLast, e.context(), x, y, c, h, w, oh, ow, k, st, pd, total));
+            }
+        }
+
+        @Override
+        public void reference(Node n) {
+            throw new UnsupportedOperationException(name() + " runs only in compiled plans");
+        }
+    }
+
     static final class AddBias implements Op {
 
         @Override

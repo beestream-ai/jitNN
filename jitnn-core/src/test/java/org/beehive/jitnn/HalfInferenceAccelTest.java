@@ -144,6 +144,26 @@ class HalfInferenceAccelTest {
     }
 
     /**
+     * ResNet's stem: the 7x7 convolution, its batch norm and ReLU, 3x3 max pooling, then a bottleneck;
+     * with cuDNN or MLX the pooling runs channels-last and applies the stem's bias and ReLU to its maxima.
+     * Average pooling the same way.
+     */
+    @Test
+    void stemPooling() {
+        for (boolean max : new boolean[] { true, false }) {
+            Supplier<Tensor> model = () -> {
+                Tensor x = convBn(Tensor.uniform(55, -1, 1, 2, 3, 64, 64), 64, 7, 2, 56, true);
+                x = max ? F.maxPool2d(x, 3, 2, 1) : F.avgPool2d(x, 3, 2, 1);
+                Tensor y = convBn(x, 32, 1, 1, 57, true);
+                y = convBn(y, 32, 3, 1, 58, true);
+                y = convBn(y, 64, 1, 1, 59, false);
+                return x.add(y).relu();
+            };
+            close(run(Backend.REFERENCE, false, model), run(Backend.TORNADO, true, model), 2e-2, 2e-2, (max ? "max" : "average") + " pooling after the stem in FP16");
+        }
+    }
+
+    /**
      * A bottleneck whose 3x3 convolution has the shape jitNN runs as Winograd F(4x4) (128 channels,
      * 4 x 32 x 32), with a projection shortcut: with MLX on Metal it runs channels-last between MLX's 1x1
      * convolutions, their biases applied by the Winograd input transform and the residual add; in FP32
