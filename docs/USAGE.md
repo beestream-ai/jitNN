@@ -263,6 +263,34 @@ OnnxExport.export(Path.of("bert.onnx"), x -> bert.encode(x[0], x[1], x[2]),
   `OnnxExportAccelTest` check every model with jitNN's importer, and `scripts/onnx/check_export.py`
   checks them with ONNX Runtime and `onnx.checker`.
 
+## Data loading
+
+`DataLoader` batches a `Dataset` (`Mnist`, `Cifar10`, or arrays through `Dataset.of(x, y, shape...)`)
+as PyTorch's `DataLoader` does:
+
+```java
+Transforms.Transform aug = Transforms.randomCrop(4).then(Transforms.randomHorizontalFlip())
+        .then(Transforms.normalize(new float[] { 0.49f, 0.48f, 0.45f }, new float[] { 0.25f, 0.24f, 0.26f }));
+try (DataLoader loader = DataLoader.builder(Cifar10.load(dir, true), 128).shuffle(42).transform(aug).workers(4).build()) {
+    for (int epoch = 0; epoch < epochs; epoch++) {
+        for (DataLoader.Batch b : loader.epoch(epoch)) {
+            Tensor loss = F.crossEntropy(model.forward(b.x()), b.y());
+            ...
+        }
+    }
+}
+```
+
+- Every epoch is reshuffled from the seed and the epoch number. `dropLast(true)` leaves out a
+  short last batch.
+- Transforms run per sample on the host while the batch is assembled: `randomCrop(pad)`,
+  `randomHorizontalFlip()`, `normalize(mean, std)`, or your own `Transform`.
+- With `workers(n)`, threads assemble the next `prefetch` batches (default 2) while the device
+  works on the current one.
+- Batches come out in order and are the same for any number of workers. Shuffling and transforms
+  draw from random streams derived from the seed, the epoch and the sample, so a run is
+  reproducible.
+
 ## Mixed precision
 
 `Tensor.half()`, `bfloat16()` and `to(DType)` convert between FP32, FP16 and BF16 (round to

@@ -71,4 +71,10 @@ public final class Cifar10 implements Dataset {
         System.arraycopy(images, b * size * PIXELS, x, 0, size * PIXELS);
         System.arraycopy(labels, b * size, y, 0, size);
     }
+
+    @Override
+    public void sample(int i, float[] x, int xAt, int[] y, int yAt) {
+        System.arraycopy(images, i * PIXELS, x, xAt, PIXELS);
+        y[yAt] = labels[i];
+    }
 }
