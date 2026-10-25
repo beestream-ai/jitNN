@@ -470,6 +470,10 @@ public final class F {
      */
     public static Tensor scaledDotProductAttention(Tensor q, Tensor k, Tensor v, Tensor mask, boolean causal, float scale) {
         float s = scale < 0 ? (float) (1.0 / Math.sqrt(q.dim(-1))) : scale;
+        if (q.rank() == 4 && k.rank() == 4 && k.dim(1) != q.dim(1)) {
+            k = repeatHeads(k, q.dim(1), 1);
+            v = repeatHeads(v, q.dim(1), 1);
+        }
         if (FUSED_ATTENTION && FlashAttention.supports(q, k, v)) {
             return FlashAttention.apply(q, k, v, mask, causal, s);
         }
@@ -517,11 +521,40 @@ public final class F {
      */
     public static Tensor scaledDotProductAttentionBTHD(Tensor q, Tensor k, Tensor v, Tensor mask, boolean causal, float scale) {
         float s = scale < 0 ? (float) (1.0 / Math.sqrt(q.dim(-1))) : scale;
-        if (FUSED_ATTENTION && q.dtype() == DType.F32 && q.dim(-1) <= FlashAttention.MAX_HEAD && k.shape().equals(v.shape())) {
+        if (q.rank() == 4 && k.rank() == 4 && k.dim(2) != q.dim(2)) {
+            k = repeatHeads(k, q.dim(2), 2);
+            v = repeatHeads(v, q.dim(2), 2);
+        }
+        if (FUSED_ATTENTION && (q.dtype() == DType.F32 || q.dtype() == DType.F16) && q.dim(-1) <= FlashAttention.MAX_HEAD && k.shape().equals(v.shape())) {
             return FlashAttention.bthd(q, k, v, mask, causal, s);
         }
         Tensor y = scaledDotProductAttention(q.permute(0, 2, 1, 3), k.permute(0, 2, 1, 3), v.permute(0, 2, 1, 3), mask, causal, s);
         return y.permute(0, 2, 1, 3);
+    }
+
+    /**
+     * Grouped-query attention: the key or value heads at {@code axis} repeated so each serves
+     * {@code heads / x.dim(axis)} consecutive query heads (PyTorch's enable_gqa; query head h reads
+     * key head h / group). The gradient sums over each group.
+     */
+    static Tensor repeatHeads(Tensor x, int heads, int axis) {
+        int kv = x.dim(axis);
+        if (heads % kv != 0) {
+            throw new IllegalArgumentException("grouped-query attention: " + heads + " query heads over " + kv + " key/value heads");
+        }
+        int[] d = x.shape().dims();
+        int[] split = new int[d.length + 1];
+        int[] out = d.clone();
+        for (int i = 0, j = 0; i < d.length; i++) {
+            split[j++] = d[i];
+            if (i == axis) {
+                split[j++] = 1;
+            }
+        }
+        int[] big = split.clone();
+        big[axis + 1] = heads / kv;
+        out[axis] = heads;
+        return x.reshape(split).expand(Shape.of(big)).reshape(out);
     }
 
     /** Rotary position embedding of x [..., T, H, D] (the heads of a token share its position); see {@link #rope}. */

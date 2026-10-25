@@ -1,5 +1,7 @@
 package org.beehive.jitnn.nn.models;
 
+import java.nio.file.Path;
+
 import org.beehive.jitnn.F;
 import org.beehive.jitnn.Tensor;
 import org.beehive.jitnn.nn.Embedding;
@@ -11,7 +13,9 @@ import org.beehive.jitnn.nn.RMSNorm;
  * A Llama-style decoder: token embedding, pre-RMSNorm blocks of causal attention with rotary
  * position embedding (rotate-half form) and a SwiGLU feed-forward, a final RMSNorm and an untied
  * output projection; no biases. Seeds are handed out in construction order
- * (scripts/pytorch/transformers.py builds the same model).
+ * (scripts/pytorch/transformers.py builds the same model). With fewer key/value heads than query
+ * heads the attention is grouped-query (GQA), as Llama 2 70B and Llama 3; {@link #fromHuggingFace}
+ * builds a model from a Hugging Face Llama checkpoint.
  */
 public final class Llama extends Module {
 
@@ -19,6 +23,7 @@ public final class Llama extends Module {
     private final Block[] blocks;
     private final RMSNorm norm;
     private final Linear output;
+    /** The output projection is the token embedding (tied), when output is null. */
 
     private boolean checkpointing;
 
@@ -32,14 +37,83 @@ public final class Llama extends Module {
     }
 
     public Llama(int vocab, int dim, int heads, int layers, int hidden, float ropeBase, long seed) {
+        this(vocab, dim, heads, heads, layers, hidden, ropeBase, 1e-5f, false, false, seed);
+    }
+
+    /**
+     * A Llama with {@code kvHeads} key/value heads (grouped-query attention when fewer than
+     * {@code heads}), RMSNorm epsilon {@code eps}, the output projection tied to the token
+     * embedding when {@code tied}, and biases on the q, k and v projections when {@code qkvBias}.
+     */
+    public Llama(int vocab, int dim, int heads, int kvHeads, int layers, int hidden, float ropeBase, float eps, boolean tied, boolean qkvBias, long seed) {
+        if (heads % kvHeads != 0 || dim % heads != 0) {
+            throw new IllegalArgumentException("Llama: " + heads + " heads over " + kvHeads + " key/value heads, dimension " + dim);
+        }
         Seeds seeds = new Seeds(seed);
         this.tokens = child(new Embedding(Init.uniformStd(seeds.next(), 0.02f, vocab, dim), -1));
         this.blocks = new Block[layers];
         for (int i = 0; i < layers; i++) {
-            blocks[i] = child(new Block(dim, heads, hidden, ropeBase, seeds));
+            blocks[i] = child(new Block(dim, heads, kvHeads, hidden, ropeBase, eps, qkvBias, seeds));
         }
-        this.norm = child(new RMSNorm(dim, 1e-5f));
-        this.output = child(new Linear(dim, vocab, false, seeds.next()));
+        this.norm = child(new RMSNorm(dim, eps));
+        this.output = tied ? null : child(new Linear(dim, vocab, false, seeds.next()));
+    }
+
+    /**
+     * A Llama from a Hugging Face checkpoint directory (config.json and safetensors, as
+     * {@link HfCheckpoint}): model_type llama (or mistral without a sliding window, qwen2 with its
+     * q, k, v biases), grouped-query attention, tied or separate output weights. RoPE scaling
+     * (Llama 3.1 and later) and a head dimension other than hidden_size / heads are not supported.
+     */
+    public static Llama fromHuggingFace(Path dir) {
+        HfCheckpoint w = HfCheckpoint.open(dir);
+        String type = w.configString("model_type", "llama");
+        if (!type.equals("llama") && !type.equals("mistral") && !type.equals("qwen2")) {
+            throw new IllegalArgumentException("model_type " + type + " is not supported (llama, mistral, qwen2 are)");
+        }
+        if (w.config().get("rope_scaling") != null) {
+            throw new IllegalArgumentException("rope_scaling is not supported");
+        }
+        if (w.config().get("sliding_window") != null && !type.equals("qwen2") || Boolean.TRUE.equals(w.config().get("use_sliding_window"))) {
+            throw new IllegalArgumentException("sliding-window attention is not supported");
+        }
+        if (!w.configString("hidden_act", "silu").equals("silu")) {
+            throw new IllegalArgumentException("activation " + w.configString("hidden_act", "silu") + " is not supported (silu is)");
+        }
+        int dim = w.configInt("hidden_size");
+        int heads = w.configInt("num_attention_heads");
+        int kvHeads = w.config().containsKey("num_key_value_heads") ? w.configInt("num_key_value_heads") : heads;
+        if (w.config().get("head_dim") != null && w.configInt("head_dim") != dim / heads) {
+            throw new IllegalArgumentException("head_dim " + w.configInt("head_dim") + " other than hidden_size / heads is not supported");
+        }
+        boolean tied = Boolean.TRUE.equals(w.config().get("tie_word_embeddings")) || !w.has("lm_head.weight");
+        boolean bias = type.equals("qwen2") || Boolean.TRUE.equals(w.config().get("attention_bias"));
+        Llama m = new Llama(w.configInt("vocab_size"), dim, heads, kvHeads, w.configInt("num_hidden_layers"), w.configInt("intermediate_size"),
+                w.configFloat("rope_theta", 10000f), w.configFloat("rms_norm_eps", 1e-6f), tied, bias, 0);
+        w.load(m.tokens.weight(), "model.embed_tokens.weight");
+        for (int i = 0; i < m.blocks.length; i++) {
+            Block b = m.blocks[i];
+            String l = "model.layers." + i + ".";
+            w.load(b.attnNorm.weight(), l + "input_layernorm.weight");
+            w.load(b.wq.weight(), l + "self_attn.q_proj.weight");
+            w.load(b.wk.weight(), l + "self_attn.k_proj.weight");
+            w.load(b.wv.weight(), l + "self_attn.v_proj.weight");
+            if (bias) {
+                w.load(b.wq.bias(), l + "self_attn.q_proj.bias");
+                w.load(b.wk.bias(), l + "self_attn.k_proj.bias");
+                w.load(b.wv.bias(), l + "self_attn.v_proj.bias");
+            }
+            w.load(b.wo.weight(), l + "self_attn.o_proj.weight");
+            w.load(b.ffnNorm.weight(), l + "post_attention_layernorm.weight");
+            w.load(b.w1.weight(), l + "mlp.gate_proj.weight");
+            w.load(b.w3.weight(), l + "mlp.up_proj.weight");
+            w.load(b.w2.weight(), l + "mlp.down_proj.weight");
+        }
+        w.load(m.norm.weight(), "model.norm.weight");
+        if (m.output != null) {
+            w.load(m.output.weight(), "lm_head.weight");
+        }
+        return m;
     }
 
     /** Logits [B, T, vocab] for INT32 tokens [B, T]. */
@@ -49,7 +123,8 @@ public final class Llama extends Module {
         for (Block b : blocks) {
             x = checkpointing ? org.beehive.jitnn.Grad.checkpoint(in -> b.forward(in[0]), x) : b.forward(x);
         }
-        return output.forward(norm.forward(x));
+        Tensor h = norm.forward(x);
+        return output != null ? output.forward(h) : F.linear(h, tokens.weight(), null);
     }
 
     static final class Block extends Module {
@@ -64,17 +139,20 @@ public final class Llama extends Module {
         private final Linear w3;
         private final Linear w2;
         private final int heads;
+        private final int kvHeads;
         private final float ropeBase;
 
-        Block(int dim, int heads, int hidden, float ropeBase, Seeds seeds) {
+        Block(int dim, int heads, int kvHeads, int hidden, float ropeBase, float eps, boolean qkvBias, Seeds seeds) {
             this.heads = heads;
+            this.kvHeads = kvHeads;
             this.ropeBase = ropeBase;
-            this.attnNorm = child(new RMSNorm(dim, 1e-5f));
-            this.wq = child(new Linear(dim, dim, false, seeds.next()));
-            this.wk = child(new Linear(dim, dim, false, seeds.next()));
-            this.wv = child(new Linear(dim, dim, false, seeds.next()));
+            int kvDim = dim / heads * kvHeads;
+            this.attnNorm = child(new RMSNorm(dim, eps));
+            this.wq = child(new Linear(dim, dim, qkvBias, seeds.next()));
+            this.wk = child(new Linear(dim, kvDim, qkvBias, seeds.next()));
+            this.wv = child(new Linear(dim, kvDim, qkvBias, seeds.next()));
             this.wo = child(new Linear(dim, dim, false, seeds.next()));
-            this.ffnNorm = child(new RMSNorm(dim, 1e-5f));
+            this.ffnNorm = child(new RMSNorm(dim, eps));
             this.w1 = child(new Linear(dim, hidden, false, seeds.next()));
             this.w3 = child(new Linear(dim, hidden, false, seeds.next()));
             this.w2 = child(new Linear(hidden, dim, false, seeds.next()));
@@ -88,8 +166,8 @@ public final class Llama extends Module {
             Tensor n = attnNorm.forward(x);
             // [B, T, H, hd] views of the projections: no permutes around attention
             Tensor q = F.ropeHeads(wq.forward(n).reshape(b, t, heads, -1), ropeBase, 0, false);
-            Tensor k = F.ropeHeads(wk.forward(n).reshape(b, t, heads, -1), ropeBase, 0, false);
-            Tensor v = wv.forward(n).reshape(b, t, heads, -1);
+            Tensor k = F.ropeHeads(wk.forward(n).reshape(b, t, kvHeads, -1), ropeBase, 0, false);
+            Tensor v = wv.forward(n).reshape(b, t, kvHeads, -1);
             Tensor y = F.scaledDotProductAttentionBTHD(q, k, v, null, true, -1.0f);
             x = x.add(wo.forward(y.reshape(b, t, dim)));
             Tensor m = ffnNorm.forward(x);

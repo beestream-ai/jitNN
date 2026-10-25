@@ -14,6 +14,7 @@ import org.beehive.jitnn.Tensor;
 import org.beehive.jitnn.engine.Engine;
 import org.beehive.jitnn.nn.models.Bert;
 import org.beehive.jitnn.nn.models.GPT2;
+import org.beehive.jitnn.nn.models.Llama;
 import org.beehive.jitnn.nn.models.ResNet;
 import org.beehive.jitnn.nn.optim.Adam;
 import org.beehive.jitnn.nn.optim.GradScaler;
@@ -56,6 +57,7 @@ class HalfTrainingAccelTest {
                     Bert b = (Bert) m;
                     return F.crossEntropy(b.pooled(b.encode(ids, null, null)).narrow(1, 0, 10), labels4);
                 }),
+                new Case("Llama GQA", () -> new Llama(97, 128, 4, 2, 2, 256, 10000f, 1e-5f, false, false, 9), m -> ActivationCheckpointRun.lmLoss(m.forward(ids), next)),
                 new Case("ResNet-18", () -> ResNet.resnet18(3, 10, true, 5), m -> F.crossEntropy(m.forward(images), labels)));
     }
 

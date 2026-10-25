@@ -53,7 +53,7 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 | Embedding, with a padding index | `gatherRows` | deterministic segment sum `segmentSumRows` over indices grouped on the host (no atomics) |
 | LayerNorm, RMSNorm over the last axis | `NormKernels.rowNormForward` (one work-group per row) | `rowNormBackward`, parameter gradients by `rowNormParamPartials` + `sumPartials` (deterministic) |
 | Batched matmul: equal batch dimensions, or one shared matrix | `GemmKernels.gemm64Batched` (generated, batch folded into the grid's y) | batched products; a shared matrix's gradient summed over the batch |
-| Scaled dot-product attention: causal (PyTorch's top-left alignment) and additive masks; multi-head self-attention | batched GEMMs + `SoftmaxKernels.attentionSoftmaxRows` (scale and causal limit fused) | `attentionSoftmaxBackwardRows` and the GEMM gradients |
+| Scaled dot-product attention: causal (PyTorch's top-left alignment) and additive masks, grouped-query attention (fewer key/value heads, as `enable_gqa`); multi-head self-attention | batched GEMMs + `SoftmaxKernels.attentionSoftmaxRows` (scale and causal limit fused) | `attentionSoftmaxBackwardRows` and the GEMM gradients |
 | Rotary position embedding, rotate-half and interleaved, with a position offset | `ElementwiseKernels.rope` (cos/sin tables computed in double, cached on the device) | the same kernel rotating backwards |
 | Gradient clipping by global norm | `GradStats`, applied inside the optimiser update | |
 | Warm-up with linear or cosine decay | host | |

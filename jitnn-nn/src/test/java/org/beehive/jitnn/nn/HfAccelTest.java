@@ -18,6 +18,7 @@ import org.beehive.jitnn.engine.Engine;
 import org.beehive.jitnn.io.Json;
 import org.beehive.jitnn.nn.models.Bert;
 import org.beehive.jitnn.nn.models.GPT2;
+import org.beehive.jitnn.nn.models.Llama;
 import org.beehive.jitnn.nn.text.Tokenizer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -25,7 +26,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Hugging Face gpt2 and bert-base-uncased against transformers and the Rust tokenizers library.
- * Needs {@code -Djitnn.hf=<dir>} prepared by scripts/hf/hf_reference.py.
+ * Needs {@code -Djitnn.hf=<dir>} prepared by scripts/hf/hf_reference.py; the Llama-family models
+ * by scripts/hf/hf_llama_reference.py.
  */
 class HfAccelTest {
 
@@ -77,6 +79,24 @@ class HfAccelTest {
         close(floats("gpt2_logits.f32"), logits, 2e-4f, "gpt2 logits");
     }
 
+    /** SmolLM2-135M (llama, grouped-query attention) and Qwen2.5-0.5B (qwen2, q/k/v biases): logits and the next token's id. */
+    @Test
+    void llamaLogits() throws IOException {
+        assumeTrue(Files.exists(dir.resolve("llama_reference.json")), "run scripts/hf/hf_llama_reference.py");
+        Map<?, ?> all = (Map<?, ?>) Json.parse(dir.resolve("llama_reference.json"));
+        for (String name : List.of("smollm2-135m", "qwen2.5-0.5b")) {
+            Map<?, ?> ref = (Map<?, ?>) all.get(name);
+            int[] ids = ints(ref.get("ids"));
+            Llama model = Llama.fromHuggingFace(dir.resolve(name));
+            float[] logits = model.forward(Tensor.of(ids, 1, ids.length)).toFloatArray();
+            float[] expected = floats(name + "_logits.f32");
+            close(expected, logits, 2e-4f, name + " logits");
+            int vocab = logits.length / ids.length;
+            assertEquals(argmax(expected, (ids.length - 1) * vocab, vocab), argmax(logits, (ids.length - 1) * vocab, vocab), name + " next token");
+            Engine.reset();
+        }
+    }
+
     @Test
     void encoderOutputs() throws IOException {
         Map<?, ?> all = (Map<?, ?>) Json.parse(dir.resolve("reference.json"));
@@ -116,6 +136,14 @@ class HfAccelTest {
             assertEquals(ref.get("prediction"), tok.token(best), key + " prediction");
             Engine.reset();
         }
+    }
+
+    private static int argmax(float[] x, int from, int n) {
+        int best = 0;
+        for (int i = 1; i < n; i++) {
+            best = x[from + i] > x[from + best] ? i : best;
+        }
+        return best;
     }
 
     /** Max |e - a| within {@code tol} x max |e|. */

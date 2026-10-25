@@ -91,7 +91,7 @@ register their parameters:
 | `Embedding(count, dim, seed)`, with a padding index | lookups by INT32 indices; deterministic gradient |
 | `LayerNorm(features)`, `RMSNorm(features, eps)` | over the last axis |
 | `MultiheadAttention(dim, heads, bias, seed)` | self-attention on [B, T, D]; `forward(x, mask, causal)` |
-| `GPT2`, `Llama`, `Bert` in `nn.models` | a GPT-2 decoder, a Llama-style decoder (RMSNorm, RoPE, SwiGLU) and a BERT encoder with an MLM head |
+| `GPT2`, `Llama`, `Bert` in `nn.models` | a GPT-2 decoder, a Llama-style decoder (RMSNorm, RoPE, SwiGLU, grouped-query attention) and a BERT encoder with an MLM head |
 
 The functional forms are in `F`: `embedding`, `layerNorm`, `rmsNorm`, `scaledDotProductAttention`
 (causal and additive masks), `multiHeadAttention`, `rope`, `swiglu`, `multinomial`, and on
@@ -210,7 +210,7 @@ int epoch = in.intValue("epoch");
 
 ## Hugging Face models and tokenizers
 
-`GPT2.fromHuggingFace` and `Bert.fromHuggingFace` build a model from a Hugging Face model directory
+`GPT2.fromHuggingFace`, `Bert.fromHuggingFace` and `Llama.fromHuggingFace` build a model from a Hugging Face model directory
 (`config.json` and `model.safetensors`, or sharded safetensors with their index), as
 `huggingface-cli download` or `snapshot_download` leave it. `Tokenizer.load` reads the
 directory's `tokenizer.json`.
@@ -229,12 +229,16 @@ Tensor pooled = bert.pooled(hidden);
   `BertForMaskedLM`, `RobertaForMaskedLM`, `DistilBertForMaskedLM` and the like). The MLM head and
   pooler are loaded when present. RoBERTa's positions skip padding, as in Hugging Face.
   Task heads, such as a classifier, are read with `HfCheckpoint` (`load`, `floats`, `unused()`).
+- Llama-family decoders through `Llama.fromHuggingFace`: `model_type` llama, mistral (without a
+  sliding window) and qwen2 (with its q, k, v biases), grouped-query attention, tied or separate
+  output weights. RoPE scaling (Llama 3.1 and later) is rejected. SmolLM2-135M and Qwen2.5-0.5B
+  logits match `transformers` within 3e-6 of the largest value on CUDA. Their tokenizers (a
+  `Sequence` pre-tokenizer) are not read yet; for generation with a KV cache use jitllm.
 - Tokenizers: WordPiece with the BERT normaliser, and byte-level BPE (GPT-2, RoBERTa). Other
   tokenizer models (Unigram, SentencePiece-style BPE) are rejected when loading.
 - On an RTX 5070 Ti, outputs match `transformers` FP32 on the CPU within 2e-6 of the largest value
   (BERT) and 2.3e-6 (GPT-2 logits). Token ids match the `tokenizers` library on the test texts.
 - PyTorch `.bin` checkpoints are not read; most models on the Hub also ship safetensors.
-- Llama-family checkpoints are not mapped: use jitllm for them.
 
 ## Exporting to ONNX
 
