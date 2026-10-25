@@ -86,11 +86,17 @@ class DataParallelAccelTest {
         return new Sequential(new Linear(8, 32, 11), new ReLU(), new Linear(32, 4, 12));
     }
 
+    /** Bucket size of {@link DataParallel#overlapGradients} in {@link #train}, 0 for none. */
+    static volatile long overlapBytes;
+
     /** Losses of 15 SGD steps and the final parameters, training on rows [from, to) of each batch of 64. */
     static Object[] train(int rank, Collective c, int world) {
         Blobs data = new Blobs(640, 8, 4, 1.0f, 3);
         Module model = mlp();
         DataParallel dp = c == null ? null : new DataParallel(model, rank, c).broadcastParameters();
+        if (dp != null && overlapBytes > 0) {
+            dp.overlapGradients(overlapBytes);
+        }
         SGD opt = new SGD(model.parameters(), 0.1f, 0.9f, 0.0f, false);
         int per = 64 / world;
         float[] xb = new float[64 * 8];
@@ -178,6 +184,46 @@ class DataParallelAccelTest {
         assumeTrue(Boolean.getBoolean("jitnn.dist.nccl"), "no -Djitnn.dist.nccl=true");
         try (NcclCollective nccl = new NcclCollective(devices())) {
             checkDataParallel(nccl);
+            Engine.reset();
+        }
+    }
+
+    /**
+     * The gradient all-reduce overlapped with the backward pass, in buckets small enough that there
+     * are several: still the same parameters as training on the full batch, and the same bits as
+     * without overlap.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void ncclOverlappedGradientsMatch() {
+        assumeTrue(Boolean.getBoolean("jitnn.dist.nccl"), "no -Djitnn.dist.nccl=true");
+        String[] devices = devices();
+        int world = devices.length;
+        try (NcclCollective nccl = new NcclCollective(devices)) {
+            overlapBytes = 0;
+            List<Object[]> plain = ProcessGroup.run(devices, nccl, (rank, c) -> train(rank, c, world));
+            Engine.reset();
+            overlapBytes = 600;
+            List<Object[]> overlapped;
+            try {
+                overlapped = ProcessGroup.run(devices, nccl, (rank, c) -> train(rank, c, world));
+            } finally {
+                overlapBytes = 0;
+            }
+            for (int r = 0; r < world; r++) {
+                List<float[]> a = (List<float[]>) plain.get(r)[1];
+                List<float[]> b = (List<float[]>) overlapped.get(r)[1];
+                for (int i = 0; i < a.size(); i++) {
+                    assertTrue(Arrays.equals(a.get(i), b.get(i)), "rank " + r + " parameter " + i + " differs with the overlapped all-reduce");
+                }
+            }
+            Engine.reset();
+            overlapBytes = 600;
+            try {
+                checkDataParallel(nccl);
+            } finally {
+                overlapBytes = 0;
+            }
             Engine.reset();
         }
     }

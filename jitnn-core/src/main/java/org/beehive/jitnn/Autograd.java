@@ -37,6 +37,15 @@ final class Autograd {
         Set<Node> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         topo(root.gradFn(), seen, order);
 
+        // leaves with a gradient-ready hook: the position (in processing order) of their last contribution
+        Map<Tensor, Integer> lastUse = new IdentityHashMap<>();
+        for (int i = order.size() - 1; i >= 0; i--) {
+            for (Tensor x : order.get(i).inputs) {
+                if (x.gradFn() == null && x.requiresGrad() && x.gradReadyHook() != null) {
+                    lastUse.put(x, i);
+                }
+            }
+        }
         Map<Tensor, Tensor> grads = new IdentityHashMap<>();
         grads.put(root, seed != null ? seed : Tensor.full(1.0f, root.shape().dims()));
         // a graph recorded with FP16 activations is differentiated with them (enableHalf), whatever
@@ -76,6 +85,13 @@ final class Autograd {
                         x.grad().storage().markVisible();
                     } else {
                         grads.merge(x, gx[j], Tensor::add);
+                    }
+                }
+                for (Tensor x : node.inputs) {
+                    Integer last = lastUse.get(x);
+                    if (last != null && last == i && x.grad() != null) {
+                        lastUse.remove(x);
+                        x.gradReadyHook().accept(x);
                     }
                 }
             }

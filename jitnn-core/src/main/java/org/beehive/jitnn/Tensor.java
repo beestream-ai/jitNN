@@ -341,6 +341,22 @@ public final class Tensor implements AutoCloseable {
         return gradFn;
     }
 
+    private java.util.function.Consumer<Tensor> gradReady;
+
+    /**
+     * Calls {@code hook} with this leaf tensor (a parameter) during each backward pass, as soon as its
+     * gradient is final: after the last operator that contributes to it, while the rest of the
+     * backward pass is still being recorded. Data-parallel training starts the gradient all-reduce
+     * from it ({@code DataParallel.overlapGradients}). One hook per tensor; null removes it.
+     */
+    public void onGradReady(java.util.function.Consumer<Tensor> hook) {
+        this.gradReady = hook;
+    }
+
+    java.util.function.Consumer<Tensor> gradReadyHook() {
+        return gradReady;
+    }
+
     /** Makes this tensor the output of {@code node} for autograd (activation checkpointing). */
     void setGradFn(Node node) {
         this.gradFn = node;

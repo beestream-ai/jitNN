@@ -56,6 +56,21 @@ public interface Collective {
         return tensors;
     }
 
+    /**
+     * Starts the reduction over all ranks of {@code tensors}, packed into the persistent
+     * {@code buffer} (exactly their total size), so that it runs while the operators recorded after
+     * it do: NCCL runs it on a stream of its own. {@link #finishAllReduce} with the same
+     * {@code tag} returns the results. Tags tell apart reductions in flight at the same time. A
+     * collective that cannot overlap does nothing here and reduces in {@link #finishAllReduce}.
+     */
+    default void startAllReduce(int rank, Tensor[] tensors, Tensor buffer, ReduceOp op, int tag) {
+    }
+
+    /** The results of {@link #startAllReduce} (same tensors, buffer and tag), as {@link #allReduced} returns them. */
+    default Tensor[] finishAllReduce(int rank, Tensor[] tensors, Tensor buffer, ReduceOp op, int tag) {
+        return allReduced(rank, tensors, op);
+    }
+
     /** Releases the ranks waiting in a collective after another rank failed. */
     default void abort() {
     }

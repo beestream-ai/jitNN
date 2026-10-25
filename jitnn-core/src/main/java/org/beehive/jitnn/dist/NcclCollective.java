@@ -143,6 +143,27 @@ public final class NcclCollective implements Collective, AutoCloseable {
         return tensors.length == 0 ? tensors : NcclOp.bucket(id, tensors, op.ordinal());
     }
 
+    /** Packs {@code tensors} into persistent {@code buffer} and starts its all-reduce on NCCL's side stream (see {@link Collective#startAllReduce}). */
+    @Override
+    public void startAllReduce(int rank, Tensor[] tensors, Tensor buffer, ReduceOp op, int tag) {
+        int total = 0;
+        for (Tensor t : tensors) {
+            f32(t, "startAllReduce");
+            total += t.numel();
+        }
+        persistent(buffer, "startAllReduce");
+        if (buffer.numel() != total) {
+            throw new IllegalArgumentException("startAllReduce: a buffer of " + buffer.numel() + " values for tensors of " + total);
+        }
+        NcclOp.start(id, tensors, buffer, op.ordinal(), tag);
+    }
+
+    /** Waits for the all-reduce started with {@code tag} and unpacks it into new tensors. */
+    @Override
+    public Tensor[] finishAllReduce(int rank, Tensor[] tensors, Tensor buffer, ReduceOp op, int tag) {
+        return NcclOp.finish(id, tensors, buffer, tag);
+    }
+
     /** Persistent {@code output} [n, ...] receives the reduction of every rank's slice r of input [world * n, ...]. */
     @Override
     public void reduceScatter(int rank, Tensor input, Tensor output, ReduceOp op) {

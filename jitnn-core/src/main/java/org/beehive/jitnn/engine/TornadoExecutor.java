@@ -589,14 +589,29 @@ final class TornadoExecutor {
             for (var c : consumed.entrySet()) {
                 graph.consumeFromDevice(c.getKey(), c.getValue().toArray());
             }
+            java.util.Set<String> forked = new java.util.LinkedHashSet<>();
             while (specIndex < e.tasks.size() && e.tasks.get(specIndex).node() < ranges.get(gi)[1]) {
                 Emitter.Spec spec = e.tasks.get(specIndex++);
+                if (spec.joinKind() == 2 && CUDA_GRAPH && !forked.remove(spec.join())) {
+                    // its fork was in an earlier task graph, which joined it at its end
+                    continue;
+                }
+                if (spec.joinKind() == 1) {
+                    forked.add(spec.join());
+                }
                 spec.adder().add(graph, spec.id());
                 e.registerGrid(scheduler, gname, spec);
                 if (labels != null) {
                     Node nd = nodes.get(spec.node());
                     String shape = nd.op.name().equals("matmul") || nd.op.name().equals("linear") || nd.op.name().startsWith("conv2d") ? java.util.Arrays.toString(nd.iattr) : "";
                     labels.put(gname + "." + spec.id(), nd.op.name() + shape + "#" + perNode[spec.node()]++);
+                }
+            }
+            if (CUDA_GRAPH) {
+                // a captured graph may not end with a side stream forked: join what is still open
+                int k = 0;
+                for (String open : forked) {
+                    e.joins.get(open).add(graph, "join" + k++);
                 }
             }
             if (!keep.isEmpty()) {

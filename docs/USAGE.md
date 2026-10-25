@@ -722,6 +722,23 @@ try (NcclCollective nccl = new NcclCollective(devices)) {
 }
 ```
 
+`dp.overlapGradients(bucketBytes)` overlaps the gradient all-reduce with the backward pass, as
+PyTorch's DistributedDataParallel does. The parameters are grouped, last layer first, into buckets
+of about `bucketBytes` (25 MB in PyTorch). A bucket's all-reduce starts as soon as its last
+gradient is final, on a CUDA stream of its own, while the backward pass of the earlier layers goes
+on; `averageGradients` only waits for it.
+
+- The results are the same bits as without overlap.
+- With CUDA graphs, a step longer than one TornadoVM task graph is captured graph by graph, so
+  each all-reduce is waited for at the latest at the end of the task graph that started it.
+  `-Djitnn.graph.maxTasks` (with a larger `-Dtornado.tvm.maxbytecodesize`) gives longer graphs.
+- On two A10s without peer-to-peer links, ResNet-50 (batch 32 per GPU, 25 MB buckets) runs a step
+  in 170.0 ms against 171.2 ms without overlap (1.88x one GPU against 1.87x): the plain NCCL step
+  leaves little all-reduce time to hide there. Ranks in one process need a TornadoVM whose CUDA
+  backend unpins host memory off the plan threads (beehive-lab/TornadoVM#1289).
+- Collectives other than NCCL reduce in `averageGradients`, as before. It assumes one backward
+  pass per step.
+
 With NCCL, results are new tensors (`allReduced`) or persistent tensors written in place
 (parameters, buffers, `Tensor.persistent`).
 

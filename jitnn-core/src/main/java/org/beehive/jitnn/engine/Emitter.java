@@ -31,8 +31,20 @@ public final class Emitter {
     /** Work-group size for 1-D kernels and group reductions. Kernels assume this value. */
     public static final int LOCAL = 256;
 
-    record Spec(String id, WorkerGrid grid, TaskAdder adder, int node) {
+    /**
+     * One task of the plan. {@code join} pairs a task that starts work on a stream of its own
+     * ({@code joinKind} 1, such as NCCL's started all-reduce) with the task that joins it back
+     * ({@code joinKind} 2); null for ordinary tasks.
+     */
+    record Spec(String id, WorkerGrid grid, TaskAdder adder, int node, String join, int joinKind) {
+
+        Spec(String id, WorkerGrid grid, TaskAdder adder, int node) {
+            this(id, grid, adder, node, null, 0);
+        }
     }
+
+    /** Per join key, the task that joins the side work back (see {@link #libraryForked}). */
+    final java.util.Map<String, TaskAdder> joins = new java.util.HashMap<>();
 
     private String graphName;
     private int node = -1;
@@ -229,6 +241,27 @@ public final class Emitter {
         libraries.add(Native.feature(lib, function));
         Native.emitted(lib);
         tasks.add(new Spec("t" + tasks.size(), null, adder, node));
+    }
+
+    /**
+     * A library task that starts work on a stream of its own, joined back by the task
+     * {@link #libraryJoin} adds with the same {@code key}. A plan captured into CUDA graphs captures
+     * each task graph on its own, and a capture may not end with the side stream still forked: when the
+     * two tasks land in different task graphs, {@code join} (the same task as the joining one) is added
+     * at the end of the forking task's graph instead, and the later joining task is left out.
+     */
+    public void libraryForked(Native.Lib lib, String function, TaskAdder adder, String key, TaskAdder join) {
+        libraries.add(Native.feature(lib, function));
+        Native.emitted(lib);
+        joins.put(key, join);
+        tasks.add(new Spec("t" + tasks.size(), null, adder, node, key, 1));
+    }
+
+    /** The task that joins the side work {@link #libraryForked} started with {@code key}. */
+    public void libraryJoin(Native.Lib lib, String function, TaskAdder adder, String key) {
+        libraries.add(Native.feature(lib, function));
+        Native.emitted(lib);
+        tasks.add(new Spec("t" + tasks.size(), null, adder, node, key, 2));
     }
 
     /** A 1-D grid of at least {@code n} threads, in groups of {@link #LOCAL}. */

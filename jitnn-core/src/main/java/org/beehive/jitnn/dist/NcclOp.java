@@ -18,7 +18,7 @@ import uk.ac.manchester.tornado.nccl.NcclRedOp;
  */
 final class NcclOp implements Op {
 
-    static final int ALL_REDUCE = 0, BROADCAST = 1, BUCKET = 2, ALL_GATHER = 3, REDUCE_SCATTER = 4;
+    static final int ALL_REDUCE = 0, BROADCAST = 1, BUCKET = 2, ALL_GATHER = 3, REDUCE_SCATTER = 4, START = 5, FINISH = 6;
 
     static final NcclOp OP = new NcclOp();
 
@@ -37,6 +37,26 @@ final class NcclOp implements Op {
             out[i] = Tensor.result(in[i].shape(), in[i].dtype());
         }
         Tensor.record(OP, in.clone(), out, new int[] { BUCKET, comm, op }, null, true);
+        return out;
+    }
+
+    /**
+     * Packs the tensors into persistent {@code buffer} and starts its all-reduce on NCCL's side stream.
+     * inputs [tensors..., buffer], outputs [buffer]; iattr = [START, comm, op, tag].
+     */
+    static void start(int comm, Tensor[] in, Tensor buffer, int op, int tag) {
+        Tensor[] inputs = java.util.Arrays.copyOf(in, in.length + 1);
+        inputs[in.length] = buffer;
+        Tensor.record(OP, inputs, new Tensor[] { buffer }, new int[] { START, comm, op, tag }, null, true);
+    }
+
+    /** Waits for the all-reduce started on {@code buffer} with {@code tag}; unpacks it into new tensors shaped like {@code like}. */
+    static Tensor[] finish(int comm, Tensor[] like, Tensor buffer, int tag) {
+        Tensor[] out = new Tensor[like.length];
+        for (int i = 0; i < like.length; i++) {
+            out[i] = Tensor.result(like[i].shape(), like[i].dtype());
+        }
+        Tensor.record(OP, new Tensor[] { buffer }, out, new int[] { FINISH, comm, 0, tag }, null, true);
         return out;
     }
 
@@ -107,6 +127,35 @@ final class NcclOp implements Op {
                 NcclRedOp op = redOp(arg);
                 e.library(Lib.NCCL, "allReduce", (g, id) -> g.libraryTask(id, Nccl::allReduceInPlace, comm, flat, op));
                 offset = 0;
+                for (int i = 0; i < n.outputs.length; i++) {
+                    FloatArray dst = e.f32(n.out(i));
+                    int count = n.out(i).numel();
+                    int at = offset;
+                    e.task(Emitter.grid1D(count), (g, id) -> g.task(id, NcclOp::unpack, e.context(), flat, dst, at, count));
+                    offset += count;
+                }
+            }
+            case START -> {
+                // the buffer is persistent, so exactly the size every rank reduces
+                FloatArray flat = e.f32(n.in(n.inputs.length - 1));
+                int offset = 0;
+                for (int i = 0; i < n.inputs.length - 1; i++) {
+                    FloatArray src = e.f32(n.in(i));
+                    int count = n.in(i).numel();
+                    int at = offset;
+                    e.task(Emitter.grid1D(count), (g, id) -> g.task(id, NcclOp::pack, e.context(), src, flat, at, count));
+                    offset += count;
+                }
+                NcclRedOp op = redOp(arg);
+                int tag = n.iattr[3];
+                e.libraryForked(Lib.NCCL, "allReduceStart", (g, id) -> g.libraryTask(id, Nccl::allReduceInPlaceStart, comm, flat, op, tag), "nccl" + n.iattr[1] + ":" + tag,
+                        (g, id) -> g.libraryTask(id, Nccl::allReduceWait, comm, flat, tag));
+            }
+            case FINISH -> {
+                FloatArray flat = e.f32(n.in(0));
+                int tag = n.iattr[3];
+                e.libraryJoin(Lib.NCCL, "allReduceWait", (g, id) -> g.libraryTask(id, Nccl::allReduceWait, comm, flat, tag), "nccl" + n.iattr[1] + ":" + tag);
+                int offset = 0;
                 for (int i = 0; i < n.outputs.length; i++) {
                     FloatArray dst = e.f32(n.out(i));
                     int count = n.out(i).numel();

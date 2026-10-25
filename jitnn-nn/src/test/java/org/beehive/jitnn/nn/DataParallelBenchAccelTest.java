@@ -42,10 +42,17 @@ class DataParallelBenchAccelTest {
     private static final int CLASSES = BIG ? 1000 : 10;
     private static final java.util.Set<String> MODES = java.util.Set.of(System.getProperty("jitnn.bench.dist.modes", "one,host,nccl").split(","));
 
+    /** Bucket size of the overlapped gradient all-reduce ({@code -Djitnn.bench.dist.bucketMB}, 25). */
+    private static final long BUCKET = (long) (Double.parseDouble(System.getProperty("jitnn.bench.dist.bucketMB", "25")) * (1 << 20));
+    private static volatile boolean overlap;
+
     /** Median step time in ms of rank {@code rank}'s training loop. */
     static double train(int rank, Collective c) {
         Module model = BIG ? ResNet.resnet50(3, CLASSES, false, 7) : ResNet.resnet18(3, CLASSES, true, 7);
         DataParallel dp = c == null ? null : new DataParallel(model, rank, c).broadcastParameters();
+        if (dp != null && overlap) {
+            dp.overlapGradients(BUCKET);
+        }
         SGD opt = new SGD(model.parameters(), 0.01f, 0.9f, 0.0f, false);
         Random rnd = new Random(rank);
         float[] x = new float[BATCH * 3 * SIZE * SIZE];
@@ -114,6 +121,18 @@ class DataParallelBenchAccelTest {
             List<Double> host = ProcessGroup.run(devices, new HostCollective(world), DataParallelBenchAccelTest::train);
             report(world + " devices, host collective", world, max(host));
             Engine.reset();
+        }
+        if (MODES.contains("nccl-overlap")) {
+            try (NcclCollective nccl = new NcclCollective(devices)) {
+                overlap = true;
+                List<Double> n = ProcessGroup.run(devices, nccl, DataParallelBenchAccelTest::train);
+                overlap = false;
+                report(world + " devices, NCCL, all-reduce overlapped (buckets of " + BUCKET / (1 << 20) + " MB)", world, max(n));
+                if (!Double.isNaN(one)) {
+                    System.out.printf("[dist-bench] NCCL overlapped scaling: %.2fx the samples/s of 1 device%n", world * one / max(n));
+                }
+                Engine.reset();
+            }
         }
         if (MODES.contains("nccl")) {
             try (NcclCollective nccl = new NcclCollective(devices)) {
