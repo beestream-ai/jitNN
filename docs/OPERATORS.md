@@ -93,7 +93,7 @@ language model). The final cell state of an LSTM carries no gradient.
 | Losses | L1, Huber, smooth L1, NLL, hinge, squared hinge, cosine similarity and cosine proximity, Poisson NLL, MSLE, MAPE | composed | autograd |
 | Optimisers | AdaGrad, RMSProp (momentum, centred), AdaDelta, AdaMax, NAdam, AMSGrad; Nesterov already in SGD | `MultiTensorKernels` (generated, 3 or 4 tensors per launch) | |
 | Norms | GroupNorm, InstanceNorm, local response normalisation, weight normalisation | the row-norm kernel; `NormKernels.lrnForward` | `lrnBackward` (gathering); composed |
-| Spatial | Conv1D and Conv3D (grouped: one batched GEMM over the groups), 1-D and 3-D max/avg pooling, adaptive avg/max pooling (1 to 3 axes), constant/reflect/replicate padding | `SpatialKernels`: N-D unfold (im2col) + the batched GEMM, adaptive pooling, padding | `fold`, adaptive and padding gradients, all gathering per input (deterministic) |
+| Spatial | Conv1D and Conv3D (grouped: one batched GEMM over the groups), general pooling (`F.pool`: max, average, LP over 1 to 3 axes, sizes per axis, asymmetric padding, dilation, ceil mode, padding excluded or counted), general convolution (`F.conv`: sizes per axis, asymmetric padding), adaptive avg/max pooling (1 to 3 axes), constant/reflect/replicate padding | `SpatialKernels`: N-D unfold (im2col) + the batched GEMM, adaptive pooling, padding | `fold`, adaptive and padding gradients, all gathering per input (deterministic) |
 | Scans and sorting | cumsum, cumprod, sort, argsort (stable) | `ScanKernels`: a scan per line; sort by rank | reverse cumsum; cumprod's exact with zeros; through the ranks |
 | Indexing | index_select, gather, scatter, scatter_add, segment sum/mean/max, EmbeddingBag | `IndexKernels` | gathering (no atomics); scatter (replace) has none |
 | INT8 | Q8_0 tensors (GGUF's 32-value blocks), quantise, dequantise, Q8_0 linear | jitllm's: `Q8Kernels` (adapted), `NativeProjectionKernels.dequantizeQ8_0ToFP32`; warp product on CUDA and Metal, shared-memory tree elsewhere | to the input, through the dequantised weight |
@@ -299,8 +299,8 @@ About 110 ONNX operators are supported:
 |---|---|
 | Element-wise and activations | arithmetic, math functions, comparisons, logic, `Where`, `IsNaN`, `IsInf`, the common activations |
 | Products | `MatMul`, `Gemm`, `Einsum` (one or two operands, no ellipsis or diagonals) |
-| Convolution | `Conv` 1-D, 2-D and 3-D, grouped, `ConvTranspose`; asymmetric and `SAME` padding |
-| Pooling | `MaxPool`, `AveragePool`, `GlobalAveragePool`, `GlobalMaxPool` |
+| Convolution | `Conv` 1-D, 2-D and 3-D, grouped, sizes per axis, `ConvTranspose`; asymmetric and `SAME` padding |
+| Pooling | `MaxPool`, `AveragePool`, `LpPool` (sizes per axis, asymmetric pads, dilation, ceil mode, padding excluded or counted), `GlobalAveragePool`, `GlobalMaxPool` |
 | Normalisation | `BatchNormalization`, `LayerNormalization`, `InstanceNormalization`, `GroupNormalization`, `LRN` |
 | Softmax and reductions | `Softmax`, `LogSoftmax`, `ReduceSum`/`Mean`/`Max`/`Min`/`SumSquare`, `ArgMax`, `ArgMin`, `CumSum`, `TopK` |
 | Quantisation | `QuantizeLinear`, `DequantizeLinear`, `DynamicQuantizeLinear`, `MatMulInteger`, `ConvInteger`, `QLinearMatMul`, `QLinearConv` |
@@ -402,9 +402,9 @@ files through jitnn-onnx.
 Every numeric DJL type is held in FP32 (integers exactly up to 2^24) and tagged with its DJL type,
 which arithmetic results and host copies follow: integer division truncates, and an integer array
 with a floating scalar gives FLOAT32, as in PyTorch (so `uint8` pixels divided by `255.0` are not
-truncated). Not supported: non-square pooling windows and
-convolution strides, ceil-mode pooling, LP pooling, random image augmentation, the multibox
-operators, sparse arrays and strings. Operators jitNN lacks run on the engine named by
+truncated). Pooling and convolution take sizes per axis, ceil mode and LP pooling. Not supported:
+DJL's random image augmentation (jitNN's `DataLoader` has its own), the multibox operators,
+sparse arrays and strings. Operators jitNN lacks run on the engine named by
 `-Djitnn.djl.fallback` (for example `PyTorch`) when it is on the class path, else throw.
 
 ## Not yet supported

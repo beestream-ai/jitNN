@@ -254,3 +254,23 @@ conv1d_depthwise in:x f32 72788 36 1 4 9
 conv1d_depthwise out:y f32 72932 36 1 4 9
 conv3d_grouped in:x f32 73076 240 1 4 4 5 3
 conv3d_grouped out:y f32 74036 360 1 6 4 5 3
+maxpool_rect in:x f32 75476 378 2 3 7 9
+maxpool_rect out:y f32 76988 168 2 3 7 4
+maxpool_ceil in:x f32 77660 160 1 2 8 10
+maxpool_ceil out:y f32 78300 40 1 2 4 5
+maxpool_dilated in:x f32 78460 98 1 2 7 7
+maxpool_dilated out:y f32 78852 98 1 2 7 7
+avgpool_ceil_exclude in:x f32 79244 216 1 3 9 8
+avgpool_ceil_exclude out:y f32 80108 60 1 3 5 4
+avgpool_ceil_include in:x f32 80348 128 1 2 8 8
+avgpool_ceil_include out:y f32 80860 50 1 2 5 5
+lppool_p2 in:x f32 81060 126 1 3 6 7
+lppool_p2 out:y f32 81564 45 1 3 3 5
+lppool_p3 in:x f32 81744 50 1 2 5 5
+lppool_p3 out:y f32 81944 50 1 2 5 5
+maxpool1d_ceil in:x f32 82144 60 2 3 10
+maxpool1d_ceil out:y f32 82384 30 2 3 5
+avgpool3d_rect in:x f32 82504 240 1 2 4 5 6
+avgpool3d_rect out:y f32 83464 144 1 2 4 3 6
+conv_rect in:x f32 84040 540 2 3 9 10
+conv_rect out:y f32 86200 320 2 4 8 5

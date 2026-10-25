@@ -242,6 +242,20 @@ model("conv1d_grouped", [N("Conv", ["x", "w", "b"], ["y"], group=3, pads=[1, 1],
 model("conv1d_depthwise", [N("Conv", ["x", "w"], ["y"], group=4, pads=[2, 2], dilations=[2])], [("x", rnd(1, 4, 9))], ["y"], [("w", rnd(4, 1, 3))])
 model("conv3d_grouped", [N("Conv", ["x", "w", "b"], ["y"], group=2, pads=[1, 1, 1, 1, 1, 1])], [("x", rnd(1, 4, 4, 5, 3))], ["y"], [("w", rnd(6, 2, 3, 3, 3)), ("b", rnd(6))])
 
+# ---- pooling and convolution with sizes per axis, asymmetric padding, ceil mode, dilation, LP (appended)
+model("maxpool_rect", [N("MaxPool", ["x"], ["y"], kernel_shape=[2, 3], strides=[1, 2], pads=[0, 1, 1, 0])], [("x", rnd(2, 3, 7, 9))], ["y"])
+model("maxpool_ceil", [N("MaxPool", ["x"], ["y"], kernel_shape=[3, 3], strides=[2, 2], ceil_mode=1)], [("x", rnd(1, 2, 8, 10))], ["y"])
+model("maxpool_dilated", [N("MaxPool", ["x"], ["y"], kernel_shape=[2, 2], dilations=[2, 2], pads=[1, 1, 1, 1])], [("x", rnd(1, 2, 7, 7))], ["y"])
+model("avgpool_ceil_exclude", [N("AveragePool", ["x"], ["y"], kernel_shape=[3, 2], strides=[2, 2], pads=[1, 0, 1, 1], ceil_mode=1)], [("x", rnd(1, 3, 9, 8))], ["y"])
+model("avgpool_ceil_include", [N("AveragePool", ["x"], ["y"], kernel_shape=[3, 3], strides=[2, 2], pads=[1, 1, 1, 1], ceil_mode=1, count_include_pad=1)],
+      [("x", rnd(1, 2, 8, 8))], ["y"])
+model("lppool_p2", [N("LpPool", ["x"], ["y"], kernel_shape=[2, 3], strides=[2, 1], p=2)], [("x", rnd(1, 3, 6, 7))], ["y"])
+model("lppool_p3", [N("LpPool", ["x"], ["y"], kernel_shape=[3, 3], strides=[1, 1], pads=[1, 1, 1, 1], p=3)], [("x", rnd(1, 2, 5, 5))], ["y"])
+model("maxpool1d_ceil", [N("MaxPool", ["x"], ["y"], kernel_shape=[3], strides=[2], ceil_mode=1)], [("x", rnd(2, 3, 10))], ["y"])
+model("avgpool3d_rect", [N("AveragePool", ["x"], ["y"], kernel_shape=[2, 2, 3], strides=[1, 2, 1], pads=[0, 1, 1, 1, 0, 1])], [("x", rnd(1, 2, 4, 5, 6))], ["y"])
+model("conv_rect", [N("Conv", ["x", "w", "b"], ["y"], strides=[1, 2], pads=[1, 0, 2, 1], dilations=[2, 1])], [("x", rnd(2, 3, 9, 10))], ["y"],
+      [("w", rnd(4, 3, 3, 2)), ("b", rnd(4))])
+
 QUANT = {c[0] for c in cases[QUANT_FROM:]}
 offset = 0
 with open(os.path.join(OUT, "manifest.txt"), "w") as man, open(os.path.join(OUT, "data.bin"), "wb") as data:

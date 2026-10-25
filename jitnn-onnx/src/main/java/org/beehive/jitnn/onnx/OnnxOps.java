@@ -806,22 +806,14 @@ final class OnnxOps {
             Tensor w = t(in, 1);
             Tensor b = present(in, 2) ? t(in, 2) : null;
             int spatial = x.rank() - 2;
+            if (spatial < 1 || spatial > 3) {
+                throw unsupported(n, spatial + "-D convolution");
+            }
             long[] kernel = Arrays.copyOfRange(dimsOf(w), 2, w.rank());
             long[] strides = n.attrInts("strides", ones(spatial));
             long[] dil = n.attrInts("dilations", ones(spatial));
             long[] p = pads(n, spatial, Arrays.copyOfRange(dimsOf(x), 2, x.rank()), kernel, strides, dil);
-            int groups = (int) n.attrInt("group", 1);
-            Object[] sp = symmetric(n, x, p, spatial, 0.0f);
-            x = (Tensor) sp[0];
-            int pad = (int) sp[1];
-            int s = same(n, strides, "strides");
-            int d = same(n, dil, "dilations");
-            return one(switch (spatial) {
-                case 1 -> F.conv1d(x, w, b, s, pad, d, groups);
-                case 2 -> F.conv2d(x, w, b, s, pad, d, groups);
-                case 3 -> F.conv3d(x, w, b, s, pad, d, groups);
-                default -> throw unsupported(n, spatial + "-D convolution");
-            });
+            return one(F.conv(x, w, b, toInts(strides), toInts(p), toInts(dil), (int) n.attrInt("group", 1)));
         });
         HANDLERS.put("ConvTranspose", (n, in) -> {
             Tensor x = t(in, 0);
@@ -838,6 +830,7 @@ final class OnnxOps {
         });
         HANDLERS.put("MaxPool", (n, in) -> one(pool(n, t(in, 0), true)));
         HANDLERS.put("AveragePool", (n, in) -> one(pool(n, t(in, 0), false)));
+        HANDLERS.put("LpPool", (n, in) -> one(pool(n, t(in, 0), F.PoolMode.LP, n.attrInt("p", 2))));
         HANDLERS.put("GlobalAveragePool", (n, in) -> {
             Tensor x = t(in, 0);
             for (int a = x.rank() - 1; a >= 2; a--) {
@@ -1299,45 +1292,46 @@ final class OnnxOps {
     }
 
     static Tensor pool(Node n, Tensor x, boolean max) {
-        if (n.attrInt("ceil_mode", 0) != 0) {
-            throw unsupported(n, "ceil_mode");
-        }
+        return pool(n, x, max ? F.PoolMode.MAX : F.PoolMode.AVG, 0.0f);
+    }
+
+    /**
+     * MaxPool, AveragePool and LpPool. Square, symmetric 2-D pooling without ceil mode takes the
+     * 2-D kernels; everything else (sizes per axis, asymmetric padding, ceil mode, dilation, an
+     * average that excludes the padding) the general path.
+     */
+    static Tensor pool(Node n, Tensor x, F.PoolMode mode, float p) {
         int spatial = x.rank() - 2;
+        if (spatial < 1 || spatial > 3) {
+            throw unsupported(n, spatial + "-D pooling");
+        }
         long[] kernel = n.attrInts("kernel_shape", null);
         long[] strides = n.attrInts("strides", ones(spatial));
         long[] dil = n.attrInts("dilations", ones(spatial));
-        if (same(n, dil, "dilations") != 1) {
-            throw unsupported(n, "dilated pooling");
+        long[] pads = pads(n, spatial, Arrays.copyOfRange(dimsOf(x), 2, x.rank()), kernel, strides, dil);
+        boolean ceil = n.attrInt("ceil_mode", 0) != 0;
+        boolean includePad = n.attrInt("count_include_pad", 0) != 0;
+        int[] k = toInts(kernel);
+        int[] s = toInts(strides);
+        int[] pd = toInts(pads);
+        int[] d = toInts(dil);
+        boolean zeroPad = true;
+        for (int v : pd) {
+            zeroPad &= v == 0;
         }
-        long[] p = pads(n, spatial, Arrays.copyOfRange(dimsOf(x), 2, x.rank()), kernel, strides, dil);
-        Object[] sp = symmetric(n, x, p, spatial, max ? -Float.MAX_VALUE : 0.0f);
-        boolean explicit = sp[0] != x;
-        Tensor xp = (Tensor) sp[0];
-        int pad = (int) sp[1];
-        int k = same(n, kernel, "kernel sizes");
-        int s = same(n, strides, "strides");
-        Tensor y = switch (spatial) {
-            case 1 -> max ? F.maxPool1d(xp, k, s, pad) : F.avgPool1d(xp, k, s, pad);
-            case 2 -> max ? F.maxPool2d(xp, k, s, pad) : F.avgPool2d(xp, k, s, pad);
-            case 3 -> max ? F.maxPool3d(xp, k, s, pad) : F.avgPool3d(xp, k, s, pad);
-            default -> throw unsupported(n, spatial + "-D pooling");
-        };
-        boolean padded = explicit || pad > 0;
-        if (!max && padded && n.attrInt("count_include_pad", 0) == 0) {
-            // ONNX's default excludes the padding from the average: divide by the window's true count
-            int[] od = x.shape().dims();
-            od[0] = 1;
-            od[1] = 1;
-            Tensor ones = Tensor.ones(od);
-            Object[] so = symmetric(n, ones, p, spatial, 0.0f);
-            Tensor op = (Tensor) so[0];
-            Tensor count = switch (spatial) {
-                case 1 -> F.avgPool1d(op, k, s, pad);
-                case 2 -> F.avgPool2d(op, k, s, pad);
-                default -> F.avgPool3d(op, k, s, pad);
-            };
-            y = y.div(count);
+        boolean simple = spatial == 2 && !ceil && same(k) && same(s) && same(pd) && same(d) && d[0] == 1 && (mode == F.PoolMode.MAX || includePad || zeroPad);
+        if (simple) {
+            return mode == F.PoolMode.MAX ? F.maxPool2d(x, k[0], s[0], pd[0]) : F.avgPool2d(x, k[0], s[0], pd[0]);
         }
-        return y;
+        return F.pool(x, mode, k, s, pd, d, ceil, includePad, p);
+    }
+
+    private static boolean same(int[] v) {
+        for (int x : v) {
+            if (x != v[0]) {
+                return false;
+            }
+        }
+        return true;
     }
 }

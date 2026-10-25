@@ -178,6 +178,116 @@ public final class F {
         return convNd(x, weight, bias, new int[] { stride, stride, stride }, new int[] { padding, padding, padding }, new int[] { dilation, dilation, dilation }, groups);
     }
 
+    /**
+     * Convolution over 1 to 3 spatial axes with a size per axis: {@code pads} holds the padding
+     * before every axis, then after every axis (ONNX's order), so it may be asymmetric. Square
+     * symmetric 2-D cases take {@link #conv2d}'s kernels; the rest the unfold (im2col) path.
+     */
+    public static Tensor conv(Tensor x, Tensor weight, Tensor bias, int[] stride, int[] pads, int[] dilation, int groups) {
+        int r = x.rank() - 2;
+        int[] before = java.util.Arrays.copyOfRange(pads, 0, r);
+        int[] after = java.util.Arrays.copyOfRange(pads, r, 2 * r);
+        boolean symmetric = java.util.Arrays.equals(before, after);
+        if (r == 2 && symmetric && uniform(stride) && uniform(before) && uniform(dilation) && weight.dim(2) == weight.dim(3)) {
+            return conv2d(x, weight, bias, stride[0], before[0], dilation[0], groups);
+        }
+        if (!symmetric) {
+            x = pad(x, before, after, PadMode.CONSTANT, 0.0f);
+            before = new int[r];
+        }
+        return convNd(x, weight, bias, stride, before, dilation, groups);
+    }
+
+    private static boolean uniform(int[] v) {
+        for (int x : v) {
+            if (x != v[0]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** How {@link #pool} combines a window. */
+    public enum PoolMode {
+        MAX, AVG, LP
+    }
+
+    /**
+     * Pooling over 1 to 3 spatial axes of x [N, C, ...] with a size per axis, as ONNX's MaxPool,
+     * AveragePool and LpPool and PyTorch's pooling layers: {@code pads} holds the padding before
+     * every axis, then after every axis; {@code ceil} rounds the output size up (a window must
+     * still start inside the input or its leading padding); average pooling counts the padding
+     * when {@code countIncludePad} (never the positions added by {@code ceil}); LP pooling
+     * computes (sum |x|^p)^(1/p).
+     */
+    public static Tensor pool(Tensor x, PoolMode mode, int[] kernel, int[] stride, int[] pads, int[] dilation, boolean ceil, boolean countIncludePad, float p) {
+        int r = x.rank() - 2;
+        int n = x.dim(0);
+        int c = x.dim(1);
+        int[] in = new int[r];
+        int[] out = new int[r];
+        int[] before = new int[r];
+        int[] after = new int[r];
+        for (int a = 0; a < r; a++) {
+            in[a] = x.dim(2 + a);
+            int span = dilation[a] * (kernel[a] - 1) + 1;
+            int room = in[a] + pads[a] + pads[r + a] - span;
+            if (room < 0) {
+                throw new IllegalArgumentException("pooling window " + java.util.Arrays.toString(kernel) + " larger than the padded input " + x.shape());
+            }
+            out[a] = (ceil ? (room + stride[a] - 1) / stride[a] : room / stride[a]) + 1;
+            if (ceil && (out[a] - 1) * stride[a] >= in[a] + pads[a]) {
+                out[a]--;
+            }
+            before[a] = pads[a];
+            // the windows that ceil mode adds read past the end: padding nobody counts
+            after[a] = Math.max(pads[r + a], (out[a] - 1) * stride[a] + span - in[a] - pads[a]);
+        }
+        float fill = mode == PoolMode.MAX ? -3.4028235e38f : 0.0f;
+        Tensor planes = x.reshape(spatialOf(x, n * c));
+        Tensor xp = pad(planes, before, after, PadMode.CONSTANT, fill);
+        int[] zero = new int[r];
+        Tensor cols = org.beehive.jitnn.ops.Spatial.unfold(xp, kernel, stride, zero, dilation);
+        Tensor y = switch (mode) {
+            case MAX -> cols.max(1, false);
+            case LP -> p == 2.0f ? cols.square().sum(1, false).sqrt() : cols.abs().pow(p).sum(1, false).pow(1.0f / p);
+            case AVG -> {
+                // the divisor of every window, known from the shapes alone: computed on the host
+                int windows = 1;
+                for (int v : out) {
+                    windows *= v;
+                }
+                float[] count = new float[windows];
+                int[] at = new int[r];
+                for (int w = 0; w < windows; w++) {
+                    int rest = w;
+                    for (int a = r - 1; a >= 0; a--) {
+                        at[a] = rest % out[a];
+                        rest /= out[a];
+                    }
+                    long cnt = 1;
+                    for (int a = 0; a < r; a++) {
+                        int lo = countIncludePad ? -pads[a] : 0;
+                        int hi = countIncludePad ? in[a] + pads[r + a] : in[a];
+                        int inside = 0;
+                        for (int k = 0; k < kernel[a]; k++) {
+                            int pos = at[a] * stride[a] - pads[a] + k * dilation[a];
+                            inside += pos >= lo && pos < hi ? 1 : 0;
+                        }
+                        cnt *= inside;
+                    }
+                    count[w] = 1.0f / Math.max(cnt, 1);
+                }
+                yield cols.sum(1, false).mul(Tensor.of(count, 1, windows));
+            }
+        };
+        int[] dims = new int[r + 2];
+        dims[0] = n;
+        dims[1] = c;
+        System.arraycopy(out, 0, dims, 2, r);
+        return y.reshape(dims);
+    }
+
     /** Max or average pooling over 1 or 3 spatial axes (2-D has {@link #maxPool2d}); average counts padding. */
     private static Tensor poolNd(Tensor x, int kernel, int stride, int padding, boolean max) {
         int r = x.rank() - 2;

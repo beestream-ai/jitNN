@@ -142,37 +142,51 @@ final class JitnnNDArrayEx implements NDArrayEx {
 
     @Override
     public NDArray maxPool(Shape kernelShape, Shape stride, Shape padding, boolean ceilMode) {
-        if (ceilMode) {
-            throw unsupported("ceil-mode pooling");
-        }
-        int k = square(kernelShape, "pooling window");
-        int s = square(stride, "pooling stride");
-        int p = square(padding, "pooling padding");
-        return wrap(switch (kernelShape.dimension()) {
-            case 1 -> F.maxPool1d(t(), k, s, p);
-            case 2 -> F.maxPool2d(t(), k, s, p);
-            case 3 -> F.maxPool3d(t(), k, s, p);
-            default -> throw unsupported("max pooling over " + kernelShape.dimension() + " axes");
-        });
+        return wrap(pool(F.PoolMode.MAX, kernelShape, stride, padding, ceilMode, true, 0));
     }
 
     @Override
     public NDArray avgPool(Shape kernelShape, Shape stride, Shape padding, boolean ceilMode, boolean countIncludePad) {
-        if (ceilMode) {
-            throw unsupported("ceil-mode pooling");
+        return wrap(pool(F.PoolMode.AVG, kernelShape, stride, padding, ceilMode, countIncludePad, 0));
+    }
+
+    /** Pooling with a size per axis: the 2-D kernels when square and symmetric, else {@link F#pool}. */
+    private Tensor pool(F.PoolMode mode, Shape kernelShape, Shape stride, Shape padding, boolean ceilMode, boolean countIncludePad, float p) {
+        int r = kernelShape.dimension();
+        if (r < 1 || r > 3) {
+            throw unsupported("pooling over " + r + " axes");
         }
-        int k = square(kernelShape, "pooling window");
-        int s = square(stride, "pooling stride");
-        int p = square(padding, "pooling padding");
-        if (p > 0 && !countIncludePad) {
-            throw unsupported("average pooling that excludes the padding");
+        int[] k = axes(kernelShape, r, 1);
+        int[] s = axes(stride, r, 1);
+        int[] pd = axes(padding, r, 0);
+        boolean square = uniform(k) && uniform(s) && uniform(pd);
+        if (r == 2 && square && !ceilMode && mode != F.PoolMode.LP && (mode == F.PoolMode.MAX || countIncludePad || pd[0] == 0)) {
+            return mode == F.PoolMode.MAX ? F.maxPool2d(t(), k[0], s[0], pd[0]) : F.avgPool2d(t(), k[0], s[0], pd[0]);
         }
-        return wrap(switch (kernelShape.dimension()) {
-            case 1 -> F.avgPool1d(t(), k, s, p);
-            case 2 -> F.avgPool2d(t(), k, s, p);
-            case 3 -> F.avgPool3d(t(), k, s, p);
-            default -> throw unsupported("average pooling over " + kernelShape.dimension() + " axes");
-        });
+        int[] pads = new int[2 * r];
+        System.arraycopy(pd, 0, pads, 0, r);
+        System.arraycopy(pd, 0, pads, r, r);
+        int[] dil = new int[r];
+        java.util.Arrays.fill(dil, 1);
+        return F.pool(t(), mode, k, s, pads, dil, ceilMode, countIncludePad, p);
+    }
+
+    /** A shape as one value per axis ({@code otherwise} when absent; one value repeats). */
+    private static int[] axes(Shape v, int r, int otherwise) {
+        int[] a = new int[r];
+        for (int i = 0; i < r; i++) {
+            a[i] = v == null || v.dimension() == 0 ? otherwise : (int) v.get(v.dimension() == 1 ? 0 : i);
+        }
+        return a;
+    }
+
+    private static boolean uniform(int[] v) {
+        for (int x : v) {
+            if (x != v[0]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** x [N, C, ...] as [N, C, spatial], reduced over the last axis to [N, C]. */
@@ -192,7 +206,7 @@ final class JitnnNDArrayEx implements NDArrayEx {
 
     @Override
     public NDArray lpPool(float normType, Shape kernelShape, Shape stride, Shape padding, boolean ceilMode) {
-        throw unsupported("LP pooling");
+        return wrap(pool(F.PoolMode.LP, kernelShape, stride, padding, ceilMode, true, normType));
     }
 
     @Override
@@ -296,16 +310,15 @@ final class JitnnNDArrayEx implements NDArrayEx {
         Tensor x = of(input);
         Tensor w = of(weight);
         Tensor b = of(bias);
-        int s = square(stride, "convolution stride");
-        int p = square(padding, "convolution padding");
-        int d = square(dilation, "convolution dilation");
         int spatial = w.rank() - 2;
-        Tensor y = switch (spatial) {
-            case 1 -> F.conv1d(x, w, b, s, p, d, groups);
-            case 2 -> F.conv2d(x, w, b, s, p, d, groups);
-            case 3 -> F.conv3d(x, w, b, s, p, d, groups);
-            default -> throw unsupported(spatial + "-D convolution");
-        };
+        if (spatial < 1 || spatial > 3) {
+            throw unsupported(spatial + "-D convolution");
+        }
+        int[] pd = axes(padding, spatial, 0);
+        int[] pads = new int[2 * spatial];
+        System.arraycopy(pd, 0, pads, 0, spatial);
+        System.arraycopy(pd, 0, pads, spatial, spatial);
+        Tensor y = F.conv(x, w, b, axes(stride, spatial, 1), pads, axes(dilation, spatial, 1), groups);
         return new NDList(wrap(y));
     }
 
