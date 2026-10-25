@@ -73,6 +73,12 @@ public final class MatMul implements Op {
         return "matmul";
     }
 
+    /** Half-precision operands are read as such (FP32 result), also under FP16 activations. */
+    @Override
+    public boolean acceptsHalf() {
+        return true;
+    }
+
     /**
      * Number of K slices for C = A^T B when the output alone fills too few work-groups (weight
      * gradients: a long reduction over tokens into a small matrix), or 1. {@code -Djitnn.splitK=false} disables it.

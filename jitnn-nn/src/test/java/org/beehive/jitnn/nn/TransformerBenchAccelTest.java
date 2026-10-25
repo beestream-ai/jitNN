@@ -40,6 +40,8 @@ class TransformerBenchAccelTest {
     void gpt2() {
         bench("GPT-2", new GPT2(256, SEQ, DIM, HEADS, LAYERS, 1), null);
         bench("GPT-2 BF16", new GPT2(256, SEQ, DIM, HEADS, LAYERS, 1), DType.BF16);
+        bench("GPT-2 FP16 autocast", new GPT2(256, SEQ, DIM, HEADS, LAYERS, 1), DType.F16);
+        bench("GPT-2 FP16 activations", new GPT2(256, SEQ, DIM, HEADS, LAYERS, 1), DType.F16, true);
     }
 
     @Test
@@ -48,6 +50,12 @@ class TransformerBenchAccelTest {
     }
 
     private static void bench(String name, Module model, DType autocast) {
+        bench(name, model, autocast, false);
+    }
+
+    /** {@code half}: FP16 activations end to end ({@link Autocast#enableHalf}); FP16 runs use a loss scaler. */
+    private static void bench(String name, Module model, DType autocast, boolean half) {
+        org.beehive.jitnn.nn.optim.GradScaler scaler = autocast == DType.F16 ? new org.beehive.jitnn.nn.optim.GradScaler() : null;
         List<Tensor> params = model.parameters();
         Adam opt = Adam.adamW(params, 1e-3f, 0.01f);
         int[] x = new int[BATCH * SEQ];
@@ -64,13 +72,22 @@ class TransformerBenchAccelTest {
                 y[i] = r.nextInt(256);
             }
             Tensor loss;
-            try (Grad.Scope ignored = autocast != null ? Autocast.enable(autocast) : null) {
+            try (Grad.Scope ignored = half ? Autocast.enableHalf() : autocast != null ? Autocast.enable(autocast) : null) {
                 loss = F.crossEntropy(model.forward(Tensor.of(x, BATCH, SEQ)).reshape(BATCH * SEQ, -1), Tensor.of(y, BATCH * SEQ));
             }
-            loss.backward();
-            opt.clipGradNorm(1.0f);
-            opt.step();
-            loss.item();
+            if (scaler != null) {
+                scaler.scale(loss).backward();
+                scaler.unscale(opt);
+                opt.clipGradNorm(1.0f);
+                scaler.step(opt);
+                loss.item();
+                scaler.update();
+            } else {
+                loss.backward();
+                opt.clipGradNorm(1.0f);
+                opt.step();
+                loss.item();
+            }
             opt.zeroGrad();
         }
         double wall = (System.nanoTime() - t0) / 1e6 / STEPS;
@@ -86,7 +103,8 @@ class TransformerBenchAccelTest {
             total += en.getValue()[1];
             launches += en.getValue()[0];
         }
-        System.out.printf("[bench] %s (dim %d, %d layers, %d x %d tokens): %.1f ms/step wall", name, DIM, LAYERS, BATCH, SEQ, wall);
+        System.out.printf("[bench] %s (dim %d, %d layers, %d x %d tokens): %.1f ms/step wall, %.0f MB of intermediates", name, DIM, LAYERS, BATCH, SEQ, wall,
+                Engine.lastIntermediateBytes() / 1e6);
         if (total > 0) {
             System.out.printf(", device kernels %.1f ms in %d launches (%.0f%%)%n", total / 1e6 / STEPS, launches / STEPS, 100.0 * total / 1e6 / STEPS / wall);
             long all = total;

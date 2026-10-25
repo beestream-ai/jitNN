@@ -29,11 +29,17 @@ public final class Autocast {
     }
 
     /**
-     * Half-precision inference, as a model converted to FP16: inside the scope (and with gradients
-     * off), linear layers, element-wise operators, LayerNorm and RMSNorm and attention take and
-     * return FP16 tensors (computing in FP32 inside), so activations stay FP16 between them, with
-     * half the memory traffic. Operators without an FP16 form take FP32 copies of FP16 inputs and
-     * return FP32. Weights are cast to FP16 once per weight version, as with {@link #enable}.
+     * Half-precision activations, as a model converted to FP16: inside the scope, linear layers,
+     * element-wise operators, LayerNorm and RMSNorm and attention take and return FP16 tensors
+     * (computing in FP32 inside), so activations stay FP16 between them, with half the memory
+     * traffic. Operators without an FP16 form take FP32 copies of FP16 inputs and return FP32.
+     * In inference weights are cast to FP16 once per weight version, as with {@link #enable}.
+     *
+     * <p>In training the weights stay FP32 (the master copy the optimiser updates) and are cast to
+     * FP16 inside the graph; the backward pass runs the same way (autograd switches it on when the
+     * graph holds FP16 tensors): parameters get gradients of their own type (FP32), and activations'
+     * gradients stay as the operators compute them (mostly FP32). FP16 training needs loss scaling
+     * ({@code GradScaler}).
      */
     public static Grad.Scope enableHalf() {
         DType previousType = TYPE.get();
@@ -46,9 +52,9 @@ public final class Autocast {
         };
     }
 
-    /** True inside {@link #enableHalf()} with gradients off: FP16-capable operators return FP16. */
+    /** True inside {@link #enableHalf()}: FP16-capable operators return FP16. */
     public static boolean halfActivations() {
-        return HALF.get() && !Grad.isEnabled();
+        return HALF.get();
     }
 
     /** The active autocast type, or null. */

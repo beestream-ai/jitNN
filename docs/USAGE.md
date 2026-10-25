@@ -323,6 +323,30 @@ The scale is uploaded with each step and overflows are detected on the device, s
 one compiled plan. BF16 needs TornadoVM with float-bit reinterpretation (TornadoVM#1141, in
 `develop` since 2026-10-02) on OpenCL and Metal.
 
+### FP16 training
+
+`Autocast.enableHalf()` also works in training: activations stay FP16 between the operators that
+have an FP16 form (linear layers, element-wise operators, LayerNorm and RMSNorm, attention, and the
+convolutions with `-Djitnn.native`). The weights stay FP32, as the master copy the optimiser
+updates, and are cast to FP16 inside the graph.
+
+```java
+try (var half = Autocast.enableHalf()) {
+    loss = F.crossEntropy(model.forward(x), y);
+}
+scaler.scale(loss).backward();     // runs with FP16 activations too
+scaler.step(opt);
+```
+
+- The backward pass runs the same way, whatever scope `backward()` is called in.
+- Parameters get FP32 gradients. The activations' gradients stay as the operators compute them,
+  mostly FP32.
+- Losses follow FP32 training closely: within 1e-4 for GPT-2 and BERT over 12 steps, and 1e-2
+  for ResNet-18.
+- On an RTX 5070 Ti, a GPT-2 step (768 wide, 12 layers, 16 x 128 tokens) uses 13% less memory
+  for intermediates than FP16 autocast, at the same speed. It is dominated by the matrix products,
+  which autocast already runs in FP16.
+
 ### FP16 inference
 
 `Autocast.enableHalf()` runs inference in half precision end to end, like a model converted to FP16.

@@ -39,7 +39,17 @@ final class Autograd {
 
         Map<Tensor, Tensor> grads = new IdentityHashMap<>();
         grads.put(root, seed != null ? seed : Tensor.full(1.0f, root.shape().dims()));
-        try (Grad.Scope ignored = Grad.disabled(); AutoCloseable internal = org.beehive.jitnn.engine.Storage.internalScope()) {
+        // a graph recorded with FP16 activations is differentiated with them (enableHalf), whatever
+        // scope the backward call itself is in
+        boolean half = false;
+        for (Node n : order) {
+            for (Tensor t : n.outputs) {
+                half |= t.dtype() == DType.F16;
+            }
+        }
+        try (Grad.Scope ignored = Grad.disabled(); AutoCloseable internal = org.beehive.jitnn.engine.Storage.internalScope();
+                Grad.Scope halfScope = half && !Autocast.halfActivations() ? Autocast.enableHalf() : () -> {
+                }) {
             for (int i = order.size() - 1; i >= 0; i--) {
                 Node node = order.get(i);
                 Tensor gy = grads.remove(node.out(0));
@@ -51,6 +61,12 @@ final class Autograd {
                     Tensor x = node.in(j);
                     if (gx[j] == null || !x.requiresGrad()) {
                         continue;
+                    }
+                    // a leaf (a parameter) gets a gradient of its own type: FP32 parameters FP32 gradients;
+                    // activations' gradients stay as computed (FP32 from the products), so FP16 activations
+                    // do not round-trip their gradients through FP16
+                    if (x.gradFn() == null && gx[j].dtype() != x.dtype() && x.dtype().isFloat() && !x.dtype().isBlockQuantized()) {
+                        gx[j] = gx[j].to(x.dtype());
                     }
                     if (!gx[j].shape().equals(x.shape())) {
                         throw new IllegalStateException(node.op.name() + " gradient " + gx[j].shape() + " for input " + x.shape());
