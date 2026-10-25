@@ -8,6 +8,7 @@ import org.beehive.jitnn.nn.Embedding;
 import org.beehive.jitnn.nn.Linear;
 import org.beehive.jitnn.nn.Module;
 import org.beehive.jitnn.nn.RMSNorm;
+import org.beehive.jitnn.ops.Rope;
 
 /**
  * A Llama-style decoder: token embedding, pre-RMSNorm blocks of causal attention with rotary
@@ -33,6 +34,14 @@ public final class Llama extends Module {
      */
     public Llama checkpointing(boolean on) {
         checkpointing = on;
+        return this;
+    }
+
+    /** Rescales the RoPE frequencies of every block (Llama 3.1's rope_scaling); null for none. */
+    public Llama ropeScaling(Rope.Scaling scaling) {
+        for (Block b : blocks) {
+            b.ropeScaling = scaling;
+        }
         return this;
     }
 
@@ -62,8 +71,8 @@ public final class Llama extends Module {
     /**
      * A Llama from a Hugging Face checkpoint directory (config.json and safetensors, as
      * {@link HfCheckpoint}): model_type llama (or mistral without a sliding window, qwen2 with its
-     * q, k, v biases), grouped-query attention, tied or separate output weights. RoPE scaling
-     * (Llama 3.1 and later) and a head dimension other than hidden_size / heads are not supported.
+     * q, k, v biases), grouped-query attention, tied or separate output weights, and linear or
+     * Llama 3.1 RoPE scaling. A head dimension other than hidden_size / heads is not supported.
      */
     public static Llama fromHuggingFace(Path dir) {
         HfCheckpoint w = HfCheckpoint.open(dir);
@@ -71,8 +80,23 @@ public final class Llama extends Module {
         if (!type.equals("llama") && !type.equals("mistral") && !type.equals("qwen2")) {
             throw new IllegalArgumentException("model_type " + type + " is not supported (llama, mistral, qwen2 are)");
         }
-        if (w.config().get("rope_scaling") != null) {
-            throw new IllegalArgumentException("rope_scaling is not supported");
+        // transformers 5 writes rope_parameters (theta included), earlier versions rope_theta and rope_scaling
+        java.util.Map<?, ?> rope = w.config().get("rope_parameters") instanceof java.util.Map<?, ?> p ? p
+                : w.config().get("rope_scaling") instanceof java.util.Map<?, ?> q ? q : null;
+        float theta = w.config().get("rope_theta") instanceof Number t ? t.floatValue()
+                : rope != null && rope.get("rope_theta") instanceof Number u ? u.floatValue() : 10000f;
+        Rope.Scaling scaling = null;
+        if (rope != null && (rope.containsKey("rope_type") || rope.containsKey("type"))) {
+            java.util.Map<?, ?> rs = rope;
+            Object kind = rs.containsKey("rope_type") ? rs.get("rope_type") : rs.get("type");
+            double factor = rs.get("factor") instanceof Number f ? f.doubleValue() : 1.0;
+            scaling = switch (String.valueOf(kind)) {
+                case "default" -> null;
+                case "linear" -> Rope.Scaling.linear(factor);
+                case "llama3" -> Rope.Scaling.llama3(factor, ((Number) rs.get("low_freq_factor")).doubleValue(), ((Number) rs.get("high_freq_factor")).doubleValue(),
+                        ((Number) rs.get("original_max_position_embeddings")).intValue());
+                default -> throw new IllegalArgumentException("rope_scaling " + kind + " is not supported (linear, llama3 are)");
+            };
         }
         if (w.config().get("sliding_window") != null && !type.equals("qwen2") || Boolean.TRUE.equals(w.config().get("use_sliding_window"))) {
             throw new IllegalArgumentException("sliding-window attention is not supported");
@@ -89,7 +113,8 @@ public final class Llama extends Module {
         boolean tied = Boolean.TRUE.equals(w.config().get("tie_word_embeddings")) || !w.has("lm_head.weight");
         boolean bias = type.equals("qwen2") || Boolean.TRUE.equals(w.config().get("attention_bias"));
         Llama m = new Llama(w.configInt("vocab_size"), dim, heads, kvHeads, w.configInt("num_hidden_layers"), w.configInt("intermediate_size"),
-                w.configFloat("rope_theta", 10000f), w.configFloat("rms_norm_eps", 1e-6f), tied, bias, 0);
+                theta, w.configFloat("rms_norm_eps", 1e-6f), tied, bias, 0);
+        m.ropeScaling(scaling);
         w.load(m.tokens.weight(), "model.embed_tokens.weight");
         for (int i = 0; i < m.blocks.length; i++) {
             Block b = m.blocks[i];
@@ -141,6 +166,7 @@ public final class Llama extends Module {
         private final int heads;
         private final int kvHeads;
         private final float ropeBase;
+        private Rope.Scaling ropeScaling;
 
         Block(int dim, int heads, int kvHeads, int hidden, float ropeBase, float eps, boolean qkvBias, Seeds seeds) {
             this.heads = heads;
@@ -165,8 +191,8 @@ public final class Llama extends Module {
             int dim = x.dim(2);
             Tensor n = attnNorm.forward(x);
             // [B, T, H, hd] views of the projections: no permutes around attention
-            Tensor q = F.ropeHeads(wq.forward(n).reshape(b, t, heads, -1), ropeBase, 0, false);
-            Tensor k = F.ropeHeads(wk.forward(n).reshape(b, t, kvHeads, -1), ropeBase, 0, false);
+            Tensor q = F.ropeHeads(wq.forward(n).reshape(b, t, heads, -1), ropeBase, ropeScaling, 0, false);
+            Tensor k = F.ropeHeads(wk.forward(n).reshape(b, t, kvHeads, -1), ropeBase, ropeScaling, 0, false);
             Tensor v = wv.forward(n).reshape(b, t, kvHeads, -1);
             Tensor y = F.scaledDotProductAttentionBTHD(q, k, v, null, true, -1.0f);
             x = x.add(wo.forward(y.reshape(b, t, dim)));

@@ -79,20 +79,47 @@ class HfAccelTest {
         close(floats("gpt2_logits.f32"), logits, 2e-4f, "gpt2 logits");
     }
 
-    /** SmolLM2-135M (llama, grouped-query attention) and Qwen2.5-0.5B (qwen2, q/k/v biases): logits and the next token's id. */
+    /** The SmolLM2 (Digits + byte-level) and Qwen2.5 (NFC, regex Split + byte-level) tokenizers against the tokenizers library. */
+    @Test
+    void llamaTokenizers() throws IOException {
+        assumeTrue(Files.exists(dir.resolve("llama_reference.json")), "run scripts/hf/hf_llama_reference.py");
+        Map<?, ?> all = (Map<?, ?>) Json.parse(dir.resolve("llama_reference.json"));
+        for (String name : List.of("smollm2-135m", "qwen2.5-0.5b")) {
+            Tokenizer tok = Tokenizer.load(dir.resolve(name));
+            for (Object o : (List<?>) ((Map<?, ?>) all.get(name)).get("texts")) {
+                Map<?, ?> c = (Map<?, ?>) o;
+                assertArrayEquals(ints(c.get("ids")), tok.encode((String) c.get("text")).ids(), name + ": " + c.get("text"));
+                assertEquals(c.get("decoded"), tok.decode(ints(c.get("ids")), true), name + " decode: " + c.get("text"));
+            }
+        }
+    }
+
+    /**
+     * SmolLM2-135M (llama, grouped-query attention), Qwen2.5-0.5B (qwen2, q/k/v biases) and a
+     * random Llama with Llama 3.1's RoPE scaling: logits and the next token.
+     */
     @Test
     void llamaLogits() throws IOException {
         assumeTrue(Files.exists(dir.resolve("llama_reference.json")), "run scripts/hf/hf_llama_reference.py");
         Map<?, ?> all = (Map<?, ?>) Json.parse(dir.resolve("llama_reference.json"));
-        for (String name : List.of("smollm2-135m", "qwen2.5-0.5b")) {
+        for (String name : List.of("smollm2-135m", "qwen2.5-0.5b", "tiny-llama3")) {
             Map<?, ?> ref = (Map<?, ?>) all.get(name);
             int[] ids = ints(ref.get("ids"));
+            // tiny-llama3 is random weights with Llama 3.1's rope scaling, without a tokenizer
+            Tokenizer tok = ref.containsKey("prompt") ? Tokenizer.load(dir.resolve(name)) : null;
+            if (tok != null) {
+                assertArrayEquals(ids, tok.encode((String) ref.get("prompt")).ids(), name + " prompt ids");
+            }
             Llama model = Llama.fromHuggingFace(dir.resolve(name));
             float[] logits = model.forward(Tensor.of(ids, 1, ids.length)).toFloatArray();
             float[] expected = floats(name + "_logits.f32");
             close(expected, logits, 2e-4f, name + " logits");
             int vocab = logits.length / ids.length;
-            assertEquals(argmax(expected, (ids.length - 1) * vocab, vocab), argmax(logits, (ids.length - 1) * vocab, vocab), name + " next token");
+            int best = argmax(logits, (ids.length - 1) * vocab, vocab);
+            assertEquals(argmax(expected, (ids.length - 1) * vocab, vocab), best, name + " next token");
+            if (tok != null) {
+                assertEquals(ref.get("next"), tok.token(best), name + " next token");
+            }
             Engine.reset();
         }
     }

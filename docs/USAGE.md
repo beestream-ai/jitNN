@@ -231,11 +231,13 @@ Tensor pooled = bert.pooled(hidden);
   Task heads, such as a classifier, are read with `HfCheckpoint` (`load`, `floats`, `unused()`).
 - Llama-family decoders through `Llama.fromHuggingFace`: `model_type` llama, mistral (without a
   sliding window) and qwen2 (with its q, k, v biases), grouped-query attention, tied or separate
-  output weights. RoPE scaling (Llama 3.1 and later) is rejected. SmolLM2-135M and Qwen2.5-0.5B
-  logits match `transformers` within 3e-6 of the largest value on CUDA. Their tokenizers (a
-  `Sequence` pre-tokenizer) are not read yet; for generation with a KV cache use jitllm.
-- Tokenizers: WordPiece with the BERT normaliser, and byte-level BPE (GPT-2, RoBERTa). Other
-  tokenizer models (Unigram, SentencePiece-style BPE) are rejected when loading.
+  output weights, and linear or Llama 3.1 RoPE scaling (`rope_scaling`, or transformers 5's
+  `rope_parameters`; `F.ropeHeads` and `Llama.ropeScaling` take a `Rope.Scaling`). SmolLM2-135M,
+  Qwen2.5-0.5B and a Llama with Llama 3.1 scaling match `transformers` within 3e-6 of the largest
+  logit on CUDA. For generation with a KV cache use jitllm.
+- Tokenizers: WordPiece with the BERT normaliser, and byte-level BPE (GPT-2, RoBERTa, and with the
+  `Sequence`, `Digits` and regex `Split` pre-tokenizers and the NFC/NFKC normalisers, SmolLM2 and
+  Qwen2.5). Other tokenizer models (Unigram, SentencePiece-style BPE) are rejected when loading.
 - On an RTX 5070 Ti, outputs match `transformers` FP32 on the CPU within 2e-6 of the largest value
   (BERT) and 2.3e-6 (GPT-2 logits). Token ids match the `tokenizers` library on the test texts.
 - PyTorch `.bin` checkpoints are not read; most models on the Hub also ship safetensors.

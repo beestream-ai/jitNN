@@ -112,6 +112,10 @@ public final class Tokenizer {
     private boolean addPrefixSpace;
     private boolean useRegex = true;
     private boolean ignoreMerges;
+    /** Splits the pre-tokenizer applies before the byte-level step, in order. */
+    private final List<java.util.function.Function<String, List<String>>> splits = new ArrayList<>();
+    /** A Unicode normal form applied before the other normalisers, or null. */
+    private Normalizer.Form unicodeForm;
     private final Map<String, int[]> cache = new ConcurrentHashMap<>();
 
     private List<Item> single = List.of(new Item(null, 0, 0));
@@ -212,6 +216,8 @@ public final class Tokenizer {
                 }
             }
             case "Lowercase" -> lowercase = true;
+            case "NFC" -> unicodeForm = Normalizer.Form.NFC;
+            case "NFKC" -> unicodeForm = Normalizer.Form.NFKC;
             case "StripAccents" -> stripAccents = true;
             case "NFD" -> {
                 // StripAccents, the only reason tokenizers use it here, decomposes itself
@@ -224,8 +230,34 @@ public final class Tokenizer {
         if (o == null) {
             return;
         }
+        preTokenizerStep(o);
+        if (model == Model.BPE && !byteLevel) {
+            throw new IllegalArgumentException("BPE without the ByteLevel pre-tokenizer is not supported");
+        }
+    }
+
+    private void preTokenizerStep(Object o) {
         Map<?, ?> p = map(o, "pre_tokenizer");
         switch (String.valueOf(p.get("type"))) {
+            case "Sequence" -> {
+                for (Object each : (List<?>) p.get("pretokenizers")) {
+                    preTokenizerStep(each);
+                }
+            }
+            case "Digits" -> {
+                // each digit, or each run of digits, becomes a piece of its own
+                Pattern digits = Pattern.compile(Boolean.TRUE.equals(p.get("individual_digits")) ? "\\p{N}" : "\\p{N}+", Pattern.UNICODE_CHARACTER_CLASS);
+                splits.add(t -> isolate(digits, t));
+            }
+            case "Split" -> {
+                Map<?, ?> pattern = map(p.get("pattern"), "Split pattern");
+                if (!"Isolated".equals(p.get("behavior")) || Boolean.TRUE.equals(p.get("invert"))) {
+                    throw new IllegalArgumentException("Split pre-tokenizer: only the Isolated behaviour without invert is supported");
+                }
+                Pattern re = pattern.get("Regex") instanceof String r ? Pattern.compile(r, Pattern.UNICODE_CHARACTER_CLASS)
+                        : Pattern.compile(Pattern.quote((String) pattern.get("String")));
+                splits.add(t -> isolate(re, t));
+            }
             case "BertPreTokenizer" -> {
                 if (model != Model.WORDPIECE) {
                     throw new IllegalArgumentException("BertPreTokenizer with a BPE model is not supported");
@@ -238,9 +270,26 @@ public final class Tokenizer {
             }
             default -> throw new IllegalArgumentException("pre-tokenizer " + p.get("type") + " is not supported");
         }
-        if (model == Model.BPE && !byteLevel) {
-            throw new IllegalArgumentException("BPE without the ByteLevel pre-tokenizer is not supported");
+    }
+
+    /** The matches of {@code re} in t and the text between them, in order, as separate pieces (empty pieces dropped). */
+    private static List<String> isolate(Pattern re, String t) {
+        List<String> out = new ArrayList<>();
+        Matcher m = re.matcher(t);
+        int last = 0;
+        while (m.find()) {
+            if (m.start() > last) {
+                out.add(t.substring(last, m.start()));
+            }
+            if (m.end() > m.start()) {
+                out.add(m.group());
+            }
+            last = m.end();
         }
+        if (last < t.length()) {
+            out.add(t.substring(last));
+        }
+        return out;
     }
 
     private void postProcessor(Object o) {
@@ -420,14 +469,23 @@ public final class Tokenizer {
             if (addPrefixSpace && !t.isEmpty() && !Character.isWhitespace(t.charAt(0))) {
                 t = " " + t;
             }
-            List<String> pieces = new ArrayList<>();
-            if (useRegex) {
-                Matcher m = GPT2_SPLIT.matcher(t);
-                while (m.find()) {
-                    pieces.add(m.group());
+            List<String> pieces = new ArrayList<>(List.of(t));
+            for (var split : splits) {
+                List<String> next = new ArrayList<>();
+                for (String piece : pieces) {
+                    next.addAll(split.apply(piece));
                 }
-            } else {
-                pieces.add(t);
+                pieces = next;
+            }
+            if (useRegex) {
+                List<String> next = new ArrayList<>();
+                for (String piece : pieces) {
+                    Matcher m = GPT2_SPLIT.matcher(piece);
+                    while (m.find()) {
+                        next.add(m.group());
+                    }
+                }
+                pieces = next;
             }
             for (String piece : pieces) {
                 for (int id : bpe(byteLevel(piece))) {
@@ -438,7 +496,7 @@ public final class Tokenizer {
     }
 
     private String normalize(String text) {
-        String t = text;
+        String t = unicodeForm != null ? Normalizer.normalize(text, unicodeForm) : text;
         if (bertNormalizer) {
             StringBuilder b = new StringBuilder(t.length());
             t.codePoints().forEach(c -> {

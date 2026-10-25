@@ -562,6 +562,11 @@ public final class F {
         return Rope.applyHeads(x, base, offset, interleaved);
     }
 
+    /** {@link #ropeHeads} with the frequencies rescaled for longer contexts (Llama 3.1's rope_scaling; null for none). */
+    public static Tensor ropeHeads(Tensor x, float base, Rope.Scaling scaling, int offset, boolean interleaved) {
+        return Rope.applyHeads(x, base, scaling, offset, interleaved);
+    }
+
     /**
      * Rotary position embedding of x [..., T, D] at positions offset .. offset + T - 1, frequency
      * base^(-2i / D) for pair i. {@code interleaved} pairs (2i, 2i + 1) as GPT-J and Meta's Llama
