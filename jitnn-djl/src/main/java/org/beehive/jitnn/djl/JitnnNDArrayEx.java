@@ -300,13 +300,10 @@ final class JitnnNDArrayEx implements NDArrayEx {
         int p = square(padding, "convolution padding");
         int d = square(dilation, "convolution dilation");
         int spatial = w.rank() - 2;
-        if (groups != 1 && spatial != 2) {
-            throw unsupported("grouped " + spatial + "-D convolution");
-        }
         Tensor y = switch (spatial) {
-            case 1 -> F.conv1d(x, w, b, s, p, d);
+            case 1 -> F.conv1d(x, w, b, s, p, d, groups);
             case 2 -> F.conv2d(x, w, b, s, p, d, groups);
-            case 3 -> F.conv3d(x, w, b, s, p, d);
+            case 3 -> F.conv3d(x, w, b, s, p, d, groups);
             default -> throw unsupported(spatial + "-D convolution");
         };
         return new NDList(wrap(y));

@@ -248,3 +248,9 @@ qlinear_conv in:x f32 70304 192 1 3 8 8
 qlinear_conv out:y i32 71072 64 1 4 4 4
 conv_integer in:x f32 71328 50 1 2 5 5
 conv_integer out:y f32 71528 75 1 3 5 5
+conv1d_grouped in:x f32 71828 132 2 6 11
+conv1d_grouped out:y f32 72356 108 2 9 6
+conv1d_depthwise in:x f32 72788 36 1 4 9
+conv1d_depthwise out:y f32 72932 36 1 4 9
+conv3d_grouped in:x f32 73076 240 1 4 4 5 3
+conv3d_grouped out:y f32 74036 360 1 6 4 5 3

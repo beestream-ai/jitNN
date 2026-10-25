@@ -127,15 +127,25 @@ public final class F {
      * weight [Cout, C, ...kernel], groups 1: the windows are unfolded into columns and multiplied by
      * the weight in one batched GEMM. Bias may be null.
      */
-    private static Tensor convNd(Tensor x, Tensor weight, Tensor bias, int[] stride, int[] pad, int[] dil) {
+    private static Tensor convNd(Tensor x, Tensor weight, Tensor bias, int[] stride, int[] pad, int[] dil, int groups) {
         int r = x.rank() - 2;
         int[] kernel = java.util.Arrays.copyOfRange(weight.shape().dims(), 2, 2 + r);
-        if (weight.rank() != r + 2 || weight.dim(1) != x.dim(1)) {
-            throw new IllegalArgumentException("convolution: input " + x.shape() + " and weight " + weight.shape() + " do not match (groups 1)");
-        }
-        Tensor cols = org.beehive.jitnn.ops.Spatial.unfold(x, kernel, stride, pad, dil);
         int cout = weight.dim(0);
-        Tensor y = weight.reshape(cout, -1).matmul(cols);
+        if (weight.rank() != r + 2 || groups < 1 || x.dim(1) % groups != 0 || cout % groups != 0 || weight.dim(1) * groups != x.dim(1)) {
+            throw new IllegalArgumentException("convolution: input " + x.shape() + ", weight " + weight.shape() + " and groups " + groups + " do not match");
+        }
+        // columns [N, C * K, L], rows channel-major, so each group's rows are contiguous
+        Tensor cols = org.beehive.jitnn.ops.Spatial.unfold(x, kernel, stride, pad, dil);
+        Tensor y;
+        if (groups == 1) {
+            y = weight.reshape(cout, -1).matmul(cols);
+        } else {
+            int rows = cols.dim(1) / groups;
+            int n = cols.dim(0);
+            // [N, G, Cout / G, rows] x [N, G, rows, L] -> [N, G, Cout / G, L] (the batched product needs equal batch dimensions)
+            Tensor w = weight.reshape(1, groups, cout / groups, rows).expand(Shape.of(n, groups, cout / groups, rows));
+            y = w.matmul(cols.reshape(n, groups, rows, cols.dim(2))).reshape(n, cout, cols.dim(2));
+        }
         if (bias != null) {
             y = y.add(bias.reshape(1, cout, 1));
         }
@@ -148,14 +158,24 @@ public final class F {
         return y.reshape(dims);
     }
 
-    /** 1-D convolution of x [N, C, L] with weight [Cout, C, K] (groups 1); bias may be null. */
+    /** 1-D convolution of x [N, C, L] with weight [Cout, C, K]; bias may be null. */
     public static Tensor conv1d(Tensor x, Tensor weight, Tensor bias, int stride, int padding, int dilation) {
-        return convNd(x, weight, bias, new int[] { stride }, new int[] { padding }, new int[] { dilation });
+        return conv1d(x, weight, bias, stride, padding, dilation, 1);
     }
 
-    /** 3-D convolution of x [N, C, D, H, W] with weight [Cout, C, KD, KH, KW] (groups 1); bias may be null. */
+    /** Grouped 1-D convolution: weight [Cout, C / groups, K]; groups = C is depthwise. */
+    public static Tensor conv1d(Tensor x, Tensor weight, Tensor bias, int stride, int padding, int dilation, int groups) {
+        return convNd(x, weight, bias, new int[] { stride }, new int[] { padding }, new int[] { dilation }, groups);
+    }
+
+    /** 3-D convolution of x [N, C, D, H, W] with weight [Cout, C, KD, KH, KW]; bias may be null. */
     public static Tensor conv3d(Tensor x, Tensor weight, Tensor bias, int stride, int padding, int dilation) {
-        return convNd(x, weight, bias, new int[] { stride, stride, stride }, new int[] { padding, padding, padding }, new int[] { dilation, dilation, dilation });
+        return conv3d(x, weight, bias, stride, padding, dilation, 1);
+    }
+
+    /** Grouped 3-D convolution: weight [Cout, C / groups, KD, KH, KW]. */
+    public static Tensor conv3d(Tensor x, Tensor weight, Tensor bias, int stride, int padding, int dilation, int groups) {
+        return convNd(x, weight, bias, new int[] { stride, stride, stride }, new int[] { padding, padding, padding }, new int[] { dilation, dilation, dilation }, groups);
     }
 
     /** Max or average pooling over 1 or 3 spatial axes (2-D has {@link #maxPool2d}); average counts padding. */

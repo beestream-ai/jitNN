@@ -817,19 +817,9 @@ final class OnnxOps {
             int s = same(n, strides, "strides");
             int d = same(n, dil, "dilations");
             return one(switch (spatial) {
-                case 1 -> {
-                    if (groups != 1) {
-                        throw unsupported(n, "grouped 1-D convolution");
-                    }
-                    yield F.conv1d(x, w, b, s, pad, d);
-                }
+                case 1 -> F.conv1d(x, w, b, s, pad, d, groups);
                 case 2 -> F.conv2d(x, w, b, s, pad, d, groups);
-                case 3 -> {
-                    if (groups != 1) {
-                        throw unsupported(n, "grouped 3-D convolution");
-                    }
-                    yield F.conv3d(x, w, b, s, pad, d);
-                }
+                case 3 -> F.conv3d(x, w, b, s, pad, d, groups);
                 default -> throw unsupported(n, spatial + "-D convolution");
             });
         });

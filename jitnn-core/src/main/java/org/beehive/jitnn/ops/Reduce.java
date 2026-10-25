@@ -219,7 +219,7 @@ public final class Reduce implements Op {
                     for (int k = 1; k < len; k++) {
                         float v = x.get((oi * len + k) * inner + j);
                         float b = x.get((oi * len + best) * inner + j);
-                        if (min ? v < b : v > b) {
+                        if (!Float.isNaN(b) && (Float.isNaN(v) || (min ? v < b : v > b))) {
                             best = k;
                         }
                     }

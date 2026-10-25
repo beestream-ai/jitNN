@@ -237,6 +237,11 @@ model("conv_integer", [N("QuantizeLinear", ["x", "xs", "xz"], ["xq"]), N("ConvIn
                        N("Cast", ["acc"], ["y"], to=TensorProto.FLOAT)],
       [("x", grid(0.05, -20, 230, 1, 2, 5, 5))], ["y"], [("xs", f32(0.05)), ("xz", np.array(20, np.uint8)), ("w", u8(3, 2, 3, 3)), ("wz", np.array(120, np.uint8))])
 
+# ---- grouped 1-D and 3-D convolutions (appended: the earlier cases keep their inputs)
+model("conv1d_grouped", [N("Conv", ["x", "w", "b"], ["y"], group=3, pads=[1, 1], strides=[2])], [("x", rnd(2, 6, 11))], ["y"], [("w", rnd(9, 2, 3)), ("b", rnd(9))])
+model("conv1d_depthwise", [N("Conv", ["x", "w"], ["y"], group=4, pads=[2, 2], dilations=[2])], [("x", rnd(1, 4, 9))], ["y"], [("w", rnd(4, 1, 3))])
+model("conv3d_grouped", [N("Conv", ["x", "w", "b"], ["y"], group=2, pads=[1, 1, 1, 1, 1, 1])], [("x", rnd(1, 4, 4, 5, 3))], ["y"], [("w", rnd(6, 2, 3, 3, 3)), ("b", rnd(6))])
+
 QUANT = {c[0] for c in cases[QUANT_FROM:]}
 offset = 0
 with open(os.path.join(OUT, "manifest.txt"), "w") as man, open(os.path.join(OUT, "data.bin"), "wb") as data:

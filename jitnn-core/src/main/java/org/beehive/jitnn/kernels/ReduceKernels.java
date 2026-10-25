@@ -42,12 +42,16 @@ public final class ReduceKernels {
         return r;
     }
 
+    /**
+     * Folds v into acc. Max and min propagate NaN, as PyTorch's: a NaN anywhere makes the result NaN
+     * (bit-pattern tests, as TornadoVM folds {@code x != x} away).
+     */
     public static float combine(int op, float acc, float v) {
         float r;
         if (op == MAX) {
-            r = v > acc ? v : acc;
+            r = ElementwiseKernels.isNaN(acc) ? acc : (ElementwiseKernels.isNaN(v) || v > acc ? v : acc);
         } else if (op == MIN) {
-            r = v < acc ? v : acc;
+            r = ElementwiseKernels.isNaN(acc) ? acc : (ElementwiseKernels.isNaN(v) || v < acc ? v : acc);
         } else if (op == PROD) {
             r = acc * v;
         } else {
@@ -160,7 +164,8 @@ public final class ReduceKernels {
             int bestK = 0;
             for (int k = 1; k < len; k++) {
                 float v = x.get(base + k * inner);
-                if (v < best) {
+                // the first NaN wins, as in PyTorch
+                if (!ElementwiseKernels.isNaN(best) && (ElementwiseKernels.isNaN(v) || v < best)) {
                     best = v;
                     bestK = k;
                 }
@@ -179,7 +184,7 @@ public final class ReduceKernels {
             int bestK = 0;
             for (int k = 1; k < len; k++) {
                 float v = x.get(base + k * inner);
-                if (v > best) {
+                if (!ElementwiseKernels.isNaN(best) && (ElementwiseKernels.isNaN(v) || v > best)) {
                     best = v;
                     bestK = k;
                 }

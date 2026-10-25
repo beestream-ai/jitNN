@@ -15,8 +15,8 @@ they have not been run on Metal yet.
 |---|---|---|
 | add, sub, mul, div, maximum, minimum, comparisons, with broadcasting | `ElementwiseKernels.binary`, `binaryBroadcast` | sum over broadcast axes |
 | neg, exp, log, sqrt, abs, relu, pow, clamp, reciprocal, square, affine | `ElementwiseKernels.unary` | element-wise rules |
-| sum, mean, max, min along an axis; full sums | `ReduceKernels.reduceGroup`, `reduceThread`, `reduceRowsSplit`, `reduceColumnsSplit` | broadcast back; extremum mask |
-| argmax | `ReduceKernels.argmaxThread` | none |
+| sum, mean, max, min along an axis (max and min propagate NaN, as PyTorch); full sums | `ReduceKernels.reduceGroup`, `reduceThread`, `reduceRowsSplit`, `reduceColumnsSplit` | broadcast back; extremum mask |
+| argmax, argmin (the first NaN wins) | `ReduceKernels.argmaxThread`, `argminThread` | none |
 | reshape | a view, no kernel | reshape back |
 | permute, transpose | `ElementwiseKernels.permute`, `transposeTiled32` | inverse permutation |
 | matmul with either transpose | `GemmKernels.gemm64pd` and the other padded, prefetching tiles (chosen per shape, see CONFIGURATION.md), `gemm64SplitK`, `gemm`, `gemmSimdgroup` on Metal | two GEMMs |
@@ -93,7 +93,7 @@ language model). The final cell state of an LSTM carries no gradient.
 | Losses | L1, Huber, smooth L1, NLL, hinge, squared hinge, cosine similarity and cosine proximity, Poisson NLL, MSLE, MAPE | composed | autograd |
 | Optimisers | AdaGrad, RMSProp (momentum, centred), AdaDelta, AdaMax, NAdam, AMSGrad; Nesterov already in SGD | `MultiTensorKernels` (generated, 3 or 4 tensors per launch) | |
 | Norms | GroupNorm, InstanceNorm, local response normalisation, weight normalisation | the row-norm kernel; `NormKernels.lrnForward` | `lrnBackward` (gathering); composed |
-| Spatial | Conv1D and Conv3D (groups 1), 1-D and 3-D max/avg pooling, adaptive avg/max pooling (1 to 3 axes), constant/reflect/replicate padding | `SpatialKernels`: N-D unfold (im2col) + the batched GEMM, adaptive pooling, padding | `fold`, adaptive and padding gradients, all gathering per input (deterministic) |
+| Spatial | Conv1D and Conv3D (grouped: one batched GEMM over the groups), 1-D and 3-D max/avg pooling, adaptive avg/max pooling (1 to 3 axes), constant/reflect/replicate padding | `SpatialKernels`: N-D unfold (im2col) + the batched GEMM, adaptive pooling, padding | `fold`, adaptive and padding gradients, all gathering per input (deterministic) |
 | Scans and sorting | cumsum, cumprod, sort, argsort (stable) | `ScanKernels`: a scan per line; sort by rank | reverse cumsum; cumprod's exact with zeros; through the ranks |
 | Indexing | index_select, gather, scatter, scatter_add, segment sum/mean/max, EmbeddingBag | `IndexKernels` | gathering (no atomics); scatter (replace) has none |
 | INT8 | Q8_0 tensors (GGUF's 32-value blocks), quantise, dequantise, Q8_0 linear | jitllm's: `Q8Kernels` (adapted), `NativeProjectionKernels.dequantizeQ8_0ToFP32`; warp product on CUDA and Metal, shared-memory tree elsewhere | to the input, through the dequantised weight |
@@ -409,8 +409,6 @@ operators, sparse arrays and strings. Operators jitNN lacks run on the engine na
 
 ## Not yet supported
 
-- Conv1D and Conv3D with groups, grouped 1-D convolutions in ONNX models; NaN-propagating
-  reductions.
 - General (non-symmetric) eigendecomposition; complex tensors outside the Fourier transforms.
 - FP8 tensor-core instructions; FP16 training end to end (training uses autocast with FP32
   activations; `Autocast.enableHalf` is for inference).
