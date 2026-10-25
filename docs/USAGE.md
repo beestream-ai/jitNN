@@ -224,8 +224,10 @@ Tensor hidden = bert.encode(batch.ids(), batch.typeIds(), batch.additiveMask());
 Tensor pooled = bert.pooled(hidden);
 ```
 
-- Supported: GPT-2 checkpoints (`GPT2Model`, `GPT2LMHeadModel`) and BERT checkpoints (`BertModel`,
-  `BertForMaskedLM`, `BertForPreTraining`). The BERT MLM head and pooler are loaded when present.
+- Supported: GPT-2 checkpoints (`GPT2Model`, `GPT2LMHeadModel`), and BERT, RoBERTa and DistilBERT
+  checkpoints through `Bert.fromHuggingFace`, which reads `model_type` (`BertModel`,
+  `BertForMaskedLM`, `RobertaForMaskedLM`, `DistilBertForMaskedLM` and the like). The MLM head and
+  pooler are loaded when present. RoBERTa's positions skip padding, as in Hugging Face.
   Task heads, such as a classifier, are read with `HfCheckpoint` (`load`, `floats`, `unused()`).
 - Tokenizers: WordPiece with the BERT normaliser, and byte-level BPE (GPT-2, RoBERTa). Other
   tokenizer models (Unigram, SentencePiece-style BPE) are rejected when loading.

@@ -14,11 +14,13 @@ import numpy as np
 import torch
 from huggingface_hub import snapshot_download
 from tokenizers import Tokenizer
-from transformers import BertForMaskedLM, BertModel, GPT2LMHeadModel
+from transformers import AutoModel, AutoModelForMaskedLM, GPT2LMHeadModel
 
 out = Path(sys.argv[1])
 FILES = ["config.json", "model.safetensors", "tokenizer.json"]
-MODELS = {"gpt2": "openai-community/gpt2", "bert-base-uncased": "google-bert/bert-base-uncased"}
+MODELS = {"gpt2": "openai-community/gpt2", "bert-base-uncased": "google-bert/bert-base-uncased", "roberta-base": "FacebookAI/roberta-base",
+          "distilbert-base-uncased": "distilbert/distilbert-base-uncased"}
+ENCODERS = {"bert-base-uncased": "bert", "roberta-base": "roberta", "distilbert-base-uncased": "distilbert"}
 for name, repo in MODELS.items():
     snapshot_download(repo, local_dir=out / name, allow_patterns=FILES)
 
@@ -60,23 +62,28 @@ with torch.no_grad():
 logits.numpy().astype("<f4").tofile(out / "gpt2_logits.f32")
 meta["gpt2"] = {"ids": ids, "shape": list(logits.shape)}
 
-bert_tok = Tokenizer.from_file(str(out / "bert-base-uncased" / "tokenizer.json"))
-texts = ["The capital of France is [MASK].", "Hello world!"]
-encs = [bert_tok.encode(t) for t in texts]
-t = max(len(e.ids) for e in encs)
-pad = bert_tok.token_to_id("[PAD]")
-ids = [e.ids + [pad] * (t - len(e.ids)) for e in encs]
-att = [[1] * len(e.ids) + [0] * (t - len(e.ids)) for e in encs]
-mlm = BertForMaskedLM.from_pretrained(out / "bert-base-uncased", torch_dtype=torch.float32).eval()
-base = BertModel.from_pretrained(out / "bert-base-uncased", torch_dtype=torch.float32).eval()
-with torch.no_grad():
-    o = base(torch.tensor(ids), attention_mask=torch.tensor(att))
-    m = mlm(torch.tensor(ids), attention_mask=torch.tensor(att)).logits
-mask_pos = encs[0].ids.index(bert_tok.token_to_id("[MASK]"))
-o.last_hidden_state.numpy().astype("<f4").tofile(out / "bert_hidden.f32")
-o.pooler_output.numpy().astype("<f4").tofile(out / "bert_pooled.f32")
-m[0, mask_pos].numpy().astype("<f4").tofile(out / "bert_mask_logits.f32")
-meta["bert"] = {"texts": texts, "ids": ids, "attention": att, "mask_row": mask_pos,
-                "hidden_shape": list(o.last_hidden_state.shape), "prediction": bert_tok.id_to_token(int(m[0, mask_pos].argmax()))}
+for name, key in ENCODERS.items():
+    tok = Tokenizer.from_file(str(out / name / "tokenizer.json"))
+    mask_token = "<mask>" if key == "roberta" else "[MASK]"
+    pad_token = "<pad>" if key == "roberta" else "[PAD]"
+    texts = [f"The capital of France is {mask_token}.", "Hello world!"]
+    encs = [tok.encode(t) for t in texts]
+    t = max(len(e.ids) for e in encs)
+    pad = tok.token_to_id(pad_token)
+    ids = [e.ids + [pad] * (t - len(e.ids)) for e in encs]
+    att = [[1] * len(e.ids) + [0] * (t - len(e.ids)) for e in encs]
+    mlm = AutoModelForMaskedLM.from_pretrained(out / name, torch_dtype=torch.float32).eval()
+    base = AutoModel.from_pretrained(out / name, torch_dtype=torch.float32).eval()
+    with torch.no_grad():
+        o = base(torch.tensor(ids), attention_mask=torch.tensor(att))
+        m = mlm(torch.tensor(ids), attention_mask=torch.tensor(att)).logits
+    mask_pos = encs[0].ids.index(tok.token_to_id(mask_token))
+    o.last_hidden_state.numpy().astype("<f4").tofile(out / f"{key}_hidden.f32")
+    if getattr(o, "pooler_output", None) is not None:
+        o.pooler_output.numpy().astype("<f4").tofile(out / f"{key}_pooled.f32")
+    m[0, mask_pos].numpy().astype("<f4").tofile(out / f"{key}_mask_logits.f32")
+    meta[key] = {"model": name, "texts": texts, "ids": ids, "attention": att, "mask_row": mask_pos,
+                 "hidden_shape": list(o.last_hidden_state.shape), "pooled": getattr(o, "pooler_output", None) is not None,
+                 "prediction": tok.id_to_token(int(m[0, mask_pos].argmax()))}
 (out / "reference.json").write_text(json.dumps(meta, indent=1))
-print("wrote", out, meta["bert"]["prediction"])
+print("wrote", out, {k: meta[k]["prediction"] for k in ENCODERS.values()})

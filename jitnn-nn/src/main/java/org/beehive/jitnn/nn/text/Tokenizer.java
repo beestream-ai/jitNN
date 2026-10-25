@@ -40,7 +40,8 @@ public final class Tokenizer {
         BPE
     }
 
-    private record Added(String content, int id, boolean special) {
+    /** An added token; lstrip / rstrip: it takes the whitespace on its left / right with it. */
+    private record Added(String content, int id, boolean special, boolean lstrip, boolean rstrip) {
     }
 
     /** One item of a post-processing template: a special token, or sequence 0 (A) or 1 (B). */
@@ -137,7 +138,8 @@ public final class Tokenizer {
         List<?> addedTokens = root.get("added_tokens") instanceof List<?> l ? l : List.of();
         for (Object o : addedTokens) {
             Map<?, ?> a = (Map<?, ?>) o;
-            Added t = new Added((String) a.get("content"), ((Number) a.get("id")).intValue(), Boolean.TRUE.equals(a.get("special")));
+            Added t = new Added((String) a.get("content"), ((Number) a.get("id")).intValue(), Boolean.TRUE.equals(a.get("special")), Boolean.TRUE.equals(a.get("lstrip")),
+                    Boolean.TRUE.equals(a.get("rstrip")));
             added.add(t);
             addedById.put(t.id(), t);
             max = Math.max(max, t.id());
@@ -385,9 +387,20 @@ public final class Tokenizer {
                 i++;
                 continue;
             }
-            model(text.substring(start, i), out);
+            int end = i;
+            if (hit.lstrip()) {
+                while (end > start && Character.isWhitespace(text.charAt(end - 1))) {
+                    end--;
+                }
+            }
+            model(text.substring(start, end), out);
             out.add(hit.id());
             i += hit.content().length();
+            if (hit.rstrip()) {
+                while (i < text.length() && Character.isWhitespace(text.charAt(i))) {
+                    i++;
+                }
+            }
             start = i;
         }
         model(text.substring(start), out);

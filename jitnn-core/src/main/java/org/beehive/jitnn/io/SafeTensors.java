@@ -28,8 +28,11 @@ public final class SafeTensors {
     private SafeTensors() {
     }
 
-    /** One tensor of a file: its type, shape, and where its bytes are. */
-    public record Entry(DType dtype, long[] shape, long offset, long bytes) {
+    /**
+     * One tensor of a file: its type (null when jitNN has no such type, e.g. I64 or BOOL buffers:
+     * listed, but an error to read), the file's name for it, its shape, and where its bytes are.
+     */
+    public record Entry(DType dtype, String typeName, long[] shape, long offset, long bytes) {
         public long numel() {
             long n = 1;
             for (long d : shape) {
@@ -126,7 +129,8 @@ public final class SafeTensors {
                 if (end < begin || 8 + n + end > ch.size()) {
                     throw new IOException(file + ": tensor " + key + " lies outside the file");
                 }
-                sorted.add(Map.entry(key, new Entry(dtype((String) v.get("dtype"), key), dims, 8 + n + begin, end - begin)));
+                String typeName = (String) v.get("dtype");
+                sorted.add(Map.entry(key, new Entry(dtype(typeName), typeName, dims, 8 + n + begin, end - begin)));
             }
             sorted.sort((a, b) -> Long.compare(a.getValue().offset(), b.getValue().offset()));
             sorted.forEach(e -> entries.put(e.getKey(), e.getValue()));
@@ -156,7 +160,7 @@ public final class SafeTensors {
         };
     }
 
-    private static DType dtype(String name, String tensor) throws IOException {
+    private static DType dtype(String name) {
         return switch (name) {
             case "F32" -> DType.F32;
             case "F16" -> DType.F16;
@@ -164,7 +168,7 @@ public final class SafeTensors {
             case "I32" -> DType.I32;
             case "F8_E4M3" -> DType.FP8_E4M3;
             case "F8_E5M2" -> DType.FP8_E5M2;
-            default -> throw new IOException("tensor " + tensor + ": dtype " + name + " is not supported");
+            default -> null;
         };
     }
 

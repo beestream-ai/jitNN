@@ -24,7 +24,7 @@ import org.beehive.jitnn.io.StateDict;
  */
 public final class HfCheckpoint {
 
-    private static final List<String> PREFIXES = List.of("", "bert.", "transformer.", "model.", "roberta.");
+    private static final List<String> PREFIXES = List.of("", "bert.", "transformer.", "model.", "roberta.", "distilbert.");
 
     private final Path dir;
     private final Map<?, ?> config;

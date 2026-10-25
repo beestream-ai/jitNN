@@ -265,6 +265,9 @@ public final class StateDict {
         if (e == null) {
             throw new IllegalArgumentException("no tensor " + name);
         }
+        if (e.dtype() == null) {
+            throw new IllegalArgumentException(name + ": dtype " + e.typeName() + " is not supported (F32, F16, BF16, I32, F8_E4M3 and F8_E5M2 are)");
+        }
         if (e.bytes() != e.numel() * e.dtype().bytes()) {
             throw new IllegalArgumentException(name + ": " + e.bytes() + " bytes for " + e.numel() + " " + e.dtype() + " values");
         }

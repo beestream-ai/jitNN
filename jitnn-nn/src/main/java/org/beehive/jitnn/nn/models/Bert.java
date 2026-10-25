@@ -50,79 +50,120 @@ public final class Bert extends Module {
      * after the others, so the short constructor's parameters and seeds are unchanged.
      */
     public Bert(int vocab, int context, int dim, int heads, int layers, int hidden, int typeVocab, boolean pooler, long seed) {
+        this(vocab, context, dim, heads, layers, hidden, typeVocab, pooler, 1e-12f, seed);
+    }
+
+    /** As above with LayerNorm epsilon {@code eps} (RoBERTa uses 1e-5). */
+    public Bert(int vocab, int context, int dim, int heads, int layers, int hidden, int typeVocab, boolean pooler, float eps, long seed) {
         Seeds seeds = new Seeds(seed);
         this.decoderBias = parameter(Tensor.zeros(vocab));
         this.tokens = child(new Embedding(Init.uniformStd(seeds.next(), 0.02f, vocab, dim), -1));
         this.positions = child(new Embedding(Init.uniformStd(seeds.next(), 0.02f, context, dim), -1));
-        this.embNorm = child(new LayerNorm(dim, 1e-12f, true));
+        this.embNorm = child(new LayerNorm(dim, eps, true));
         this.blocks = new Block[layers];
         for (int i = 0; i < layers; i++) {
-            blocks[i] = child(new Block(dim, heads, hidden, seeds));
+            blocks[i] = child(new Block(dim, heads, hidden, eps, seeds));
         }
         this.headDense = child(new Linear(dim, dim, seeds.next()));
-        this.headNorm = child(new LayerNorm(dim, 1e-12f, true));
+        this.headNorm = child(new LayerNorm(dim, eps, true));
         this.types = typeVocab > 0 ? child(new Embedding(Init.uniformStd(seeds.next(), 0.02f, typeVocab, dim), -1)) : null;
         this.pooler = pooler ? child(new Linear(dim, dim, seeds.next())) : null;
     }
 
     /**
-     * BERT from a Hugging Face model directory ({@code bert-base-uncased} and other BERT checkpoints
-     * saved as {@code BertModel}, {@code BertForMaskedLM} or {@code BertForPreTraining}): config.json
-     * and safetensors weights. The MLM head is loaded when the checkpoint has it; otherwise it keeps
-     * its initial values. Task heads (classification and the like) are left to the caller, who can
-     * read them with {@link HfCheckpoint}.
+     * A BERT-family encoder from a Hugging Face model directory: config.json and safetensors weights,
+     * by {@code model_type}:
+     * <ul>
+     * <li>{@code bert} ({@code bert-base-uncased} and other BERT checkpoints, as {@code BertModel},
+     * {@code BertForMaskedLM} or {@code BertForPreTraining});</li>
+     * <li>{@code roberta} ({@code roberta-base} and the like): positions counted from the padding
+     * index + 1, skipping padding, as RoBERTa does; LayerNorm epsilon 1e-5;</li>
+     * <li>{@code distilbert}: no token types, no pooler.</li>
+     * </ul>
+     * The MLM head is loaded when the checkpoint has it; otherwise it keeps its initial values. Task
+     * heads (classification and the like) are left to the caller, who can read them with
+     * {@link HfCheckpoint}.
      */
     public static Bert fromHuggingFace(Path dir) {
         HfCheckpoint w = HfCheckpoint.open(dir);
-        String act = w.configString("hidden_act", "gelu");
-        if (!act.equals("gelu")) {
-            throw new IllegalArgumentException("hidden_act " + act + " is not supported (BERT uses gelu)");
+        String type = w.configString("model_type", "bert");
+        boolean distil = type.equals("distilbert");
+        if (!type.equals("bert") && !type.equals("roberta") && !distil) {
+            throw new IllegalArgumentException("model_type " + type + " is not supported (bert, roberta, distilbert are)");
         }
-        if (w.configFloat("layer_norm_eps", 1e-12f) != 1e-12f) {
-            throw new IllegalArgumentException("layer_norm_eps other than 1e-12 is not supported");
+        String act = w.configString(distil ? "activation" : "hidden_act", "gelu");
+        if (!act.equals("gelu")) {
+            throw new IllegalArgumentException("activation " + act + " is not supported (gelu is)");
         }
         if (!w.configString("position_embedding_type", "absolute").equals("absolute")) {
             throw new IllegalArgumentException("only absolute position embeddings are supported");
         }
-        int dim = w.configInt("hidden_size");
-        Bert m = new Bert(w.configInt("vocab_size"), w.configInt("max_position_embeddings"), dim, w.configInt("num_attention_heads"), w.configInt("num_hidden_layers"),
-                w.configInt("intermediate_size"), w.configInt("type_vocab_size"), w.has("pooler.dense.weight"), 0);
+        float eps = w.configFloat("layer_norm_eps", 1e-12f);
+        int dim = w.configInt("hidden_size", "dim");
+        int types = distil ? 0 : w.configInt("type_vocab_size");
+        Bert m = new Bert(w.configInt("vocab_size"), w.configInt("max_position_embeddings"), dim, w.configInt("num_attention_heads", "n_heads"),
+                w.configInt("num_hidden_layers", "n_layers"), w.configInt("intermediate_size", "hidden_dim"), types, w.has("pooler.dense.weight"), eps, 0);
+        if (type.equals("roberta")) {
+            m.paddingPositions = w.configInt("pad_token_id");
+        }
         String e = "embeddings.";
         w.load(m.tokens.weight(), e + "word_embeddings.weight");
         w.load(m.positions.weight(), e + "position_embeddings.weight");
-        w.load(m.types.weight(), e + "token_type_embeddings.weight");
+        if (m.types != null) {
+            w.load(m.types.weight(), e + "token_type_embeddings.weight");
+        }
         w.load(m.embNorm.weight(), e + "LayerNorm.weight");
         w.load(m.embNorm.bias(), e + "LayerNorm.bias");
         for (int i = 0; i < m.blocks.length; i++) {
             Block b = m.blocks[i];
-            String l = "encoder.layer." + i + ".";
-            w.loadConcatenated(b.qkv.weight(), l + "attention.self.query.weight", l + "attention.self.key.weight", l + "attention.self.value.weight");
-            w.loadConcatenated(b.qkv.bias(), l + "attention.self.query.bias", l + "attention.self.key.bias", l + "attention.self.value.bias");
-            w.load(b.proj.weight(), l + "attention.output.dense.weight");
-            w.load(b.proj.bias(), l + "attention.output.dense.bias");
-            w.load(b.ln1.weight(), l + "attention.output.LayerNorm.weight");
-            w.load(b.ln1.bias(), l + "attention.output.LayerNorm.bias");
-            w.load(b.fc1.weight(), l + "intermediate.dense.weight");
-            w.load(b.fc1.bias(), l + "intermediate.dense.bias");
-            w.load(b.fc2.weight(), l + "output.dense.weight");
-            w.load(b.fc2.bias(), l + "output.dense.bias");
-            w.load(b.ln2.weight(), l + "output.LayerNorm.weight");
-            w.load(b.ln2.bias(), l + "output.LayerNorm.bias");
+            if (distil) {
+                String l = "transformer.layer." + i + ".";
+                w.loadConcatenated(b.qkv.weight(), l + "attention.q_lin.weight", l + "attention.k_lin.weight", l + "attention.v_lin.weight");
+                w.loadConcatenated(b.qkv.bias(), l + "attention.q_lin.bias", l + "attention.k_lin.bias", l + "attention.v_lin.bias");
+                loadLinear(w, b.proj, l + "attention.out_lin");
+                loadNorm(w, b.ln1, l + "sa_layer_norm");
+                loadLinear(w, b.fc1, l + "ffn.lin1");
+                loadLinear(w, b.fc2, l + "ffn.lin2");
+                loadNorm(w, b.ln2, l + "output_layer_norm");
+            } else {
+                String l = "encoder.layer." + i + ".";
+                w.loadConcatenated(b.qkv.weight(), l + "attention.self.query.weight", l + "attention.self.key.weight", l + "attention.self.value.weight");
+                w.loadConcatenated(b.qkv.bias(), l + "attention.self.query.bias", l + "attention.self.key.bias", l + "attention.self.value.bias");
+                loadLinear(w, b.proj, l + "attention.output.dense");
+                loadNorm(w, b.ln1, l + "attention.output.LayerNorm");
+                loadLinear(w, b.fc1, l + "intermediate.dense");
+                loadLinear(w, b.fc2, l + "output.dense");
+                loadNorm(w, b.ln2, l + "output.LayerNorm");
+            }
         }
         if (m.pooler != null) {
-            w.load(m.pooler.weight(), "pooler.dense.weight");
-            w.load(m.pooler.bias(), "pooler.dense.bias");
+            loadLinear(w, m.pooler, "pooler.dense");
         }
-        if (w.has("cls.predictions.transform.dense.weight")) {
-            String c = "cls.predictions.";
-            w.load(m.headDense.weight(), c + "transform.dense.weight");
-            w.load(m.headDense.bias(), c + "transform.dense.bias");
-            w.load(m.headNorm.weight(), c + "transform.LayerNorm.weight");
-            w.load(m.headNorm.bias(), c + "transform.LayerNorm.bias");
-            w.load(m.decoderBias, w.has(c + "bias") ? c + "bias" : c + "decoder.bias");
+        // the MLM head: dense, GELU, LayerNorm, then the tied token embedding with its own bias
+        String[] head = distil ? new String[] { "vocab_transform", "vocab_layer_norm", "vocab_projector.bias" }
+                : type.equals("roberta") ? new String[] { "lm_head.dense", "lm_head.layer_norm", "lm_head.bias" }
+                        : new String[] { "cls.predictions.transform.dense", "cls.predictions.transform.LayerNorm", "cls.predictions.bias" };
+        if (w.has(head[0] + ".weight")) {
+            loadLinear(w, m.headDense, head[0]);
+            loadNorm(w, m.headNorm, head[1]);
+            String bias = w.has(head[2]) ? head[2] : head[2].replace(".bias", ".decoder.bias");
+            w.load(m.decoderBias, bias);
         }
         return m;
     }
+
+    private static void loadLinear(HfCheckpoint w, Linear l, String name) {
+        w.load(l.weight(), name + ".weight");
+        w.load(l.bias(), name + ".bias");
+    }
+
+    private static void loadNorm(HfCheckpoint w, LayerNorm n, String name) {
+        w.load(n.weight(), name + ".weight");
+        w.load(n.bias(), name + ".bias");
+    }
+
+    /** RoBERTa's padding index: positions count from it + 1 over the non-padding tokens; -1 for 0, 1, 2, ... */
+    private int paddingPositions = -1;
 
     /** Hidden states [B, T, dim] for INT32 tokens [B, T], without a padding mask. */
     @Override
@@ -141,11 +182,27 @@ public final class Bert extends Module {
      */
     public Tensor encode(Tensor idx, Tensor tokenTypes, Tensor mask) {
         int t = idx.dim(1);
-        int[] pos = new int[t];
-        for (int i = 0; i < t; i++) {
-            pos[i] = i;
+        Tensor positionIds;
+        if (paddingPositions >= 0) {
+            // RoBERTa: padding_idx + 1, + 2, ... over the real tokens; padding keeps padding_idx
+            int[] ids = idx.toIntArray();
+            int[] pos = new int[ids.length];
+            for (int r = 0; r < ids.length / t; r++) {
+                int count = 0;
+                for (int i = 0; i < t; i++) {
+                    int k = r * t + i;
+                    pos[k] = ids[k] == paddingPositions ? paddingPositions : paddingPositions + ++count;
+                }
+            }
+            positionIds = Tensor.of(pos, idx.shape().dims());
+        } else {
+            int[] pos = new int[t];
+            for (int i = 0; i < t; i++) {
+                pos[i] = i;
+            }
+            positionIds = Tensor.of(pos, t);
         }
-        Tensor e = tokens.forward(idx).add(positions.forward(Tensor.of(pos, t)));
+        Tensor e = tokens.forward(idx).add(positions.forward(positionIds));
         if (types != null) {
             e = e.add(types.forward(tokenTypes != null ? tokenTypes : Tensor.of(new int[idx.numel()], idx.shape().dims())));
         }
@@ -167,6 +224,11 @@ public final class Bert extends Module {
         return F.linear(z, tokens.weight(), decoderBias);
     }
 
+    /** True when the model has the pooler (a Hugging Face checkpoint without one, such as roberta-base, gives none). */
+    public boolean hasPooler() {
+        return pooler != null;
+    }
+
     /** The pooler output [B, dim]: tanh(dense(hidden state of the first token)); needs the pooler. */
     public Tensor pooled(Tensor hidden) {
         if (pooler == null) {
@@ -185,14 +247,14 @@ public final class Bert extends Module {
         private final LayerNorm ln2;
         private final int heads;
 
-        Block(int dim, int heads, int hidden, Seeds seeds) {
+        Block(int dim, int heads, int hidden, float eps, Seeds seeds) {
             this.heads = heads;
             this.qkv = child(new Linear(dim, 3 * dim, seeds.next()));
             this.proj = child(new Linear(dim, dim, seeds.next()));
-            this.ln1 = child(new LayerNorm(dim, 1e-12f, true));
+            this.ln1 = child(new LayerNorm(dim, eps, true));
             this.fc1 = child(new Linear(dim, hidden, seeds.next()));
             this.fc2 = child(new Linear(hidden, dim, seeds.next()));
-            this.ln2 = child(new LayerNorm(dim, 1e-12f, true));
+            this.ln2 = child(new LayerNorm(dim, eps, true));
         }
 
         @Override
