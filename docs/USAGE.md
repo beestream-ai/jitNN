@@ -384,6 +384,20 @@ Engine.stopTrace(Path.of("trace.json"));
   plan's run, because TornadoVM reports durations, not start times. Their total equals the
   profiler's device time.
 
+### Determinism
+
+`Engine.setDeterministic(true)` (or `-Djitnn.deterministic=true`) makes runs reproducible bit for bit
+on the same device, library versions and inputs, as PyTorch's `use_deterministic_algorithms`.
+
+- jitNN's own kernels are deterministic already: they use no atomics, and split reductions add
+  in a fixed order.
+- The switch stops autotuning from measuring: choices follow the rules or the saved decisions,
+  never this run's timings.
+- It also asks cuDNN for deterministic algorithms only (with TornadoVM's cuDNN backward bindings).
+  Set it before the first convolution, as cuDNN plans are cached.
+- On an RTX 5070 Ti with vendor libraries and `-Djitnn.autotune=on`, two runs of three GPT-2
+  training steps differed in 55% of the weights without the switch, and were identical with it.
+
 ## Autotuning
 
 jitNN picks a kernel variant for each operator from rules measured on a few GPUs. With
