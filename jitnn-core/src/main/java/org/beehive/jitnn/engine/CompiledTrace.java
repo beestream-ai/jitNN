@@ -43,6 +43,8 @@ final class CompiledTrace {
     /** "graph.task" keys of the profiler log and the operator each task belongs to (profiling only). */
     java.util.Map<String, String> taskLabels;
     java.util.Map<String, long[]> profileTotals = new java.util.HashMap<>();
+    /** Per task id: [launches, device ns] in the profiler log so far (for the timeline). */
+    java.util.Map<String, long[]> taskTotals = new java.util.HashMap<>();
 
     /** With kernel printing on: the operator listing printed before the kernels on the first run. */
     String printHeader;

@@ -863,6 +863,9 @@ final class TornadoExecutor {
             lastKernelNanos = ct.last.getProfilerResult().getDeviceKernelTime();
             lastTotalNanos = ct.last.getProfilerResult().getTotalTime();
             accumulate(ct, ct.last.getProfilerResult().getProfileLog());
+            if (TRACE != null) {
+                traceExecution(ct, ct.last.getProfilerResult().getProfileLog(), t0, System.nanoTime());
+            }
         }
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
@@ -1051,6 +1054,97 @@ final class TornadoExecutor {
             acc[1] += en.getValue()[1] - before[1];
         }
         ct.profileTotals = now;
+    }
+
+    // ---------------------------------------------------------------- timeline (Chrome trace events)
+
+    private static final java.util.regex.Pattern TASK_ID = java.util.regex.Pattern.compile("(.*?)(?:_(\\d+))?\\.t(\\d+)");
+    private static List<String> TRACE;
+    private static long traceOrigin;
+
+    static void traceStart() {
+        LOCK.lock();
+        try {
+            TRACE = java.util.Collections.synchronizedList(new ArrayList<>());
+            traceOrigin = System.nanoTime();
+        } finally {
+            LOCK.unlock();
+        }
+    }
+
+    /** The recorded events, and recording stops. */
+    static List<String> traceStop() {
+        LOCK.lock();
+        try {
+            List<String> events = TRACE == null ? List.of() : new ArrayList<>(TRACE);
+            TRACE = null;
+            return events;
+        } finally {
+            LOCK.unlock();
+        }
+    }
+
+    static boolean tracing() {
+        return TRACE != null;
+    }
+
+    static long traceOrigin() {
+        return traceOrigin;
+    }
+
+    /** Adds an event (a JSON object) to the timeline, when recording. */
+    static void traceEvent(String json) {
+        LOCK.lock();
+        try {
+            if (TRACE != null) {
+                TRACE.add(json);
+            }
+        } finally {
+            LOCK.unlock();
+        }
+    }
+
+    /**
+     * One plan execution on the timeline: its host span (thread 1), and its kernels' device times
+     * from the profiler (thread 2), in launch order and laid back to back from the execution's start
+     * (TornadoVM reports durations, not start times).
+     */
+    private static void traceExecution(CompiledTrace ct, String log, long start, long end) {
+        java.util.Map<String, long[]> now = new java.util.HashMap<>();
+        java.util.regex.Matcher m = TASK_TIME.matcher(log == null ? "" : log);
+        while (m.find()) {
+            long[] acc = now.computeIfAbsent(m.group(1), k -> new long[2]);
+            acc[0]++;
+            acc[1] += Long.parseLong(m.group(2));
+        }
+        List<String> tasks = new ArrayList<>(now.keySet());
+        tasks.sort(java.util.Comparator.comparingLong(TornadoExecutor::taskOrder));
+        String first = ct.executions == 1 ? " (first run: compiles the kernels)" : "";
+        TRACE.add(String.format(java.util.Locale.ROOT, "{\"name\":\"%s%s\",\"cat\":\"plan\",\"ph\":\"X\",\"ts\":%.3f,\"dur\":%.3f,\"pid\":1,\"tid\":1}", ct.name, first,
+                (start - traceOrigin) / 1e3, (end - start) / 1e3));
+        double at = (start - traceOrigin) / 1e3;
+        for (String task : tasks) {
+            long[] before = ct.taskTotals.getOrDefault(task, new long[2]);
+            long ns = now.get(task)[1] - before[1];
+            if (now.get(task)[0] == before[0]) {
+                continue;
+            }
+            String label = ct.taskLabels != null ? ct.taskLabels.getOrDefault(task, task) : task;
+            TRACE.add(String.format(java.util.Locale.ROOT, "{\"name\":\"%s\",\"cat\":\"kernel\",\"ph\":\"X\",\"ts\":%.3f,\"dur\":%.3f,\"pid\":1,\"tid\":2,\"args\":{\"plan\":\"%s\",\"task\":\"%s\"}}",
+                    label.replace("\"", "'"), at, ns / 1e3, ct.name, task));
+            at += ns / 1e3;
+        }
+        ct.taskTotals = now;
+    }
+
+    /** Graph index then task index of a task id "plan[_g].tN", for launch order. */
+    private static long taskOrder(String task) {
+        java.util.regex.Matcher m = TASK_ID.matcher(task);
+        if (!m.matches()) {
+            return Long.MAX_VALUE;
+        }
+        long graph = m.group(2) == null ? 0 : Long.parseLong(m.group(2));
+        return graph * 1_000_000L + Long.parseLong(m.group(3));
     }
 
     /** With -Djitnn.profile=true: per operator task ("op#k"), [launches, device ns] since the last call; resets. */

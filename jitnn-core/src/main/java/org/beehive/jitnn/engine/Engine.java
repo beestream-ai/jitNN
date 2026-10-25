@@ -196,6 +196,52 @@ public final class Engine {
     }
 
     /**
+     * Starts recording a timeline of plan executions for {@link #stopTrace}. Needs
+     * {@code -Djitnn.profile=true} (TornadoVM's profiler gives each kernel's device time) and, on
+     * CUDA, {@code -Djitnn.cudaGraph=false} (a CUDA graph reports one time for all its kernels).
+     */
+    public static void startTrace() {
+        if (!Boolean.getBoolean("jitnn.profile")) {
+            throw new IllegalStateException("a timeline needs -Djitnn.profile=true (and -Djitnn.cudaGraph=false on CUDA)");
+        }
+        TornadoExecutor.traceStart();
+        tracing = true;
+    }
+
+    private static volatile boolean tracing;
+
+    /**
+     * Stops recording and writes the timeline as Chrome trace events (JSON), for Perfetto
+     * (ui.perfetto.dev) or chrome://tracing. Thread "host": every plan execution, from the call to
+     * its end (the first one compiles); thread "device": every kernel's device time, in launch order,
+     * laid back to back from the start of its execution (TornadoVM reports durations only); thread
+     * "ranges": the spans opened with {@link #traceRange}.
+     */
+    public static void stopTrace(java.nio.file.Path file) throws java.io.IOException {
+        tracing = false;
+        List<String> events = new java.util.ArrayList<>(TornadoExecutor.traceStop());
+        events.add(0, "{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":0,\"args\":{\"name\":\"ranges\"}}");
+        events.add(1, "{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":1,\"args\":{\"name\":\"host: plan executions\"}}");
+        events.add(2, "{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":2,\"args\":{\"name\":\"device: kernels\"}}");
+        events.add(3, "{\"name\":\"process_name\",\"ph\":\"M\",\"pid\":1,\"args\":{\"name\":\"jitNN\"}}");
+        java.nio.file.Files.writeString(file, "{\"traceEvents\":[\n" + String.join(",\n", events) + "\n],\"displayTimeUnit\":\"ms\"}\n");
+    }
+
+    /**
+     * A named span on the timeline (thread "ranges"), for example one training step, while
+     * recording; nothing otherwise. Close it (try-with-resources) where the span ends.
+     */
+    public static AutoCloseable traceRange(String name) {
+        if (!tracing) {
+            return () -> {
+            };
+        }
+        long start = System.nanoTime();
+        return () -> TornadoExecutor.traceEvent(String.format(java.util.Locale.ROOT, "{\"name\":\"%s\",\"cat\":\"range\",\"ph\":\"X\",\"ts\":%.3f,\"dur\":%.3f,\"pid\":1,\"tid\":0}",
+                name.replace("\"", "'"), (start - TornadoExecutor.traceOrigin()) / 1e3, (System.nanoTime() - start) / 1e3));
+    }
+
+    /**
      * Device memory for intermediates (activations, gradients and other temporaries, after buffer
      * reuse) of the last plan that ran, in bytes; 0 on the reference backend.
      */

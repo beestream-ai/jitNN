@@ -360,6 +360,30 @@ long[] after = Engine.trafficStats();
 System.out.printf("%d kernels, %.1f MB%n", after[1] - before[1], (after[3] - before[3]) / 1e6);
 ```
 
+### Timeline
+
+With `-Djitnn.profile=true` (and `-Djitnn.cudaGraph=false` on CUDA), `Engine.startTrace()` and
+`Engine.stopTrace(file)` record a timeline as Chrome trace events. Open it in
+[Perfetto](https://ui.perfetto.dev) or `chrome://tracing`.
+
+```java
+Engine.startTrace();
+for (int step = 0; step < 10; step++) {
+    try (AutoCloseable r = Engine.traceRange("step " + step)) {
+        ...
+    }
+}
+Engine.stopTrace(Path.of("trace.json"));
+```
+
+- "ranges": the spans opened with `Engine.traceRange`.
+- "host: plan executions": every plan run, from the call to its return. The first run of a plan
+  is marked, as it includes compiling the kernels.
+- "device: kernels": every kernel, named after its operator, with its device time from
+  TornadoVM's profiler. Kernels are drawn in launch order, back to back from the start of their
+  plan's run, because TornadoVM reports durations, not start times. Their total equals the
+  profiler's device time.
+
 ## Autotuning
 
 jitNN picks a kernel variant for each operator from rules measured on a few GPUs. With
