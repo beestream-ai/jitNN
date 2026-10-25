@@ -52,7 +52,7 @@ working around a backend problem.
 | `jitnn.binaryRepeat` | `true` | a binary operator whose broadcast operand repeats one contiguous block of the output's dimensions uses an index kernel (`(i / div) % mod`) instead of the general broadcast kernel; `false` turns it off |
 | `jitnn.fusedAttention` | `true` | FP32 attention with head dimensions up to 128 runs the fused FlashAttention-style kernels; `false` composes batched GEMMs and a softmax |
 | `jitnn.flash` | tiled | `simple`: head dimensions up to 64 use the generic fused attention kernels instead of the tiled ones |
-| `jitnn.flash.mma` | `true` | on CUDA with `jitnn.tensorCores`, FP16 attention (forward and backward, head dimensions up to 64) runs on tensor cores; `false` uses the tiled FP16 kernels |
+| `jitnn.flash.mma` | `true` | on CUDA with `jitnn.tensorCores`, FP16 attention (forward and backward, head dimensions up to 128) runs on tensor cores; `false` uses the tiled FP16 kernels up to 64 and FP32 copies above |
 | `jitnn.rownorm` | warp | `group`: LayerNorm and RMSNorm on CUDA use one work-group per row instead of one warp per row (used from 1024 rows of at most 768 features) |
 | `jitnn.conv` | padded | `simple`: convolutions use the plain implicit-GEMM kernels instead of the padded, prefetching ones |
 | `jitnn.winograd` | `auto` | 3x3 stride-1 convolutions (one group, at least 16 channels in and out, padding up to 2) run as Winograd F(4x4, 3x3), or F(2x2, 3x3) where there are too few 4x4 tiles, in the forward pass and both gradients. `2` keeps F(2x2, 3x3) everywhere, `false` turns Winograd off |

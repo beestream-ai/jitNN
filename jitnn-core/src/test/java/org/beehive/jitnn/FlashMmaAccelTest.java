@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * FP16 attention on the device (the tensor-core kernels on CUDA) against the FP32 host reference on
- * the same FP16-rounded inputs: head dimensions up to 64, lengths that are not multiples of the
+ * the same FP16-rounded inputs: head dimensions up to 128, lengths that are not multiples of the
  * tiles, causal and an additive mask. Run with {@code -Paccel-tests}.
  */
 class FlashMmaAccelTest {
@@ -81,7 +81,7 @@ class FlashMmaAccelTest {
     @Test
     void gradientsMatchReference() {
         int[][] lengths = { { 1, 1 }, { 17, 17 }, { 64, 64 }, { 130, 130 }, { 37, 100 } };
-        for (int d : new int[] { 8, 16, 32, 40, 64 }) {
+        for (int d : new int[] { 8, 16, 32, 40, 64, 72, 128 }) {
             for (int[] ts : lengths) {
                 for (int variant = 0; variant < 3; variant++) {
                     boolean causal = variant == 1;
@@ -97,7 +97,7 @@ class FlashMmaAccelTest {
     @Test
     void matchesReference() {
         int[][] lengths = { { 1, 1 }, { 17, 17 }, { 64, 64 }, { 130, 130 }, { 37, 100 } };
-        for (int d : new int[] { 8, 16, 32, 40, 64 }) {
+        for (int d : new int[] { 8, 16, 32, 40, 64, 72, 128 }) {
             for (int[] ts : lengths) {
                 for (int variant = 0; variant < 3; variant++) {
                     boolean causal = variant == 1;
