@@ -154,8 +154,9 @@ public final class Linear implements Op {
         }
         // ReLU gradient from the output: y > 0 exactly where the pre-activation is > 0.
         Tensor g = node.iattr[4] == RELU ? Binary.apply(Binary.Kind.RELU_GRAD, node.out(0), gy) : gy;
-        // Half-precision operands: the gradient products run in that type (as under PyTorch's autocast).
-        Tensor gl = g.to(x.dtype());
+        // Half-precision operands: the gradient products run in that type (as under PyTorch's autocast);
+        // an FP32 gradient with FP16 operands is read as is where the tensor-core kernel rounds it as it stages it
+        Tensor gl = g.dtype() == DType.F32 && x.dtype() == DType.F16 ? g : g.to(x.dtype());
         Tensor gx = x.requiresGrad() ? MatMul.apply(gl, w, false, false) : null;
         Tensor gw = w.requiresGrad() ? MatMul.apply(gl, x, true, false) : null;
         if (node.iattr[3] == 0) {

@@ -28,7 +28,17 @@ public final class MatMul implements Op {
      * two axes) with equal batch dimensions, or with one side a plain matrix shared by every batch.
      */
     public static Tensor apply(Tensor a, Tensor b, boolean transA, boolean transB) {
-        HostValues.gemmOperands("matmul", a, b);
+        if (a.dtype() == DType.F32 && b.dtype() == DType.F16 && !readsFp32A(a, b, transA, transB)) {
+            // an FP32 operand the tensor-core kernel cannot round as it stages it: cast first
+            a = a.to(DType.F16);
+        } else if (a.dtype() == DType.F16 && b.dtype() == DType.F32) {
+            b = b.to(DType.F16);
+        } else if (a.dtype() == DType.F32 && HostValues.isHalf(b) && b.dtype() != DType.F16) {
+            a = a.to(b.dtype());
+        }
+        if (!(a.dtype() == DType.F32 && b.dtype() == DType.F16)) {
+            HostValues.gemmOperands("matmul", a, b);
+        }
         if (a.rank() < 2 || b.rank() < 2) {
             throw new IllegalArgumentException("matmul needs matrices, got " + a.shape() + " and " + b.shape());
         }
@@ -163,8 +173,27 @@ public final class MatMul implements Op {
         e.task(Emitter.grid1D(cells), (g, id) -> g.task(id, org.beehive.jitnn.kernels.NormKernels::sumPartials, e.context(), part, c, slices, cells));
     }
 
+    /**
+     * Whether op(a) op(b) with an FP32 a and an FP16 b runs as is on the tensor cores, a rounded to
+     * FP16 as it is staged: plain (unbatched) products on CUDA with whole 128 x 128 tiles. FP16
+     * training passes FP32 gradients this way instead of casting them first.
+     */
+    static boolean readsFp32A(Tensor a, Tensor b, boolean transA, boolean transB) {
+        if (a.rank() != 2 || b.rank() != 2 || !TENSOR_CORES || !org.beehive.jitnn.engine.Engine.onCuda()) {
+            return false;
+        }
+        int m = transA ? a.dim(1) : a.dim(0);
+        int k = transA ? a.dim(0) : a.dim(1);
+        int n = transB ? b.dim(0) : b.dim(1);
+        return wholeTiles(m, n, k);
+    }
+
     @Override
     public void emit(Emitter e, Node node) {
+        if (node.in(0).dtype() == DType.F32 && node.in(1).dtype() == DType.F16) {
+            emitA32(e, node);
+            return;
+        }
         if (emitNative(e, node)) {
             return;
         }
@@ -299,6 +328,32 @@ public final class MatMul implements Op {
             e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::sumSplitK, e.context(), out, c, bias, slices, mn, n, epilogue));
         } else if (epilogue != 0) {
             e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::biasActivation, e.context(), c, bias, m, n, epilogue));
+        }
+    }
+
+    /** C = op(A) op(B) for FP32 A and FP16 B on the tensor cores, A rounded as it is staged (see {@link #readsFp32A}). */
+    private static void emitA32(Emitter e, Node node) {
+        int m = node.iattr[0];
+        int n = node.iattr[1];
+        int k = node.iattr[2];
+        int ta = node.iattr[3];
+        int tb = node.iattr[4];
+        FloatArray a = e.f32(node.in(0));
+        var b = e.f16(node.in(1));
+        FloatArray c = e.f32(node.out(0));
+        int sAr = ta == 0 ? k : 1;
+        int sAk = ta == 0 ? 1 : m;
+        int sBc = tb == 1 ? k : 1;
+        int sBk = tb == 1 ? 1 : n;
+        int slices = mmaSlices(m, n, k);
+        int ks = k / slices;
+        WorkerGrid grid = Emitter.blocks3D(m / MmaGemmKernels.TILE, n / MmaGemmKernels.TILE, slices, MmaGemmKernels.THREADS);
+        FloatArray out = slices > 1 ? e.scratch(slices * m * n) : c;
+        e.task(grid, (g, id) -> g.task(id, MmaGemmKernels::gemmMMAStrideKA32, e.context(), a, b, out, m, n, ks, sAr, sAk, sBc, sBk));
+        if (slices > 1) {
+            int mn = m * n;
+            FloatArray bias = e.dummyF32();
+            e.task(Emitter.grid1D(mn), (g, id) -> g.task(id, GemmKernels::sumSplitK, e.context(), out, c, bias, slices, mn, n, 0));
         }
     }
 
