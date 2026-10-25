@@ -39,7 +39,7 @@ public final class FlashAttention implements Op {
     public static final int BTHD = 2;
     /** Largest head dimension of the fused kernels. */
     public static final int MAX_HEAD = FlashKernels128.D;
-    /** The tiled kernels ({@link FlashTiled64}) for head dimensions 33 to 64 unless {@code -Djitnn.flash=simple}. */
+    /** The tiled kernels ({@link FlashTiled64}) for head dimensions up to 64 unless {@code -Djitnn.flash=simple}. */
     static final boolean TILED = !"simple".equals(System.getProperty("jitnn.flash"));
 
     static final FlashAttention OP = new FlashAttention();
@@ -101,7 +101,7 @@ public final class FlashAttention implements Op {
      * up to 64, on a device); otherwise they are converted to FP32.
      */
     private static boolean halfKernel(int d) {
-        return d <= FlashKernels64.D && d > FlashKernels32.D && TILED && org.beehive.jitnn.Autocast.halfActivations()
+        return d <= FlashKernels64.D && TILED && org.beehive.jitnn.Autocast.halfActivations()
                 && org.beehive.jitnn.engine.Engine.backend() == org.beehive.jitnn.engine.Engine.Backend.TORNADO
                 && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.FORWARD_LOCAL_BYTES);
     }
@@ -467,7 +467,7 @@ public final class FlashAttention implements Op {
         int causal = a[4];
         FloatArray lse = e.f32(n.out(1));
         WorkerGrid g0 = grid(z, t, d);
-        if (d <= FlashKernels32.D) {
+        if (d <= FlashKernels32.D && !(TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.FORWARD_LOCAL_BYTES))) {
             e.task(g0, (g, id) -> g.task(id, FlashKernels32::forward, e.context(), q, k, v, mask, o, lse, t, s, d, scale, causal, hasMask, meta));
         } else if (d <= FlashKernels64.D && TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.FORWARD_LOCAL_BYTES)) {
             // the tiled kernel needs 43.5 KB of local memory: more than Metal's 32 KB
@@ -605,7 +605,7 @@ public final class FlashAttention implements Op {
 
     /** Whether the backward of head dimension d runs the tiled kernels (FlashTiled64), which also come in an FP16-input form. */
     static boolean tiledBackward(int d) {
-        return d <= FlashKernels64.D && d > FlashKernels32.D && TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.BACKWARD_LOCAL_BYTES);
+        return d <= FlashKernels64.D && TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.BACKWARD_LOCAL_BYTES);
     }
 
     /**
@@ -661,7 +661,7 @@ public final class FlashAttention implements Op {
             FloatArray k = packed ? q : e.f32(n.in(1));
             FloatArray v = packed ? q : e.f32(n.in(2));
             FloatArray o = e.f32(n.in(at));
-            if (d <= FlashKernels64.D && d > FlashKernels32.D && TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.BACKWARD_LOCAL_BYTES)) {
+            if (d <= FlashKernels64.D && TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.BACKWARD_LOCAL_BYTES)) {
                 // backwardQ computes delta for its queries, then backwardKV reads it
                 WorkerGrid tq = Emitter.blocks2D(z * Emitter.ceilDiv(t, 32), 1, 16, 16);
                 WorkerGrid tk = Emitter.blocks2D(z * Emitter.ceilDiv(s, 32), 1, 16, 16);
