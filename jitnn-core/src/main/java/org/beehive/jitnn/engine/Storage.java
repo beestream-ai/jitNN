@@ -187,7 +187,7 @@ public final class Storage {
             case I32 -> new IntArray(n);
             case F16 -> new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(n);
             case BF16 -> new uk.ac.manchester.tornado.api.types.arrays.ShortArray(n);
-            case Q8_0, Q4_0, Q4_1, Q4_K, Q5_K, Q6_K -> new uk.ac.manchester.tornado.api.types.arrays.ByteArray(Math.max(n / dtype.blockValues() * dtype.blockBytes(), 1));
+            case Q8_0, Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, Q5_0, Q5_1, Q2_K, Q3_K -> new uk.ac.manchester.tornado.api.types.arrays.ByteArray(Math.max(n / dtype.blockValues() * dtype.blockBytes(), 1));
             case FP8_E4M3, FP8_E5M2 -> new uk.ac.manchester.tornado.api.types.arrays.ByteArray(n);
         };
     }
@@ -199,7 +199,7 @@ public final class Storage {
             case I32 -> a instanceof IntArray;
             case F16 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
             case BF16 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.ShortArray;
-            case Q8_0, Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, FP8_E4M3, FP8_E5M2 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.ByteArray;
+            case Q8_0, Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, Q5_0, Q5_1, Q2_K, Q3_K, FP8_E4M3, FP8_E5M2 -> a instanceof uk.ac.manchester.tornado.api.types.arrays.ByteArray;
         };
     }
 

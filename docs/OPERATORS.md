@@ -97,7 +97,7 @@ language model). The final cell state of an LSTM carries no gradient.
 | Scans and sorting | cumsum, cumprod, sort, argsort (stable) | `ScanKernels`: a scan per line; sort by rank | reverse cumsum; cumprod's exact with zeros; through the ranks |
 | Indexing | index_select, gather, scatter, scatter_add, segment sum/mean/max, EmbeddingBag | `IndexKernels` | gathering (no atomics); scatter (replace) has none |
 | INT8 | Q8_0 tensors (GGUF's 32-value blocks), quantise, dequantise, Q8_0 linear | jitllm's: `Q8Kernels` (adapted), `NativeProjectionKernels.dequantizeQ8_0ToFP32`; warp product on CUDA and Metal, shared-memory tree elsewhere | to the input, through the dequantised weight |
-| GGUF weights | Q4_0, Q4_1, Q4_K, Q5_K and Q6_K weights from their raw blocks (`Tensor.quantized`), dequantise, linear (`Gguf.linear`) | jitllm's matrix-vector kernels on the blocks: one row per work-group (warp-shuffle form on CUDA and Metal); up to 32 input rows, the row-tiled kernel for Q4_0, Q4_1 and Q5_K; more rows, dequantise (`GgufKernels`) and the GEMM | to the input, through the dequantised weight |
+| GGUF weights | Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, Q5_0, Q5_1, Q2_K and Q3_K weights from their raw blocks (`Tensor.quantized`), dequantise, linear (`Gguf.linear`) | jitllm's matrix-vector kernels on the blocks for Q4_0, Q4_1, Q4_K, Q5_K and Q6_K: one row per work-group (warp-shuffle form on CUDA and Metal); up to 32 input rows, the row-tiled kernel for Q4_0, Q4_1 and Q5_K; more rows, and Q5_0, Q5_1, Q2_K and Q3_K at any size, dequantise (`GgufKernels`) and the GEMM | to the input, through the dequantised weight |
 | Sequences | masked (lengths) and bidirectional LSTM and GRU layers, per-sequence reversal | `RnnKernels` with lengths | masked steps pass none |
 | Images | flip, centre crop, normalisation, RGB to greyscale | composed | autograd |
 | NaN-aware | isNaN, isInf, isFinite, nanToNum, maximum/minimum propagating NaN, fmax/fmin ignoring it | bit-pattern tests (TornadoVM folds the `x != x` test away) | where defined |
@@ -412,7 +412,7 @@ sparse arrays and strings. Operators jitNN lacks run on the engine named by
 - General (non-symmetric) eigendecomposition; complex tensors outside the Fourier transforms.
 - FP8 tensor-core instructions; FP16 training end to end (training uses autocast with FP32
   activations; `Autocast.enableHalf` is for inference).
-- GGUF's Q5_0, Q5_1, Q2_K, Q3_K and IQ formats: `jitnn-gguf` loads them only as raw bytes.
+- GGUF's IQ formats: `jitnn-gguf` loads them only as raw bytes.
 - Gradient all-reduce overlapped with the backward pass.
 - Metal runs of the operators from "Generative and recurrent models" on.
 

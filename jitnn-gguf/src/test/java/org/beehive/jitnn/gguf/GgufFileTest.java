@@ -29,7 +29,7 @@ class GgufFileTest {
         assertEquals(32, f.alignment());
         assertEquals(0, f.dataOffset() % 32);
         assertEquals("llama", f.architecture());
-        assertEquals(23, f.tensorInfos().size());
+        assertEquals(30, f.tensorInfos().size());
     }
 
     @Test
@@ -88,10 +88,10 @@ class GgufFileTest {
     @Test
     void typesWithoutJitnnCounterpart() throws IOException {
         GgufFile f = GgufChecks.fixture();
-        assertEquals(GgmlType.Q5_0, f.info("w.Q5_0").type());
-        assertThrows(UnsupportedOperationException.class, () -> f.tensor("w.Q5_0"));
+        assertEquals(GgmlType.Q8_K, f.info("w.Q8_K").type());
+        assertThrows(UnsupportedOperationException.class, () -> f.tensor("w.Q8_K"));
         assertThrows(UnsupportedOperationException.class, f::tensors);
-        assertEquals(3 * 512 / 32 * 22, f.raw("w.Q5_0").byteSize());
+        assertEquals(3 * 512 / 256 * 292, f.raw("w.Q8_K").byteSize());
         assertThrows(IllegalArgumentException.class, () -> f.tensor("no.such.tensor"));
     }
 
@@ -122,7 +122,7 @@ class GgufFileTest {
         byte[] before = Files.readAllBytes(rw);
         GgufFile f = GgufFile.open(rw);
         for (String name : f.tensorInfos().keySet()) {
-            if (!name.equals("w.Q5_0")) {
+            if (!name.equals("w.Q8_K")) {
                 f.tensor(name).toFloatArray(); // writes each array header into its private mapping
             }
         }

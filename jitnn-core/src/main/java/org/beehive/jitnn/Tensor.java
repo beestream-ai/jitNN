@@ -215,7 +215,7 @@ public final class Tensor implements AutoCloseable {
     }
 
     /**
-     * A weight in one of GGUF's block-quantised formats (Q8_0, Q4_0, Q4_1, Q4_K, Q5_K, Q6_K) from its
+     * A weight in one of GGUF's block-quantised formats (Q8_0, Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, Q5_0, Q5_1, Q2_K, Q3_K) from its
      * raw blocks, as a GGUF file stores them: persistent, so it stays on the device. The last axis
      * must be a multiple of the format's block size.
      */

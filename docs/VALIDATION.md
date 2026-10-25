@@ -17,7 +17,7 @@ Five layers of checks run on the host and on every device.
    transposed convolution, resizing, LSTM and GRU layers against PyTorch's own, the extended
    operator set, CTC and the metric losses, linear algebra against `torch.linalg`, Fourier
    transforms against `torch.fft`, sparse products, nonzero, masked select, unique, FP8, and linear layers and dequantisation on
-   GGUF's Q4_0, Q4_1, Q4_K, Q5_K and Q6_K blocks, with random blocks dequantised by llama.cpp's
+   GGUF's Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, Q5_0, Q5_1, Q2_K and Q3_K blocks, with random blocks dequantised by llama.cpp's
    `gguf` package as the reference), in
    FP64 (inputs, output and every input gradient, on odd, size-1 and broadcast shapes), and 14
    optimiser cases (three steps each of `torch.optim`, or for LAMB and LARS, which `torch.optim`

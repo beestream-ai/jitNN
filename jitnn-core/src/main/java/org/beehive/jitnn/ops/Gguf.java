@@ -17,7 +17,7 @@ import uk.ac.manchester.tornado.api.types.arrays.ByteArray;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
 /**
- * Linear layers and dequantisation for weights in GGUF's Q4_0, Q4_1, Q4_K, Q5_K and Q6_K formats
+ * Linear layers and dequantisation for weights in GGUF's Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, Q5_0, Q5_1, Q2_K and Q3_K formats
  * (Q8_0 is {@link Quant}). The products use jitllm's kernels, read straight from the blocks:
  * <ul>
  * <li>one input row (decoding): jitllm's matrix-vector kernel, one work-group per output row, in
@@ -38,6 +38,11 @@ public final class Gguf {
     static final int LOCAL = 128;
 
     private Gguf() {
+    }
+
+    /** Formats with jitllm's matrix-vector kernels; the others dequantise and use the GEMM. */
+    static boolean matrixVector(DType t) {
+        return t == DType.Q4_0 || t == DType.Q4_1 || t == DType.Q4_K || t == DType.Q5_K || t == DType.Q6_K;
     }
 
     static boolean tiled(DType t) {
@@ -66,7 +71,7 @@ public final class Gguf {
         int[] dims = x.shape().dims();
         dims[dims.length - 1] = n;
         Tensor y;
-        if (rows == 1 || (rows <= TILED_ROWS && tiled(w.dtype()))) {
+        if ((rows == 1 && matrixVector(w.dtype())) || (rows <= TILED_ROWS && tiled(w.dtype()))) {
             y = Tensor.result(Shape.of(rows, n), DType.F32);
             Tensor.record(MAT_VEC, new Tensor[] { x, w }, new Tensor[] { y }, new int[] { rows, n, k, GgufKernels.code(w.dtype()) }, null, true);
             y = y.reshape(dims);
@@ -94,7 +99,11 @@ public final class Gguf {
                 case GgufKernels.Q4_1 -> e.task(Emitter.grid1D(count), (g, id) -> g.task(id, GgufKernels::dequantizeQ4_1, e.context(), w, y, count));
                 case GgufKernels.Q4_K -> e.task(Emitter.grid1D(count), (g, id) -> g.task(id, GgufKernels::dequantizeQ4_K, e.context(), w, y, count));
                 case GgufKernels.Q5_K -> e.task(Emitter.grid1D(count), (g, id) -> g.task(id, GgufKernels::dequantizeQ5_K, e.context(), w, y, count));
-                default -> e.task(Emitter.grid1D(count), (g, id) -> g.task(id, GgufKernels::dequantizeQ6_K, e.context(), w, y, count));
+                case GgufKernels.Q6_K -> e.task(Emitter.grid1D(count), (g, id) -> g.task(id, GgufKernels::dequantizeQ6_K, e.context(), w, y, count));
+                case GgufKernels.Q5_0 -> e.task(Emitter.grid1D(count), (g, id) -> g.task(id, GgufKernels::dequantizeQ5_0, e.context(), w, y, count));
+                case GgufKernels.Q5_1 -> e.task(Emitter.grid1D(count), (g, id) -> g.task(id, GgufKernels::dequantizeQ5_1, e.context(), w, y, count));
+                case GgufKernels.Q2_K -> e.task(Emitter.grid1D(count), (g, id) -> g.task(id, GgufKernels::dequantizeQ2_K, e.context(), w, y, count));
+                default -> e.task(Emitter.grid1D(count), (g, id) -> g.task(id, GgufKernels::dequantizeQ3_K, e.context(), w, y, count));
             }
         }
 

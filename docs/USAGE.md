@@ -613,7 +613,7 @@ Tensor wq = f.tensor("blk.0.attn_q.weight");                     // Q4_K [2048, 
 Tensor q = Gguf.linear(x, wq, null);
 ```
 
-Tensors of types jitNN does not hold (Q5_0, Q5_1, Q2_K, Q3_K and the IQ formats) are listed, and
+Tensors of types jitNN does not hold (Q8_1, Q8_K and the IQ formats) are listed, and
 `raw(name)` gives their bytes, but they do not load as tensors.
 
 ### Text generation

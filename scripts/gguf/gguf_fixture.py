@@ -5,7 +5,7 @@
 It holds a metadata value of every GGUF type, and for every tensor type jitNN loads a weight
 "w.<type>" of shape [3, 512] made of random valid blocks, next to "expect.<type>", its values
 dequantised by the gguf package, in F32. Also: a 1-D and a 3-D F32 tensor with known values (axis
-order), an I32 tensor, and a Q5_0 tensor (a type jitNN does not load).
+order), an I32 tensor, and a Q8_K tensor (a type jitNN does not load).
 """
 import sys
 
@@ -24,6 +24,10 @@ BLOCKS = {
     "Q5_K": (256, 176, [0, 2]),
     "Q6_K": (256, 210, [208]),
     "Q5_0": (32, 22, [0]),
+    "Q5_1": (32, 24, [0, 2]),
+    "Q2_K": (256, 84, [80, 82]),
+    "Q3_K": (256, 110, [108]),
+    "Q8_K": (256, 292, []),
 }
 
 
@@ -69,11 +73,13 @@ def main(out):
     bf = (dense.view(np.uint32) >> 16).astype(np.uint16)
     w.add_tensor("w.BF16", bf.view(np.uint8).reshape(rows, cols * 2), raw_dtype=Q.BF16)
     w.add_tensor("expect.BF16", (bf.astype(np.uint32) << 16).view(np.float32))
-    for name in ["Q8_0", "Q4_0", "Q4_1", "Q4_K", "Q5_K", "Q6_K", "Q5_0"]:
+    for name in ["Q8_0", "Q4_0", "Q4_1", "Q4_K", "Q5_K", "Q6_K", "Q5_0", "Q5_1", "Q2_K", "Q3_K"]:
         raw = blocks(name, rows, cols)
         w.add_tensor(f"w.{name}", raw, raw_dtype=getattr(Q, name))
         w.add_tensor(f"expect.{name}", gguf.quants.dequantize(raw, getattr(Q, name)).astype(np.float32))
 
+    # a type jitNN does not load
+    w.add_tensor("w.Q8_K", blocks("Q8_K", rows, cols), raw_dtype=Q.Q8_K)
     w.add_tensor("axes.1d", np.arange(5, dtype=np.float32))
     w.add_tensor("axes.3d", np.arange(24, dtype=np.float32).reshape(2, 3, 4))
     w.add_tensor("ints.I32", np.array([[1, -2, 3], [4, 5, -6]], dtype=np.int32))
