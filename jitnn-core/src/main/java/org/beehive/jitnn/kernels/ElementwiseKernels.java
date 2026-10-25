@@ -787,6 +787,46 @@ public final class ElementwiseKernels {
         }
     }
 
+    /** {@link #binary} on an FP16 a and an FP32 b of the same shape, FP32 out (FP16 activations with FP32 gradients). */
+    public static void binaryHalfA(KernelContext kc, HalfFloatArray a, FloatArray b, FloatArray out, int op, float alpha, float beta, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            float x = a.get(i).getFloat32();
+            float y = b.get(i);
+            float r;
+            if (op >= MAXIMUM) {
+                r = binaryNaN(op, x, y, alpha, beta);
+            } else if (op >= ATAN2) {
+                r = binaryMath(op, x, y, alpha, beta);
+            } else if (op >= ELU_GRAD) {
+                r = binaryActivationGrad(op, x, y, alpha, beta);
+            } else {
+                r = binaryBase(op, x, y, alpha, beta);
+            }
+            out.set(i, r);
+        }
+    }
+
+    /** {@link #binary} on an FP32 a and an FP16 b of the same shape, FP32 out. */
+    public static void binaryHalfB(KernelContext kc, FloatArray a, HalfFloatArray b, FloatArray out, int op, float alpha, float beta, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            float x = a.get(i);
+            float y = b.get(i).getFloat32();
+            float r;
+            if (op >= MAXIMUM) {
+                r = binaryNaN(op, x, y, alpha, beta);
+            } else if (op >= ATAN2) {
+                r = binaryMath(op, x, y, alpha, beta);
+            } else if (op >= ELU_GRAD) {
+                r = binaryActivationGrad(op, x, y, alpha, beta);
+            } else {
+                r = binaryBase(op, x, y, alpha, beta);
+            }
+            out.set(i, r);
+        }
+    }
+
     /** out = c != 0 ? a : b, all of n elements (broadcast beforehand). */
     public static void where(KernelContext kc, FloatArray c, FloatArray a, FloatArray b, FloatArray out, int n) {
         int i = kc.globalIdx;

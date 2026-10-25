@@ -296,7 +296,12 @@ public final class RowNorm implements Op {
         Tensor dx = Tensor.result(x.shape(), DType.F32);
         Tensor dw = Tensor.result(n.in(1).shape(), DType.F32);
         Tensor[] outs = hasBias ? new Tensor[] { dx, dw, Tensor.result(n.in(2).shape(), DType.F32) } : new Tensor[] { dx, dw };
-        Tensor.record(BACKWARD, new Tensor[] { gy, x, n.in(1), n.out(1), n.out(2) }, outs, n.iattr.clone(), null, true);
+        // FP16 activations: x is read as FP16; the gradient and the weight are FP32
+        Tensor dy = gy.dtype() == DType.F32 ? gy : gy.to(DType.F32);
+        Tensor w = n.in(1).dtype() == DType.F32 ? n.in(1) : n.in(1).to(DType.F32);
+        boolean device = org.beehive.jitnn.engine.Engine.backend() == org.beehive.jitnn.engine.Engine.Backend.TORNADO;
+        Tensor xin = x.dtype() == DType.F32 || (x.dtype() == DType.F16 && device) ? x : x.to(DType.F32);
+        Tensor.record(BACKWARD, new Tensor[] { dy, xin, w, n.out(1), n.out(2) }, outs, n.iattr.clone(), null, true);
         Tensor[] grads = new Tensor[n.inputs.length];
         grads[0] = x.requiresGrad() ? dx : null;
         grads[1] = n.in(1).requiresGrad() ? dw : null;
@@ -314,6 +319,12 @@ public final class RowNorm implements Op {
             return "row_norm_bwd";
         }
 
+        /** x may be FP16 (FP16 activations); everything else is FP32. */
+        @Override
+        public boolean acceptsHalf() {
+            return true;
+        }
+
         @Override
         public void emit(Emitter e, Node n) {
             int rows = n.iattr[0];
@@ -321,7 +332,9 @@ public final class RowNorm implements Op {
             int mode = n.iattr[2];
             boolean hasBias = n.iattr[3] != 0;
             FloatArray dy = e.f32(n.in(0));
-            FloatArray x = e.f32(n.in(1));
+            boolean hx = n.in(1).dtype() == DType.F16;
+            FloatArray x = hx ? null : e.f32(n.in(1));
+            var xh = hx ? e.f16(n.in(1)) : null;
             FloatArray w = e.f32(n.in(2));
             FloatArray mean = e.f32(n.in(3));
             FloatArray rstd = e.f32(n.in(4));
@@ -337,8 +350,16 @@ public final class RowNorm implements Op {
                 FloatArray db = hasBias ? e.f32(n.out(2)) : e.dummyF32();
                 int bias = hasBias ? 1 : 0;
                 WorkerGrid grid = Emitter.blocks1D(Emitter.ceilDiv(rows, NormKernels.WARP_ROWS), 32 * NormKernels.WARP_ROWS);
+                if (hx) {
+                e.task(grid, (g, id) -> g.task(id, NormKernels::rowNormBackwardWarpHalfX, e.context(), dy, xh, w, mean, rstd, dx, rows, cols, mode));
+            } else {
                 e.task(grid, (g, id) -> g.task(id, NormKernels::rowNormBackwardWarp, e.context(), dy, x, w, mean, rstd, dx, rows, cols, mode));
+            }
+                if (hx) {
+                e.task(Emitter.grid1D(parts), (g, id) -> g.task(id, NormKernels::rowNormParamPartialsChunkedHalfX, e.context(), dy, xh, mean, rstd, partW, partB, rows, cols, parts));
+            } else {
                 e.task(Emitter.grid1D(parts), (g, id) -> g.task(id, NormKernels::rowNormParamPartialsChunked, e.context(), dy, x, mean, rstd, partW, partB, rows, cols, parts));
+            }
                 e.task(Emitter.grid1D(2 * cols), (g, id) -> g.task(id, NormKernels::sumPartialsPair, e.context(), partW, partB, dw, db, chunks, cols, bias));
                 return;
             }
@@ -346,8 +367,16 @@ public final class RowNorm implements Op {
             FloatArray partW = e.scratch(chunks * cols);
             FloatArray partB = e.scratch(chunks * cols);
             int parts = chunks * cols;
-            e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormBackward, e.context(), dy, x, w, mean, rstd, dx, cols, mode));
-            e.task(Emitter.grid1D(parts), (g, id) -> g.task(id, NormKernels::rowNormParamPartials, e.context(), dy, x, mean, rstd, partW, partB, rows, cols, parts));
+            if (hx) {
+                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormBackwardHalfX, e.context(), dy, xh, w, mean, rstd, dx, cols, mode));
+            } else {
+                e.task(Emitter.groups(rows), (g, id) -> g.task(id, NormKernels::rowNormBackward, e.context(), dy, x, w, mean, rstd, dx, cols, mode));
+            }
+            if (hx) {
+                e.task(Emitter.grid1D(parts), (g, id) -> g.task(id, NormKernels::rowNormParamPartialsHalfX, e.context(), dy, xh, mean, rstd, partW, partB, rows, cols, parts));
+            } else {
+                e.task(Emitter.grid1D(parts), (g, id) -> g.task(id, NormKernels::rowNormParamPartials, e.context(), dy, x, mean, rstd, partW, partB, rows, cols, parts));
+            }
             e.task(Emitter.grid1D(cols), (g, id) -> g.task(id, NormKernels::sumPartials, e.context(), partW, dw, chunks, cols));
             if (hasBias) {
                 FloatArray db = e.f32(n.out(2));

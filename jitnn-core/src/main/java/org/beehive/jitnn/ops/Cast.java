@@ -17,7 +17,8 @@ import uk.ac.manchester.tornado.api.types.arrays.ShortArray;
  * Conversion between FP32 and the half-precision types (round to nearest even, as PyTorch's
  * .half() and .bfloat16()), and between FP32 and INT32 (truncating toward zero, as a Java cast);
  * the others go through FP32. The gradient is cast back to the
- * input's type. iattr = [from, to] (DType ordinals).
+ * input's type. iattr = [from, to] (DType ordinals), plus 1 for an FP16 activation widened to
+ * FP32 by an operator without an FP16 form under FP16 activations ({@link #widen}).
  */
 public final class Cast implements Op {
 
@@ -49,6 +50,19 @@ public final class Cast implements Op {
         }
         Tensor out = Tensor.result(x.shape(), to);
         Tensor.record(OP, new Tensor[] { x }, new Tensor[] { out }, new int[] { from.ordinal(), to.ordinal() }, null, true);
+        return out;
+    }
+
+    /**
+     * FP16 {@code x} as FP32 for an operator without an FP16 form (FP16 activations): unlike
+     * {@code x.to(F32)} its gradient stays FP32, as a loss-scaled gradient can overflow FP16.
+     */
+    public static Tensor widen(Tensor x) {
+        if (x.dtype() != DType.F16) {
+            throw new IllegalArgumentException("widen: needs FP16, got " + x);
+        }
+        Tensor out = Tensor.result(x.shape(), DType.F32);
+        Tensor.record(OP, new Tensor[] { x }, new Tensor[] { out }, new int[] { DType.F16.ordinal(), DType.F32.ordinal(), 1 }, null, true);
         return out;
     }
 
@@ -137,6 +151,9 @@ public final class Cast implements Op {
     public Tensor[] backward(Node n, Tensor gy) {
         if (n.in(0).dtype() == DType.I32 || n.out(0).dtype() == DType.I32) {
             return new Tensor[] { null };
+        }
+        if (n.iattr.length > 2 && n.iattr[2] == 1 && gy.dtype() == DType.F32) {
+            return new Tensor[] { gy };
         }
         return new Tensor[] { apply(gy, n.in(0).dtype()) };
     }

@@ -281,7 +281,7 @@ public final class Tensor implements AutoCloseable {
             for (int i = 0; i < inputs.length; i++) {
                 if (inputs[i] != null && inputs[i].dtype() == DType.F16) {
                     inputs = inputs.clone();
-                    inputs[i] = inputs[i].to(DType.F32);
+                    inputs[i] = Cast.widen(inputs[i]);
                 }
             }
         }

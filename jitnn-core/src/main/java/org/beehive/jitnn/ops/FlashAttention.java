@@ -587,15 +587,37 @@ public final class FlashAttention implements Op {
         Tensor[] in = java.util.Arrays.copyOf(n.inputs, n.inputs.length + 3);
         in[n.inputs.length] = n.out(0);
         in[n.inputs.length + 1] = n.out(1);
-        in[n.inputs.length + 2] = gy;
+        in[n.inputs.length + 2] = gy.dtype() == DType.F32 ? gy : gy.to(DType.F32);
+        // FP16 activations: the tiled backward reads FP16 q, k, v and o as they are; otherwise FP32 copies
+        boolean halfIn = in[0].dtype() == DType.F16 && tiledBackward(n.iattr[3])
+                && org.beehive.jitnn.engine.Engine.backend() == org.beehive.jitnn.engine.Engine.Backend.TORNADO;
+        for (int i = 0; i < in.length; i++) {
+            boolean qkvOrO = i < qkvCount || i == n.inputs.length;
+            if (in[i].dtype() == DType.F16 && !(halfIn && qkvOrO)) {
+                in[i] = in[i].to(DType.F32);
+            }
+        }
         int[] iattr = java.util.Arrays.copyOf(n.iattr, 12);
         iattr[11] = hasMask ? 1 : 0;
         Tensor.record(BACKWARD, in, grads, iattr, n.fattr.clone(), true);
         return java.util.Arrays.copyOf(grads, n.inputs.length);
     }
 
-    /** Inputs [q, k, v | qkv, (mask), o, lse, dO]; outputs [dq, dk, dv] or [dqkv]. iattr as the forward plus [hasMask]. */
+    /** Whether the backward of head dimension d runs the tiled kernels (FlashTiled64), which also come in an FP16-input form. */
+    static boolean tiledBackward(int d) {
+        return d <= FlashKernels64.D && d > FlashKernels32.D && TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.BACKWARD_LOCAL_BYTES);
+    }
+
+    /**
+     * Inputs [q, k, v | qkv, (mask), o, lse, dO]; outputs [dq, dk, dv] or [dqkv]. iattr as the forward plus [hasMask].
+     * q, k, v and o may be FP16 (FP16 activations) for the tiled kernels; the gradients are FP32.
+     */
     static final class Backward implements Op {
+
+        @Override
+        public boolean acceptsHalf() {
+            return true;
+        }
 
         @Override
         public String name() {
@@ -616,11 +638,7 @@ public final class FlashAttention implements Op {
             boolean packed = a[10] == PACKED;
             int qkvCount = packed ? 1 : 3;
             int at = qkvCount + hasMask;
-            FloatArray q = e.f32(n.in(0));
-            FloatArray k = packed ? q : e.f32(n.in(1));
-            FloatArray v = packed ? q : e.f32(n.in(2));
             FloatArray mask = hasMask != 0 ? e.f32(n.in(qkvCount)) : e.dummyF32();
-            FloatArray o = e.f32(n.in(at));
             FloatArray lse = e.f32(n.in(at + 1));
             FloatArray dout = e.f32(n.in(at + 2));
             FloatArray dq = e.f32(n.out(0));
@@ -628,6 +646,21 @@ public final class FlashAttention implements Op {
             FloatArray dv = packed ? dq : e.f32(n.out(2));
             int rows = z * t;
             FloatArray delta = e.scratch(rows);
+            if (n.in(0).dtype() == DType.F16) {
+                var qh = e.f16(n.in(0));
+                var kh = packed ? qh : e.f16(n.in(1));
+                var vh = packed ? qh : e.f16(n.in(2));
+                var oh = e.f16(n.in(at));
+                WorkerGrid tq = Emitter.blocks2D(z * Emitter.ceilDiv(t, 32), 1, 16, 16);
+                WorkerGrid tk = Emitter.blocks2D(z * Emitter.ceilDiv(s, 32), 1, 16, 16);
+                e.task(tq, (g, id) -> g.task(id, FlashTiled64Half::backwardQ, e.context(), qh, kh, vh, mask, oh, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
+                e.task(tk, (g, id) -> g.task(id, FlashTiled64Half::backwardKV, e.context(), qh, kh, vh, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));
+                return;
+            }
+            FloatArray q = e.f32(n.in(0));
+            FloatArray k = packed ? q : e.f32(n.in(1));
+            FloatArray v = packed ? q : e.f32(n.in(2));
+            FloatArray o = e.f32(n.in(at));
             if (d <= FlashKernels64.D && d > FlashKernels32.D && TILED && org.beehive.jitnn.engine.Engine.localMemoryFits(FlashTiled64.BACKWARD_LOCAL_BYTES)) {
                 // backwardQ computes delta for its queries, then backwardKV reads it
                 WorkerGrid tq = Emitter.blocks2D(z * Emitter.ceilDiv(t, 32), 1, 16, 16);

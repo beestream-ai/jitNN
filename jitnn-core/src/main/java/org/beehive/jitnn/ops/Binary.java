@@ -102,12 +102,20 @@ public final class Binary implements Op {
         Checks.f32(a, b);
         // half-precision inference: FP16 operands of the output's shape give FP16; others are computed in FP32
         boolean half = a.dtype() == DType.F16 && b.dtype() == DType.F16 && a.shape().equals(outShape) && b.shape().equals(outShape);
-        if (!half) {
-            a = a.dtype() == DType.F16 ? a.to(DType.F32) : a;
-            b = b.dtype() == DType.F16 ? b.to(DType.F32) : b;
+        boolean halfIn = a.dtype() == DType.F16 || b.dtype() == DType.F16;
+        // one FP16 and one FP32 operand of the output's shape are read as they are (FP32 result)
+        boolean mixed = !half && halfIn && a.shape().equals(outShape) && b.shape().equals(outShape) && (a.dtype() == DType.F32 || b.dtype() == DType.F32);
+        if (!half && !mixed) {
+            boolean widen = org.beehive.jitnn.Autocast.halfActivations();
+            a = a.dtype() != DType.F16 ? a : widen ? Cast.widen(a) : a.to(DType.F32);
+            b = b.dtype() != DType.F16 ? b : widen ? Cast.widen(b) : b.to(DType.F32);
         }
         Tensor out = Tensor.result(outShape, half ? DType.F16 : DType.F32);
         Tensor.record(OP, new Tensor[] { a, b }, new Tensor[] { out }, new int[] { kind.code }, new float[] { alpha, beta }, true);
+        // FP16 activations (forward): a broadcast or mixed-type sum computed in FP32 goes on as FP16
+        if (!half && halfIn && org.beehive.jitnn.Autocast.keepHalf()) {
+            return out.to(DType.F16);
+        }
         return out;
     }
 
@@ -178,6 +186,20 @@ public final class Binary implements Op {
             var hb = e.f16(b);
             var ho = e.f16(out);
             e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::binaryHalf, e.context(), ha, hb, ho, code, alpha, beta, count));
+            return;
+        }
+        if (a.dtype() == DType.F16 || b.dtype() == DType.F16) {
+            // one FP16 and one FP32 operand of the output's shape
+            FloatArray fo = e.f32(out);
+            if (a.dtype() == DType.F16) {
+                var ha = e.f16(a);
+                FloatArray fb = e.f32(b);
+                e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::binaryHalfA, e.context(), ha, fb, fo, code, alpha, beta, count));
+            } else {
+                FloatArray fa = e.f32(a);
+                var hb = e.f16(b);
+                e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ElementwiseKernels::binaryHalfB, e.context(), fa, hb, fo, code, alpha, beta, count));
+            }
             return;
         }
         FloatArray fa = e.f32(a);

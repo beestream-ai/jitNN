@@ -49,7 +49,7 @@ final class Autograd {
         }
         try (Grad.Scope ignored = Grad.disabled(); AutoCloseable internal = org.beehive.jitnn.engine.Storage.internalScope();
                 Grad.Scope halfScope = half && !Autocast.halfActivations() ? Autocast.enableHalf() : () -> {
-                }) {
+                }; Grad.Scope backwardScope = Autocast.backward()) {
             for (int i = order.size() - 1; i >= 0; i--) {
                 Node node = order.get(i);
                 Tensor gy = grads.remove(node.out(0));

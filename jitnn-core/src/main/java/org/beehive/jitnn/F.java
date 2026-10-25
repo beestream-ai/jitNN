@@ -456,7 +456,10 @@ public final class F {
 
     /** As {@link #embedding(Tensor, Tensor)}; row {@code paddingIdx} receives no gradient. */
     public static Tensor embedding(Tensor index, Tensor weight, int paddingIdx) {
-        return Embedding.apply(index, weight, paddingIdx);
+        Tensor y = Embedding.apply(index, weight, paddingIdx);
+        // FP16 activations: the rows are FP16 from here, so the residual stream that starts at an
+        // embedding stays FP16 instead of upcasting every FP16 operand it is added to
+        return Autocast.halfActivations() && y.dtype() == DType.F32 ? y.to(DType.F16) : y;
     }
 
     /**

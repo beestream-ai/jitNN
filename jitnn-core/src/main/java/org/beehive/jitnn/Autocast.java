@@ -52,6 +52,24 @@ public final class Autocast {
         };
     }
 
+    private static final ThreadLocal<Boolean> BACKWARD = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    /** Marks the backward pass (autograd recording gradient operators) until the scope is closed. */
+    static Grad.Scope backward() {
+        boolean previous = BACKWARD.get();
+        BACKWARD.set(Boolean.TRUE);
+        return () -> BACKWARD.set(previous);
+    }
+
+    /**
+     * True when FP16 activations should stay FP16 through operators that compute in FP32 (inside
+     * {@link #enableHalf()}, outside the backward pass): their results are cast back to FP16, so an
+     * FP32 fallback does not turn the rest of the forward pass FP32.
+     */
+    public static boolean keepHalf() {
+        return HALF.get() && !BACKWARD.get();
+    }
+
     /** True inside {@link #enableHalf()}: FP16-capable operators return FP16. */
     public static boolean halfActivations() {
         return HALF.get();

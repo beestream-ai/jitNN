@@ -830,4 +830,119 @@ public final class NormKernels {
             dx.set(i, dy.get(i) * TornadoMath.pow(s.get(i), -beta) - 2.0f * alpha * beta / size * x.get(i) * acc);
         }
     }
+
+    /** {@link #rowNormBackward} reading an FP16 x (training with FP16 activations). */
+    public static void rowNormBackwardHalfX(KernelContext kc, FloatArray dy, HalfFloatArray x, FloatArray w, FloatArray mean, FloatArray rstd, FloatArray dx, int cols, int mode) {
+        float[] buf = kc.allocateFloatLocalArray(GROUP);
+        int row = kc.groupIdx;
+        int l = kc.localIdx;
+        int base = row * cols;
+        float mu = mean.get(row);
+        float r = rstd.get(row);
+        float sa = 0.0f;
+        float sb = 0.0f;
+        for (int c = l; c < cols; c += GROUP) {
+            float g = dy.get(base + c) * w.get(c);
+            sa += g;
+            sb += g * (x.get(base + c).getFloat32() - mu) * r;
+        }
+        buf[l] = sa;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        float totalA = buf[0];
+        kc.localBarrier();
+        buf[l] = sb;
+        kc.localBarrier();
+        for (int s = GROUP / 2; s > 0; s = s / 2) {
+            if (l < s) {
+                buf[l] = buf[l] + buf[l + s];
+            }
+            kc.localBarrier();
+        }
+        float totalB = buf[0];
+        kc.localBarrier();
+        float meanG = totalA / cols;
+        float meanGX = totalB / cols;
+        if (mode != LAYER) {
+            meanG = 0.0f;
+        }
+        for (int c = l; c < cols; c += GROUP) {
+            float xhat = (x.get(base + c).getFloat32() - mu) * r;
+            float g = dy.get(base + c) * w.get(c);
+            dx.set(base + c, r * (g - meanG - xhat * meanGX));
+        }
+    }
+
+    /** {@link #rowNormParamPartials} reading an FP16 x (training with FP16 activations). */
+    public static void rowNormParamPartialsHalfX(KernelContext kc, FloatArray dy, HalfFloatArray x, FloatArray mean, FloatArray rstd, FloatArray partW, FloatArray partB, int rows, int cols, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            int k = i / cols;
+            int c = i - k * cols;
+            int r0 = k * PARAM_CHUNK;
+            int r1 = r0 + PARAM_CHUNK < rows ? r0 + PARAM_CHUNK : rows;
+            float sw = 0.0f;
+            float sb = 0.0f;
+            for (int r = r0; r < r1; r++) {
+                float g = dy.get(r * cols + c);
+                sw += g * (x.get(r * cols + c).getFloat32() - mean.get(r)) * rstd.get(r);
+                sb += g;
+            }
+            partW.set(i, sw);
+            partB.set(i, sb);
+        }
+    }
+
+    /** {@link #rowNormBackwardWarp} reading an FP16 x (training with FP16 activations). */
+    public static void rowNormBackwardWarpHalfX(KernelContext kc, FloatArray dy, HalfFloatArray x, FloatArray w, FloatArray mean, FloatArray rstd, FloatArray dx, int rows, int cols, int mode) {
+        int lane = kc.localIdx % 32;
+        int row = kc.groupIdx * WARP_ROWS + kc.localIdx / 32;
+        if (row < rows) {
+            int base = row * cols;
+            float mu = mean.get(row);
+            float r = rstd.get(row);
+            float sa = 0.0f;
+            float sb = 0.0f;
+            for (int c = lane; c < cols; c += 32) {
+                float g = dy.get(base + c) * w.get(c);
+                sa += g;
+                sb += g * (x.get(base + c).getFloat32() - mu) * r;
+            }
+            float meanG = kc.simdSum(sa) / cols;
+            float meanGX = kc.simdSum(sb) / cols;
+            if (mode != LAYER) {
+                meanG = 0.0f;
+            }
+            for (int c = lane; c < cols; c += 32) {
+                float xhat = (x.get(base + c).getFloat32() - mu) * r;
+                float g = dy.get(base + c) * w.get(c);
+                dx.set(base + c, r * (g - meanG - xhat * meanGX));
+            }
+        }
+    }
+
+    /** {@link #rowNormParamPartialsChunked} reading an FP16 x (training with FP16 activations). */
+    public static void rowNormParamPartialsChunkedHalfX(KernelContext kc, FloatArray dy, HalfFloatArray x, FloatArray mean, FloatArray rstd, FloatArray partW, FloatArray partB, int rows, int cols, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            int k = i / cols;
+            int c = i - k * cols;
+            int r0 = k * PARAM_ROWS;
+            int r1 = r0 + PARAM_ROWS < rows ? r0 + PARAM_ROWS : rows;
+            float sw = 0.0f;
+            float sb = 0.0f;
+            for (int r = r0; r < r1; r++) {
+                float g = dy.get(r * cols + c);
+                sw += g * (x.get(r * cols + c).getFloat32() - mean.get(r)) * rstd.get(r);
+                sb += g;
+            }
+            partW.set(i, sw);
+            partB.set(i, sb);
+        }
+    }
 }
