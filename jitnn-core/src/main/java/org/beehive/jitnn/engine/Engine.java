@@ -210,6 +210,33 @@ public final class Engine {
 
     private static volatile boolean tracing;
 
+    private static volatile boolean deterministic = initialDeterministic();
+
+    private static boolean initialDeterministic() {
+        boolean on = Boolean.getBoolean("jitnn.deterministic");
+        if (on) {
+            System.setProperty("tornado.cudnn.deterministic", "true");
+        }
+        return on;
+    }
+
+    /**
+     * Run-to-run reproducible results ({@code -Djitnn.deterministic=true}), as PyTorch's
+     * {@code use_deterministic_algorithms}: jitNN's own kernels are deterministic already (no
+     * atomics; split reductions sum in a fixed order); this also stops autotuning from measuring
+     * (choices follow the rules or the saved decisions, never the timings of this run) and asks
+     * cuDNN for deterministic algorithms only. Same device, same library versions, same inputs:
+     * the same bits.
+     */
+    public static void setDeterministic(boolean on) {
+        deterministic = on;
+        System.setProperty("tornado.cudnn.deterministic", Boolean.toString(on));
+    }
+
+    public static boolean deterministic() {
+        return deterministic;
+    }
+
     /**
      * Stops recording and writes the timeline as Chrome trace events (JSON), for Perfetto
      * (ui.perfetto.dev) or chrome://tracing. Thread "host": every plan execution, from the call to

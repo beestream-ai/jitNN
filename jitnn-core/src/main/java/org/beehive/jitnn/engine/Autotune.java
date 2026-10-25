@@ -100,7 +100,8 @@ public final class Autotune {
             return decided;
         }
         Node n = e.node();
-        if (MODE.equals("on") && !TUNING.get() && n != null && replayable(n)) {
+        // deterministic runs never measure: the choice would depend on this run's timings
+        if (MODE.equals("on") && !Engine.deterministic() && !TUNING.get() && n != null && replayable(n)) {
             e.choices.add(key);
             PENDING.get().putIfAbsent(key, new Pending(key, fallback, candidates.clone(), n.op, n.iattr == null ? null : n.iattr.clone(), n.fattr == null ? null : n.fattr.clone(),
                     shapes(n.inputs), types(n.inputs), shapes(n.outputs), types(n.outputs)));
