@@ -10,6 +10,7 @@ import org.beehive.jitnn.kernels.FlashKernels128;
 import org.beehive.jitnn.kernels.FlashKernels32;
 import org.beehive.jitnn.kernels.FlashKernels64;
 import org.beehive.jitnn.kernels.AttentionGatherKernels;
+import org.beehive.jitnn.kernels.FlashMma;
 import org.beehive.jitnn.kernels.FlashTiled64;
 import org.beehive.jitnn.kernels.FlashTiled64Half;
 import org.beehive.jitnn.kernels.AttentionHalfKernels;
@@ -100,6 +101,13 @@ public final class FlashAttention implements Op {
      * True when half-precision inference runs FP16 q, k, v through the FP16 kernel (head dimensions
      * up to 64, on a device); otherwise they are converted to FP32.
      */
+    /** The tensor-core kernels ({@link FlashMma}) for FP16 inputs on CUDA ({@code -Djitnn.flash.mma=false} turns them off). */
+    private static final boolean MMA = !"false".equals(System.getProperty("jitnn.flash.mma"));
+
+    private static boolean mmaKernels() {
+        return MMA && org.beehive.jitnn.engine.Engine.onCuda() && MatMul.tensorCores();
+    }
+
     private static boolean halfKernel(int d) {
         return d <= FlashKernels64.D && TILED && org.beehive.jitnn.Autocast.halfActivations()
                 && org.beehive.jitnn.engine.Engine.backend() == org.beehive.jitnn.engine.Engine.Backend.TORNADO
@@ -425,6 +433,11 @@ public final class FlashAttention implements Op {
                 return;
             }
             FloatArray lh = e.f32(n.out(1));
+            if (mmaKernels()) {
+                WorkerGrid mg = Emitter.blocks1D(z * Emitter.ceilDiv(t, FlashMma.BQ), FlashMma.THREADS);
+                e.task(mg, (g, id) -> g.task(id, FlashMma::forward, e.context(), qh, kh, vh, mk, oh, lh, t, s, d, scale, causal, hm, meta));
+                return;
+            }
             WorkerGrid tiled = Emitter.blocks2D(z * Emitter.ceilDiv(t, FlashTiled64.BQ), 1, 16, 16);
             e.task(tiled, (g, id) -> g.task(id, FlashTiled64Half::forward, e.context(), qh, kh, vh, mk, oh, lh, t, s, d, scale, causal, hm, meta));
             return;
@@ -651,6 +664,13 @@ public final class FlashAttention implements Op {
                 var kh = packed ? qh : e.f16(n.in(1));
                 var vh = packed ? qh : e.f16(n.in(2));
                 var oh = e.f16(n.in(at));
+                if (mmaKernels()) {
+                    WorkerGrid mq = Emitter.blocks1D(z * Emitter.ceilDiv(t, FlashMma.BQ), FlashMma.THREADS);
+                    WorkerGrid mk = Emitter.blocks1D(z * Emitter.ceilDiv(s, FlashMma.BQ), FlashMma.THREADS);
+                    e.task(mq, (g, id) -> g.task(id, FlashMma::backwardQ, e.context(), qh, kh, vh, mask, oh, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));
+                    e.task(mk, (g, id) -> g.task(id, FlashMma::backwardKV, e.context(), qh, kh, vh, mask, dout, lse, delta, dk, dv, t, s, d, scale, causal, hasMask, meta));
+                    return;
+                }
                 WorkerGrid tq = Emitter.blocks2D(z * Emitter.ceilDiv(t, 32), 1, 16, 16);
                 WorkerGrid tk = Emitter.blocks2D(z * Emitter.ceilDiv(s, 32), 1, 16, 16);
                 e.task(tq, (g, id) -> g.task(id, FlashTiled64Half::backwardQ, e.context(), qh, kh, vh, mask, oh, dout, lse, delta, dq, t, s, d, scale, causal, hasMask, meta));

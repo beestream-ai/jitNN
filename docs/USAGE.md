@@ -341,8 +341,11 @@ scaler.step(opt);
 - The backward pass runs the same way, whatever scope `backward()` is called in.
 - Parameters get FP32 gradients. The activations' gradients stay as the operators compute them,
   mostly FP32.
-- Losses follow FP32 training closely: within 1e-4 for GPT-2 and BERT over 12 steps, and 1e-2
+- Losses follow FP32 training closely: within 5e-4 for GPT-2 and BERT over 12 steps, and 1e-2
   for ResNet-18.
+- On CUDA, attention with FP16 inputs runs forward and backward on tensor cores (head dimensions up
+  to 64; `-Djitnn.flash.mma=false` turns it off). On an A100 the GPT-2 step below spends 2.7 ms in
+  attention instead of 4.7 ms at head dimension 64, and 3.2 ms instead of 7.7 ms at 32.
 - On an RTX 5070 Ti, a GPT-2 step (768 wide, 12 layers, 16 x 128 tokens) uses 13% less memory
   for intermediates than FP16 autocast, at the same speed. It is dominated by the matrix products,
   which autocast already runs in FP16.
