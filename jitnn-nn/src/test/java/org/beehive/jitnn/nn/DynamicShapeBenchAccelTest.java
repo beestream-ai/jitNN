@@ -166,4 +166,131 @@ class DynamicShapeBenchAccelTest {
             });
         }
     }
+    /** The median time of {@code reps} runs after two warm-up runs. */
+    private static double median(int reps, Request request) {
+        request.run(0);
+        request.run(0);
+        double[] t = new double[reps];
+        for (int i = 0; i < reps; i++) {
+            long t0 = System.nanoTime();
+            request.run(0);
+            t[i] = (System.nanoTime() - t0) / 1e6;
+        }
+        Arrays.sort(t);
+        return t[reps / 2];
+    }
+
+    private static void cost(String name, double[] exact, double[] padded) {
+        double e = 0, p = 0;
+        for (int i = 0; i < exact.length; i++) {
+            e += exact[i];
+            p += padded[i];
+        }
+        System.out.printf("[padding] %-40s exact %s ms, padded %s ms: %.2fx%n", name, Arrays.toString(round(exact)), Arrays.toString(round(padded)), p / e);
+    }
+
+    private static double[] round(double[] v) {
+        double[] r = new double[v.length];
+        for (int i = 0; i < v.length; i++) {
+            r[i] = Math.round(v[i] * 100) / 100.0;
+        }
+        return r;
+    }
+
+    /**
+     * What padding costs once every plan is compiled: per shape, the median time on the exact shape
+     * against the same request padded to its bucket. Runs with {@code -Djitnn.bench.padding=true}.
+     */
+    @Test
+    void paddingCost() {
+        assumeTrue(Boolean.getBoolean("jitnn.bench.padding"), "set -Djitnn.bench.padding=true");
+        Engine.reservePlans(32);
+        int vocab = 1000, dim = 256, heads = 4, layers = 4, context = 256, reps = 15;
+        Buckets batch16 = Buckets.powersOfTwo(1, 16), seq = Buckets.multiplesOf(64, context);
+        int[][] tokenShapes = { { 1, 40 }, { 3, 100 }, { 5, 130 }, { 9, 70 }, { 12, 200 }, { 16, 250 } };
+        Random r = new Random(21);
+
+        GPT2 gpt2 = new GPT2(vocab, context, dim, heads, layers, 1);
+        double[] e = new double[tokenShapes.length], p = new double[tokenShapes.length];
+        for (int k = 0; k < tokenShapes.length; k++) {
+            Tensor idx = tokens(r, tokenShapes[k][0], tokenShapes[k][1], vocab);
+            e[k] = median(reps, i -> Grad.inference(() -> gpt2.forward(idx)).toFloatArray());
+            p[k] = median(reps, i -> Grad.inference(() -> Bucketing.causal(batch16, seq, idx, 0, gpt2::forward)).toFloatArray());
+        }
+        cost("GPT-2 " + Arrays.deepToString(tokenShapes), e, p);
+        Engine.reset();
+
+        Bert bert = new Bert(vocab, context, dim, heads, layers, 2);
+        for (int k = 0; k < tokenShapes.length; k++) {
+            Tensor idx = tokens(r, tokenShapes[k][0], tokenShapes[k][1], vocab);
+            Tensor m = Tensor.of(new float[idx.numel()], tokenShapes[k][0], 1, 1, tokenShapes[k][1]);
+            e[k] = median(reps, i -> Grad.inference(() -> bert.encode(idx, m)).toFloatArray());
+            p[k] = median(reps, i -> Grad.inference(() -> Bucketing.masked(batch16, seq, idx, m, 0, bert::encode)).toFloatArray());
+        }
+        cost("BERT", e, p);
+        Engine.reset();
+
+        Module resnet = ResNet.resnet18(3, 10, true, 3).train(false);
+        Buckets batch64 = Buckets.powersOfTwo(1, 64);
+        int[] batches = { 1, 3, 5, 9, 17, 33, 48 };
+        double[] er = new double[batches.length], pr = new double[batches.length];
+        for (int k = 0; k < batches.length; k++) {
+            Tensor x = host(r, batches[k], 3, 32, 32);
+            er[k] = median(reps, i -> Grad.inference(() -> resnet.forward(x)).toFloatArray());
+            pr[k] = median(reps, i -> Grad.inference(() -> Bucketing.rows(batch64, x, resnet::forward)).toFloatArray());
+        }
+        cost("ResNet-18 " + Arrays.toString(batches), er, pr);
+        Engine.reset();
+    }
+    /**
+     * Device time per operator task of ResNet-18 at batch 17 over 10 runs, largest first. Runs with
+     * {@code -Djitnn.bench.profile=true -Djitnn.profile=true -Djitnn.cudaGraph=false}.
+     */
+    @Test
+    void profileResNet() {
+        assumeTrue(Boolean.getBoolean("jitnn.bench.profile"), "set -Djitnn.bench.profile=true");
+        Module resnet = ResNet.resnet18(3, 10, true, 3).train(false);
+        // other batch sizes first, as a server sees them
+        for (int b : new int[] { 1, 48 }) {
+            Tensor other = host(new Random(b), b, 3, 32, 32);
+            Grad.inference(() -> resnet.forward(other)).toFloatArray();
+        }
+        Tensor x = host(new Random(5), 17, 3, 32, 32);
+        for (int i = 0; i < 3; i++) {
+            Grad.inference(() -> resnet.forward(x)).toFloatArray();
+        }
+        Engine.kernelBreakdown();
+        for (int i = 0; i < 10; i++) {
+            Grad.inference(() -> resnet.forward(x)).toFloatArray();
+        }
+        var rows = new ArrayList<>(Engine.kernelBreakdown().entrySet());
+        rows.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
+        long total = rows.stream().mapToLong(r -> r.getValue()[1]).sum();
+        System.out.printf("[profile] total %.3f ms per run%n", total / 1e7);
+        for (var r : rows.subList(0, Math.min(25, rows.size()))) {
+            System.out.printf("[profile] %-24s %6d launches %8.3f ms per run%n", r.getKey(), r.getValue()[0], r.getValue()[1] / 1e7);
+        }
+        Engine.reset();
+    }
+    /** Steady ResNet-18 wall time per batch: 20 warm-up runs, then the median of 50. Runs with {@code -Djitnn.bench.steady=true}. */
+    @Test
+    void steadyResNet() {
+        assumeTrue(Boolean.getBoolean("jitnn.bench.steady"), "set -Djitnn.bench.steady=true");
+        Module resnet = ResNet.resnet18(3, 10, true, 3).train(false);
+        for (int b : new int[] { 1, 17, 48 }) {
+            Tensor x = host(new Random(b), b, 3, 32, 32);
+            for (int i = 0; i < 20; i++) {
+                Grad.inference(() -> resnet.forward(x)).toFloatArray();
+            }
+            double[] t = new double[50];
+            for (int i = 0; i < t.length; i++) {
+                long t0 = System.nanoTime();
+                Grad.inference(() -> resnet.forward(x)).toFloatArray();
+                t[i] = (System.nanoTime() - t0) / 1e6;
+            }
+            Arrays.sort(t);
+            System.out.printf("[steady] ResNet-18 batch %2d: median %.3f ms, min %.3f ms%n", b, t[25], t[0]);
+        }
+        Engine.reset();
+    }
 }
