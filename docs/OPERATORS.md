@@ -336,27 +336,36 @@ INT8 models from ONNX Runtime's quantisation tools run as they are:
   `quantize_dynamic` writes);
 - `QLinearMatMul` and `QLinearConv`.
 
-At load, the integer operators are rewritten into dequantise, the float operator and quantise.
-Every dequantisation of a constant (weights, INT32 biases) is folded into an FP32 weight, so
-weights take FP32 memory. A quantise followed by a dequantise of an activation with the same
+Products with a constant INT8 weight (zero point 0, per-tensor or per-column scale) run in INT8:
+`MatMul` between dequantised activations and such a weight, `MatMulInteger` and `QLinearMatMul`.
+The activations are quantised as the model says (or as `DynamicQuantizeLinear` found), the
+products accumulate exactly in INT32 (on CUDA on the tensor cores, `mma.sync` m16n8k32), and one
+epilogue dequantises them and adds the bias: the `Cast`, `Mul` by the scales and bias `Add` that
+dynamic quantisation writes after `MatMulInteger` are folded in, and `DynamicQuantizeLinear` then
+only finds the scale and zero point. The weights stay INT8. `-Djitnn.onnx.int8=false` runs these
+products in FP32 instead.
+
+Everything else is rewritten at load into dequantise, the float operator and quantise. Every
+dequantisation of another constant (convolution weights, INT32 biases) is folded into an FP32
+weight. A quantise followed by a dequantise of an activation with the same
 per-tensor scale and zero point becomes one fake-quantise operator, which the element-wise fusion
 merges with the residual add and ReLU before it. The quantisation of activations is applied exactly: scale, round half to
-even, zero point and saturation for UINT8, INT8, UINT16 and INT16. The integer products are
+even, zero point and saturation for UINT8, INT8, UINT16 and INT16. Integer convolutions are
 computed in FP32. Blocked quantisation (`block_size`) and FP8/INT4 targets are not supported.
 
 On the RTX 5070 Ti, jitNN's outputs differ from ONNX Runtime's integer CPU kernels by 0.75-1.2% of
 the largest value, which is the size of the INT8 model's own difference from the FP32 model.
 ResNet-50's top-1 class agrees with FP32 on every image. Times (ms, median):
 
-| Model | jitNN INT8 | jitNN FP32 | ONNX Runtime CUDA, INT8 file |
-|---|---|---|---|
-| BERT-base b1 s128, dynamic | 8.5 | 5.5 | 13.2 |
-| BERT-base b32 s128, dynamic | 100 | 81 | 288 |
-| ResNet-50 b1, QDQ | 1.8 | 1.6 | 3.4 |
-| ResNet-50 b32, QDQ | 23.2 | 22.9 | 23.5 |
+| Model | jitNN INT8 | jitNN INT8 file, FP32 products | jitNN FP32 | ONNX Runtime CUDA, INT8 file |
+|---|---|---|---|---|
+| BERT-base b1 s128, dynamic | 4.5 | 7.8 | 5.5 | 13.2 |
+| BERT-base b32 s128, dynamic | 27.2 | 103.6 | 81 | 288 |
+| ResNet-50 b1, QDQ | 1.8 | 1.9 | 1.6 | 3.4 |
+| ResNet-50 b32, QDQ | 23.3 | 23.4 | 22.9 | 23.5 |
 
-There are no integer kernels yet: an INT8 file runs at about the speed of the FP32 one (QDQ), or
-slower (dynamic quantisation, which finds each activation's range with a reduction per call).
+ResNet-50's convolutions still run in FP32 on dequantised weights, so its INT8 file runs at about
+the speed of the FP32 one.
 `scripts/onnx/int8_onnx.py` makes these files and ONNX Runtime's references.
 
 ### Export

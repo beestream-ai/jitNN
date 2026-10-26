@@ -32,8 +32,11 @@ final class OnnxQuant {
 
     // ---------------------------------------------------------------- load-time rewriting
 
-    /** Lowers the integer operators and folds the dequantisation of constants into FP32 weights. */
-    static List<Node> lower(List<Node> nodes, Map<String, Value> constants) {
+    /**
+     * Lowers the integer operators and folds the dequantisation of constants into FP32 weights;
+     * {@code outputs} (the graph's outputs) are kept.
+     */
+    static List<Node> lower(List<Node> nodes, Map<String, Value> constants, java.util.Set<String> outputs) {
         List<Node> out = new ArrayList<>();
         int[] fresh = { 0 };
         for (Node n : nodes) {
@@ -60,6 +63,11 @@ final class OnnxQuant {
                     out.add(node(n, "QuantizeLinear", List.of(y, n.input(6), n.input(7)), n.outputs(), Map.of()));
                 }
                 case "MatMulInteger" -> {
+                    if (INT8_KERNELS && int8Weight(constants, n.input(1)) && zero(constants, n.input(3))) {
+                        // INT8 product: a holds the integers already (scale 1, zero point a_zero_point)
+                        out.add(int8MatMul(n, n.input(0), one(constants), n.input(2), true, n.input(1), one(constants), constants, n.outputs(), fresh));
+                        continue;
+                    }
                     String one = one(constants);
                     String a = n.input(2).isEmpty() ? n.input(0) : dq(out, n, n.input(0), one, n.input(2), 0, fresh);
                     String b = n.input(3).isEmpty() ? n.input(1) : dq(out, n, n.input(1), one, n.input(3), lastAxis(constants, n.input(1)), fresh);
@@ -74,6 +82,10 @@ final class OnnxQuant {
                 }
                 default -> out.add(n);
             }
+        }
+        if (INT8_KERNELS) {
+            out = int8Products(out, constants, outputs, fresh);
+            out = int8Epilogues(out, constants, outputs, fresh);
         }
         out = fakeQuantize(out, constants);
         // fold DequantizeLinear of constants (in order, so a folded value can feed the next)
@@ -92,6 +104,226 @@ final class OnnxQuant {
             }
         }
         return kept;
+    }
+
+    /**
+     * Products in INT8 ({@code -Djitnn.onnx.int8=false} keeps them in FP32 on dequantised values):
+     * the INT8 tensor-core kernels on CUDA, an INT32 loop elsewhere.
+     */
+    private static final boolean INT8_KERNELS = !"false".equals(System.getProperty("jitnn.onnx.int8"));
+
+    /**
+     * MatMul(DequantizeLinear(a, s, z), DequantizeLinear(w, sw)) with a constant INT8 w [K, N] (zero
+     * point 0, per-tensor or per-column scale) and a per-tensor s and z: an Int8MatMul. When a is
+     * QuantizeLinear(x, s, z), the product quantises x itself and the two nodes go when nothing else
+     * reads them; otherwise a holds the integers.
+     */
+    private static List<Node> int8Products(List<Node> nodes, Map<String, Value> constants, java.util.Set<String> keep, int[] fresh) {
+        Map<String, Node> producer = new HashMap<>();
+        Map<String, Integer> readers = new HashMap<>();
+        for (String o : keep) {
+            readers.merge(o, 1, Integer::sum);
+        }
+        for (Node n : nodes) {
+            for (String o : n.outputs()) {
+                producer.put(o, n);
+            }
+            for (String in : n.inputs()) {
+                readers.merge(in, 1, Integer::sum);
+            }
+        }
+        java.util.Set<Node> dropped = new java.util.HashSet<>();
+        List<Node> out = new ArrayList<>();
+        for (Node n : nodes) {
+            Node da = n.opType().equals("MatMul") ? producer.get(n.input(0)) : null;
+            Node dw = n.opType().equals("MatMul") ? producer.get(n.input(1)) : null;
+            if (da == null || dw == null || !da.opType().equals("DequantizeLinear") || !dw.opType().equals("DequantizeLinear") || constants.containsKey(da.input(0))
+                    || !scalar(constants, da.input(1)) || !(da.input(2).isEmpty() || scalar(constants, da.input(2))) || da.attrInt("block_size", 0) != 0
+                    || !int8Weight(constants, dw.input(0)) || !zero(constants, dw.input(2)) || dw.attrInt("block_size", 0) != 0
+                    || !constants.containsKey(dw.input(1)) || !columnScale(constants, dw)) {
+                out.add(n);
+                continue;
+            }
+            Node q = producer.get(da.input(0));
+            boolean fromX = q != null && q.opType().equals("QuantizeLinear") && q.input(1).equals(da.input(1)) && q.input(2).equals(da.input(2))
+                    && q.attrInt("block_size", 0) == 0 && !q.attributes().containsKey("output_dtype");
+            String a = fromX ? q.input(0) : da.input(0);
+            out.add(int8MatMul(n, a, da.input(1), da.input(2), !fromX, dw.input(0), dw.input(1), constants, n.outputs(), fresh));
+            if (readers.get(da.outputs().get(0)) == 1) {
+                dropped.add(da);
+                if (fromX && readers.get(q.outputs().get(0)) == 1) {
+                    dropped.add(q);
+                }
+            }
+            if (readers.get(dw.outputs().get(0)) == 1) {
+                dropped.add(dw);
+            }
+        }
+        out.removeIf(dropped::contains);
+        return out;
+    }
+
+    /**
+     * An Int8MatMul node: a (FP32 values to quantise with scale s and zero point z, or the integers
+     * themselves when {@code integers}) times the constant INT8 weight w [K, N] with scale sw, as
+     * prepared {@link org.beehive.jitnn.ops.Int8.Weights} constants.
+     */
+    private static Node int8MatMul(Node from, String a, String s, String z, boolean integers, String w, String sw, Map<String, Value> constants, List<String> outputs,
+            int[] fresh) {
+        Value wq = constants.get(w);
+        int k = (int) wq.dims[0];
+        int cols = (int) wq.dims[1];
+        org.beehive.jitnn.ops.Int8.Weights prepared = org.beehive.jitnn.ops.Int8.Weights.ofColumns(wq.ints, k, cols, floats(constants.get(sw)));
+        String base = name(from, "i8", fresh);
+        constants.put(base + "w", Value.of(prepared.packed(), OnnxModel.INT32));
+        constants.put(base + "s", Value.of(prepared.scale(), OnnxModel.FLOAT));
+        constants.put(base + "sums", Value.of(prepared.rowSums(), OnnxModel.INT32));
+        Map<String, Attribute> attrs = Map.of("integers", new Attribute("integers", ATTR_INT, 0, integers ? 1 : 0, null, null, null, null, null));
+        return node(from, "Int8MatMul", List.of(a, s, z, base + "w", base + "s", base + "sums"), outputs, attrs);
+    }
+
+    /**
+     * Folds what surrounds an Int8MatMul into it, as dynamic quantisation writes the graph:
+     * <ul>
+     * <li>its integers from DynamicQuantizeLinear(x): the product quantises x itself with that
+     * scale and zero point, and DynamicQuantizeLinear computes only those when nothing else reads
+     * its integers;</li>
+     * <li>Cast to float then Mul by (x scale * weight scale): the weight scale goes into the
+     * product's per-column scale;</li>
+     * <li>Add of a constant bias [N]: the product's bias.</li>
+     * </ul>
+     */
+    private static List<Node> int8Epilogues(List<Node> nodes, Map<String, Value> constants, java.util.Set<String> keep, int[] fresh) {
+        Map<String, Node> producer = new HashMap<>();
+        Map<String, List<Node>> readers = new HashMap<>();
+        // a graph output counts as a reader: it stays as it is
+        Node graph = new Node("#outputs", "#outputs", "", new ArrayList<>(keep), List.of(), Map.of());
+        for (String o : keep) {
+            readers.computeIfAbsent(o, k -> new ArrayList<>()).add(graph);
+        }
+        for (Node n : nodes) {
+            for (String o : n.outputs()) {
+                producer.put(o, n);
+            }
+            for (String in : n.inputs()) {
+                readers.computeIfAbsent(in, k -> new ArrayList<>()).add(n);
+            }
+        }
+        Map<Node, Node> replace = new HashMap<>();
+        java.util.Set<Node> dropped = new java.util.HashSet<>();
+        for (Node m : nodes) {
+            if (!m.opType().equals("Int8MatMul")) {
+                continue;
+            }
+            List<String> in = new ArrayList<>(m.inputs());
+            boolean integers = m.attrInt("integers", 0) != 0;
+            List<String> outputs = m.outputs();
+            Node d = producer.get(in.get(0));
+            if (integers && d != null && d.opType().equals("DynamicQuantizeLinear") && d.outputs().get(0).equals(in.get(0)) && d.outputs().get(2).equals(in.get(2))) {
+                in.set(0, d.input(0));
+                in.set(1, d.outputs().get(1));
+                integers = false;
+            }
+            // Cast then Mul by (activation scale * constant weight scale)
+            List<Node> r = readers.getOrDefault(outputs.get(0), List.of());
+            if (!integers && r.size() == 1 && r.get(0).opType().equals("Cast") && r.get(0).attrInt("to", 0) == OnnxModel.FLOAT) {
+                Node cast = r.get(0);
+                List<Node> r2 = readers.getOrDefault(cast.outputs().get(0), List.of());
+                Node mul = r2.size() == 1 && r2.get(0).opType().equals("Mul") ? r2.get(0) : null;
+                String other = mul == null ? null : mul.input(0).equals(cast.outputs().get(0)) ? mul.input(1) : mul.input(0);
+                Node scales = other == null ? null : producer.get(other);
+                if (scales != null && scales.opType().equals("Mul") && (scales.input(0).equals(in.get(1)) || scales.input(1).equals(in.get(1)))) {
+                    String ws = scales.input(0).equals(in.get(1)) ? scales.input(1) : scales.input(0);
+                    Value sw = constants.get(in.get(4));
+                    int cols = sw.tensor.dim(0);
+                    Value wv = constants.get(ws);
+                    if (wv != null && (wv.numel() == 1 || wv.numel() == cols)) {
+                        float[] old = floats(sw);
+                        float[] add = floats(wv);
+                        float[] scaled = new float[cols];
+                        for (int j = 0; j < cols; j++) {
+                            scaled[j] = old[old.length == 1 ? 0 : j] * add[add.length == 1 ? 0 : j];
+                        }
+                        String name = name(m, "scale", fresh);
+                        constants.put(name, Value.of(Tensor.persistent(Tensor.of(scaled, cols)), OnnxModel.FLOAT));
+                        in.set(4, name);
+                        outputs = mul.outputs();
+                        dropped.add(cast);
+                        dropped.add(mul);
+                        if (readers.get(scales.outputs().get(0)).size() == 1) {
+                            dropped.add(scales);
+                        }
+                    }
+                }
+            }
+            // Add of a constant bias [N]
+            List<Node> r3 = readers.getOrDefault(outputs.get(0), List.of());
+            if (!integers && r3.size() == 1 && r3.get(0).opType().equals("Add")) {
+                Node add = r3.get(0);
+                String b = add.input(0).equals(outputs.get(0)) ? add.input(1) : add.input(0);
+                Value bv = constants.get(b);
+                if (bv != null && bv.numel() == constants.get(in.get(4)).tensor.dim(0) && bv.rank() <= 2) {
+                    in.add(b);
+                    outputs = add.outputs();
+                    dropped.add(add);
+                }
+            }
+            if (!in.equals(m.inputs()) || outputs != m.outputs()) {
+                Map<String, Attribute> attrs = Map.of("integers", new Attribute("integers", ATTR_INT, 0, integers ? 1 : 0, null, null, null, null, null));
+                replace.put(m, new Node(m.name(), "Int8MatMul", "", in, outputs, attrs));
+            }
+        }
+        // DynamicQuantizeLinear whose integers nothing reads any more: scale and zero point only
+        java.util.Set<String> stillRead = new java.util.HashSet<>(keep);
+        for (Node n : nodes) {
+            if (dropped.contains(n)) {
+                continue;
+            }
+            stillRead.addAll(replace.getOrDefault(n, n).inputs());
+        }
+        List<Node> out = new ArrayList<>();
+        for (Node n : nodes) {
+            if (dropped.contains(n)) {
+                continue;
+            }
+            if (n.opType().equals("DynamicQuantizeLinear") && !stillRead.contains(n.outputs().get(0))) {
+                List<String> o = List.of(name(n, "unused", fresh), n.outputs().get(1), n.outputs().get(2));
+                out.add(new Node(n.name(), "DynamicQuantizeParams", "", n.inputs(), o, Map.of()));
+                continue;
+            }
+            out.add(replace.getOrDefault(n, n));
+        }
+        return out;
+    }
+
+    /** A constant 2-D INT8 tensor (UINT8 weights are not taken: the kernels multiply signed values). */
+    private static boolean int8Weight(Map<String, Value> constants, String name) {
+        Value v = constants.get(name);
+        return v != null && v.isHost() && v.type == OnnxModel.INT8 && v.rank() == 2;
+    }
+
+    /** No zero point, or a constant one of zeros. */
+    private static boolean zero(Map<String, Value> constants, String name) {
+        if (name.isEmpty()) {
+            return true;
+        }
+        Value v = constants.get(name);
+        if (v == null) {
+            return false;
+        }
+        for (float f : floats(v)) {
+            if (f != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** The weight's scale is one value, or one per column (axis 1 of the [K, N] weight). */
+    private static boolean columnScale(Map<String, Value> constants, Node dw) {
+        Value s = constants.get(dw.input(1));
+        int cols = (int) constants.get(dw.input(0)).dims[1];
+        return s.numel() == 1 || s.rank() == 1 && s.numel() == cols && OnnxOps.axis(dw.attrInt("axis", 1), 2) == 1;
     }
 
     /**
@@ -197,6 +429,25 @@ final class OnnxQuant {
     // ---------------------------------------------------------------- operators
 
     static void register(Map<String, Handler> h) {
+        h.put("Int8MatMul", (n, in) -> {
+            Tensor x = OnnxOps.t(in, 0);
+            Tensor s = in.get(1).tensor(true).reshape(1);
+            Tensor z = OnnxOps.present(in, 2) ? in.get(2).tensor(true).reshape(1) : Tensor.of(new float[] { 0 }, 1);
+            boolean integers = n.attrInt("integers", 0) != 0;
+            // the activation's integer type: its zero point's, else that of the integers given, else UINT8
+            int type = OnnxOps.present(in, 2) ? in.get(2).type : integers ? in.get(0).type : OnnxModel.UINT8;
+            boolean unsigned = type != OnnxModel.INT8;
+            int k = x.dim(-1);
+            org.beehive.jitnn.ops.Int8.Weights w = new org.beehive.jitnn.ops.Int8.Weights(in.get(3).tensor, in.get(4).tensor, in.get(5).tensor, in.get(4).tensor.dim(0), k);
+            Tensor flat = x.reshape(-1, k);
+            Tensor q = integers ? org.beehive.jitnn.ops.Int8.quantize(flat, Tensor.of(new float[] { 1 }, 1), Tensor.of(new float[] { 0 }, 1), unsigned)
+                    : org.beehive.jitnn.ops.Int8.quantize(flat, s, z, unsigned);
+            Tensor bias = OnnxOps.present(in, 6) ? in.get(6).tensor(true).reshape(w.n()) : null;
+            Tensor y = org.beehive.jitnn.ops.Int8.linear(q, s, z, unsigned, w, bias);
+            int[] dims = x.shape().dims();
+            dims[dims.length - 1] = w.n();
+            return List.of(Value.of(y.reshape(dims), OnnxModel.FLOAT));
+        });
         h.put("FakeQuantize", (n, in) -> {
             int type = quantType(n, in);
             float[] range = range(n, type);
@@ -217,17 +468,23 @@ final class OnnxQuant {
             }
             return List.of(Value.of(q.clamp(range[0], range[1]), type));
         });
-        h.put("DynamicQuantizeLinear", (n, in) -> {
-            Tensor x = OnnxOps.t(in, 0);
-            Tensor flat = x.reshape(x.numel());
-            Tensor zero = Tensor.scalar(0.0f);
-            Tensor lo = flat.min(0, false).minimum(zero);
-            Tensor hi = flat.max(0, false).maximum(zero);
-            Tensor scale = hi.sub(lo).div(Tensor.scalar(255.0f));
-            Tensor zp = zero.sub(lo.div(scale)).round().clamp(0, 255);
-            Tensor y = x.div(scale).round().add(zp).clamp(0, 255);
-            return List.of(Value.of(y, OnnxModel.UINT8), Value.of(scale, OnnxModel.FLOAT), Value.of(zp, OnnxModel.UINT8));
+        h.put("DynamicQuantizeParams", (n, in) -> {
+            List<Value> v = dynamicQuantize(OnnxOps.t(in, 0), false);
+            return List.of(Value.of(Tensor.of(new float[] { 0 }, 1), OnnxModel.FLOAT), v.get(1), v.get(2));
         });
+        h.put("DynamicQuantizeLinear", (n, in) -> dynamicQuantize(OnnxOps.t(in, 0), true));
+    }
+
+    /** DynamicQuantizeLinear: the UINT8 values of x (when {@code values}), its scale and its zero point. */
+    private static List<Value> dynamicQuantize(Tensor x, boolean values) {
+        Tensor flat = x.reshape(x.numel());
+        Tensor zero = Tensor.scalar(0.0f);
+        Tensor lo = flat.min(0, false).minimum(zero);
+        Tensor hi = flat.max(0, false).maximum(zero);
+        Tensor scale = hi.sub(lo).div(Tensor.scalar(255.0f));
+        Tensor zp = zero.sub(lo.div(scale)).round().clamp(0, 255);
+        Tensor y = values ? x.div(scale).round().add(zp).clamp(0, 255) : null;
+        return java.util.Arrays.asList(Value.of(y == null ? zp : y, OnnxModel.UINT8), Value.of(scale, OnnxModel.FLOAT), Value.of(zp, OnnxModel.UINT8));
     }
 
     /** The integer type QuantizeLinear produces: output_dtype, else the zero point's, else UINT8. */

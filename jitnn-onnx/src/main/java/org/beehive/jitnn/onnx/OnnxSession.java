@@ -50,7 +50,11 @@ public final class OnnxSession implements AutoCloseable {
             }
         }
         // quantised operators become float ones around (de)quantisation; constant weights are dequantised once here
-        List<Node> lowered = OnnxQuant.lower(model.graph().nodes(), constants);
+        java.util.Set<String> graphOutputs = new java.util.HashSet<>();
+        for (OnnxModel.ValueInfo vi : model.graph().outputs()) {
+            graphOutputs.add(vi.name());
+        }
+        List<Node> lowered = OnnxQuant.lower(model.graph().nodes(), constants, graphOutputs);
         TreeSet<String> missing = new TreeSet<>();
         for (Node n : lowered) {
             if (!n.opType().equals("Constant") && !OnnxOps.supports(n.opType())) {
