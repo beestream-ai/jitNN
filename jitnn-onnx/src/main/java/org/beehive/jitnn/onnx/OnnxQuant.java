@@ -29,6 +29,7 @@ final class OnnxQuant {
     }
 
     private static final int ATTR_INT = 2;
+    private static final int ATTR_INTS = 7;
 
     // ---------------------------------------------------------------- load-time rewriting
 
@@ -135,12 +136,14 @@ final class OnnxQuant {
         java.util.Set<Node> dropped = new java.util.HashSet<>();
         List<Node> out = new ArrayList<>();
         for (Node n : nodes) {
-            Node da = n.opType().equals("MatMul") ? producer.get(n.input(0)) : null;
-            Node dw = n.opType().equals("MatMul") ? producer.get(n.input(1)) : null;
+            boolean conv = n.opType().equals("Conv") && n.attrInt("group", 1) == 1;
+            boolean product = n.opType().equals("MatMul") || conv;
+            Node da = product ? producer.get(n.input(0)) : null;
+            Node dw = product ? producer.get(n.input(1)) : null;
             if (da == null || dw == null || !da.opType().equals("DequantizeLinear") || !dw.opType().equals("DequantizeLinear") || constants.containsKey(da.input(0))
                     || !scalar(constants, da.input(1)) || !(da.input(2).isEmpty() || scalar(constants, da.input(2))) || da.attrInt("block_size", 0) != 0
-                    || !int8Weight(constants, dw.input(0)) || !zero(constants, dw.input(2)) || dw.attrInt("block_size", 0) != 0
-                    || !constants.containsKey(dw.input(1)) || !columnScale(constants, dw)) {
+                    || !(conv ? int8Kernel(constants, dw.input(0)) : int8Weight(constants, dw.input(0))) || !zero(constants, dw.input(2)) || dw.attrInt("block_size", 0) != 0
+                    || !constants.containsKey(dw.input(1)) || !(conv ? channelScale(constants, dw) : columnScale(constants, dw))) {
                 out.add(n);
                 continue;
             }
@@ -148,7 +151,8 @@ final class OnnxQuant {
             boolean fromX = q != null && q.opType().equals("QuantizeLinear") && q.input(1).equals(da.input(1)) && q.input(2).equals(da.input(2))
                     && q.attrInt("block_size", 0) == 0 && !q.attributes().containsKey("output_dtype");
             String a = fromX ? q.input(0) : da.input(0);
-            out.add(int8MatMul(n, a, da.input(1), da.input(2), !fromX, dw.input(0), dw.input(1), constants, n.outputs(), fresh));
+            out.add(conv ? int8Conv(n, a, da.input(1), da.input(2), !fromX, dw.input(0), dw.input(1), constants, fresh)
+                    : int8MatMul(n, a, da.input(1), da.input(2), !fromX, dw.input(0), dw.input(1), constants, n.outputs(), fresh));
             if (readers.get(da.outputs().get(0)) == 1) {
                 dropped.add(da);
                 if (fromX && readers.get(q.outputs().get(0)) == 1) {
@@ -296,6 +300,43 @@ final class OnnxQuant {
         return out;
     }
 
+    /**
+     * An Int8Conv node: Conv's attributes, its input a (as {@link #int8MatMul}), the constant INT8
+     * kernel w [Cout, Cin, kh, kw] with per-output-channel scale sw prepared as weights [Cout, Cin kh kw],
+     * and Conv's bias when it has one.
+     */
+    private static Node int8Conv(Node conv, String a, String s, String z, boolean integers, String w, String sw, Map<String, Value> constants, int[] fresh) {
+        Value wq = constants.get(w);
+        int cout = (int) wq.dims[0];
+        org.beehive.jitnn.ops.Int8.Weights prepared = org.beehive.jitnn.ops.Int8.Weights.ofConv(wq.ints, cout, (int) wq.dims[1], (int) wq.dims[2], (int) wq.dims[3],
+                floats(constants.get(sw)));
+        String base = name(conv, "i8", fresh);
+        constants.put(base + "w", Value.of(prepared.packed(), OnnxModel.INT32));
+        constants.put(base + "s", Value.of(prepared.scale(), OnnxModel.FLOAT));
+        constants.put(base + "sums", Value.of(prepared.rowSums(), OnnxModel.INT32));
+        Map<String, Attribute> attrs = new HashMap<>(conv.attributes());
+        attrs.put("integers", new Attribute("integers", ATTR_INT, 0, integers ? 1 : 0, null, null, null, null, null));
+        attrs.put("kernel_shape", new Attribute("kernel_shape", ATTR_INTS, 0, 0, null, null, null, new long[] { wq.dims[2], wq.dims[3] }, null));
+        List<String> in = new ArrayList<>(List.of(a, s, z, base + "w", base + "s", base + "sums"));
+        if (conv.inputs().size() > 2 && !conv.input(2).isEmpty()) {
+            in.add(conv.input(2));
+        }
+        return node(conv, "Int8Conv", in, conv.outputs(), attrs);
+    }
+
+    /** A constant 4-D INT8 tensor: a 2-D convolution's kernel. */
+    private static boolean int8Kernel(Map<String, Value> constants, String name) {
+        Value v = constants.get(name);
+        return v != null && v.isHost() && v.type == OnnxModel.INT8 && v.rank() == 4;
+    }
+
+    /** The kernel's scale is one value, or one per output channel (axis 0). */
+    private static boolean channelScale(Map<String, Value> constants, Node dw) {
+        Value s = constants.get(dw.input(1));
+        int cout = (int) constants.get(dw.input(0)).dims[0];
+        return s.numel() == 1 || s.rank() == 1 && s.numel() == cout && OnnxOps.axis(dw.attrInt("axis", 1), 4) == 0;
+    }
+
     /** A constant 2-D INT8 tensor (UINT8 weights are not taken: the kernels multiply signed values). */
     private static boolean int8Weight(Map<String, Value> constants, String name) {
         Value v = constants.get(name);
@@ -429,6 +470,32 @@ final class OnnxQuant {
     // ---------------------------------------------------------------- operators
 
     static void register(Map<String, Handler> h) {
+        h.put("Int8Conv", (n, in) -> {
+            Tensor x = OnnxOps.t(in, 0);
+            if (x.rank() != 4) {
+                throw new UnsupportedOperationException(n.name() + ": INT8 convolution of a " + x.shape() + " input (2-D only)");
+            }
+            boolean integers = n.attrInt("integers", 0) != 0;
+            int type = OnnxOps.present(in, 2) ? in.get(2).type : integers ? in.get(0).type : OnnxModel.UINT8;
+            boolean unsigned = type != OnnxModel.INT8;
+            Tensor s = in.get(1).tensor(true).reshape(1);
+            Tensor z = OnnxOps.present(in, 2) ? in.get(2).tensor(true).reshape(1) : Tensor.of(new float[] { 0 }, 1);
+            long[] kernel = n.attrInts("kernel_shape", null);
+            long[] strides = n.attrInts("strides", new long[] { 1, 1 });
+            long[] dil = n.attrInts("dilations", new long[] { 1, 1 });
+            long[] pads = OnnxOps.pads(n, 2, new long[] { x.dim(2), x.dim(3) }, kernel, strides, dil);
+            Tensor cout = in.get(4).tensor;
+            org.beehive.jitnn.ops.Int8.Weights w = new org.beehive.jitnn.ops.Int8.Weights(in.get(3).tensor, cout, in.get(5).tensor, cout.dim(0),
+                    (x.dim(1) + 3) / 4 * 4 * (int) kernel[0] * (int) kernel[1]);
+            Tensor bias = OnnxOps.present(in, 6) ? in.get(6).tensor(true).reshape(w.n()) : null;
+            if (integers) {
+                // integers given: back to their values, so the padding becomes the zero point again
+                x = x.sub(z.reshape()).mul(s.reshape());
+            }
+            Tensor y = org.beehive.jitnn.ops.Int8.conv2d(x, s, z, unsigned, w, bias, (int) kernel[0], (int) kernel[1],
+                    new int[] { (int) strides[0], (int) strides[1] }, new int[] { (int) pads[0], (int) pads[1], (int) pads[2], (int) pads[3] }, new int[] { (int) dil[0], (int) dil[1] });
+            return List.of(Value.of(y, OnnxModel.FLOAT));
+        });
         h.put("Int8MatMul", (n, in) -> {
             Tensor x = OnnxOps.t(in, 0);
             Tensor s = in.get(1).tensor(true).reshape(1);

@@ -60,4 +60,55 @@ class Int8AccelTest {
             }
         }
     }
+
+    /** [N, C, H, W, Cout, k, stride, pad] */
+    private static final int[][] CONVS = { { 2, 3, 17, 17, 20, 3, 2, 1 }, { 1, 64, 14, 14, 64, 3, 1, 1 }, { 3, 256, 7, 7, 64, 1, 1, 0 }, { 1, 8, 9, 11, 130, 5, 2, 2 } };
+
+    private static float[] conv(Backend backend, int[] c, boolean unsigned, boolean dequantised) {
+        int n = c[0], ch = c[1], h = c[2], wd = c[3], cout = c[4], k = c[5];
+        Random r = new Random(c[1] * 13 + c[4]);
+        long[] q = new long[cout * ch * k * k];
+        float[] wf = new float[q.length];
+        float[] scales = new float[cout];
+        for (int o = 0; o < cout; o++) {
+            scales[o] = 0.001f + r.nextFloat() * 0.01f;
+        }
+        for (int i = 0; i < q.length; i++) {
+            q[i] = r.nextInt(255) - 127;
+            wf[i] = q[i] * scales[i / (ch * k * k)];
+        }
+        float[] b = new float[cout];
+        for (int i = 0; i < cout; i++) {
+            b[i] = r.nextFloat() - 0.5f;
+        }
+        float s = 4.0f / 255;
+        float z = unsigned ? 128 : 3;
+        return Engine.with(backend, () -> {
+            Tensor x = Tensor.uniform(5, -2, 2, n, ch, h, wd);
+            int[] stride = { c[6], c[6] };
+            int[] pads = { c[7], c[7], c[7], c[7] };
+            int[] dil = { 1, 1 };
+            if (dequantised) {
+                // the float convolution of the fake-quantised input and the dequantised weights
+                Tensor fq = x.div(Tensor.scalar(s)).round().add(Tensor.scalar(z)).clamp(unsigned ? 0 : -128, unsigned ? 255 : 127).sub(Tensor.scalar(z)).mul(Tensor.scalar(s));
+                return F.conv(fq, Tensor.of(wf, cout, ch, k, k), Tensor.of(b, cout), stride, pads, dil, 1).toFloatArray();
+            }
+            Int8.Weights w = Int8.Weights.ofConv(q, cout, ch, k, k, scales);
+            Tensor scale = Tensor.of(new float[] { s }, 1);
+            Tensor zp = Tensor.of(new float[] { z }, 1);
+            return Int8.conv2d(x, scale, zp, unsigned, w, Tensor.of(b, cout), k, k, stride, pads, dil).toFloatArray();
+        });
+    }
+
+    @Test
+    void convolutionsMatchReference() {
+        for (int[] c : CONVS) {
+            for (boolean unsigned : new boolean[] { true, false }) {
+                String name = java.util.Arrays.toString(c) + (unsigned ? " uint8" : " int8");
+                float[] e = conv(Backend.REFERENCE, c, unsigned, false);
+                assertArrayEquals(conv(Backend.REFERENCE, c, unsigned, true), e, 1e-3f, name + ": INT8 against the dequantised float convolution");
+                assertArrayEquals(e, conv(Backend.TORNADO, c, unsigned, false), 1e-3f, name);
+            }
+        }
+    }
 }

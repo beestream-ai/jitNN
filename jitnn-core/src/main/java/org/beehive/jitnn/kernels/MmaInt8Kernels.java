@@ -24,8 +24,36 @@ public final class MmaInt8Kernels {
     private MmaInt8Kernels() {
     }
 
+    /** Index of output (r, col) in C: row-major [M, N], or NCHW [M / hw, N, hw] for a convolution's hw > 0 pixels per image. */
+    private static int outIndex(int r, int col, int n, int hw) {
+        int i = r * n + col;
+        if (hw > 0) {
+            int image = r / hw;
+            i = (image * n + col) * hw + r - image * hw;
+        }
+        return i;
+    }
+
+    /** Int (4 channels) of the conv window of row (image, oy, ox) at K offset kk from NHWC a; the zero point in the padding. */
+    private static int convA(IntArray a, boolean valid, int image, int oy, int ox, int kk, int kTotal, int cp, int c4s, int h, int wd, int kw, int sy, int sxs, int py,
+            int px, int dy, int dx, int pad) {
+        int r = pad;
+        if (valid & (kk < kTotal)) {
+            int tap = kk / cp;
+            int ci = kk - tap * cp;
+            int ky = tap / kw;
+            int kx = tap - ky * kw;
+            int iy = oy * sy - py + ky * dy;
+            int ix = ox * sxs - px + kx * dx;
+            if ((iy >= 0) & (iy < h) & (ix >= 0) & (ix < wd)) {
+                r = a.get(((image * h + iy) * wd + ix) * c4s + (ci >> 2));
+            }
+        }
+        return r;
+    }
+
     public static void gemm(KernelContext ctx, IntArray a, IntArray b, FloatArray c, IntArray partial, int m, int n, int kp, int splits, FloatArray sx, FloatArray zp,
-            int offset, FloatArray sw, IntArray colsum, FloatArray bias, int hasBias) {
+            int offset, FloatArray sw, IntArray colsum, FloatArray bias, int hasBias, int hw) {
         int tid = ctx.localIdx;
         int lane = tid & 31;
         int warp = tid >> 5;
@@ -153,7 +181,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c00[0] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c00[0] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c00[0]);
                     }
@@ -161,7 +189,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c00[2] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c00[2] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c00[2]);
                     }
@@ -169,7 +197,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c10[0] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c10[0] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c10[0]);
                     }
@@ -177,7 +205,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c10[2] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c10[2] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c10[2]);
                     }
@@ -193,7 +221,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c00[1] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c00[1] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c00[1]);
                     }
@@ -201,7 +229,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c00[3] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c00[3] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c00[3]);
                     }
@@ -209,7 +237,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c10[1] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c10[1] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c10[1]);
                     }
@@ -217,7 +245,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c10[3] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c10[3] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c10[3]);
                     }
@@ -233,7 +261,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c01[0] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c01[0] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c01[0]);
                     }
@@ -241,7 +269,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c01[2] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c01[2] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c01[2]);
                     }
@@ -249,7 +277,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c11[0] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c11[0] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c11[0]);
                     }
@@ -257,7 +285,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c11[2] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c11[2] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c11[2]);
                     }
@@ -273,7 +301,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c01[1] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c01[1] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c01[1]);
                     }
@@ -281,7 +309,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c01[3] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c01[3] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c01[3]);
                     }
@@ -289,7 +317,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c11[1] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c11[1] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c11[1]);
                     }
@@ -297,7 +325,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c11[3] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c11[3] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c11[3]);
                     }
@@ -313,7 +341,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c02[0] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c02[0] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c02[0]);
                     }
@@ -321,7 +349,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c02[2] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c02[2] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c02[2]);
                     }
@@ -329,7 +357,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c12[0] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c12[0] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c12[0]);
                     }
@@ -337,7 +365,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c12[2] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c12[2] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c12[2]);
                     }
@@ -353,7 +381,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c02[1] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c02[1] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c02[1]);
                     }
@@ -361,7 +389,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c02[3] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c02[3] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c02[3]);
                     }
@@ -369,7 +397,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c12[1] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c12[1] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c12[1]);
                     }
@@ -377,7 +405,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c12[3] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c12[3] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c12[3]);
                     }
@@ -393,7 +421,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c03[0] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c03[0] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c03[0]);
                     }
@@ -401,7 +429,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c03[2] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c03[2] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c03[2]);
                     }
@@ -409,7 +437,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c13[0] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c13[0] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c13[0]);
                     }
@@ -417,7 +445,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c13[2] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c13[2] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c13[2]);
                     }
@@ -433,7 +461,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c03[1] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c03[1] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c03[1]);
                     }
@@ -441,7 +469,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c03[3] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c03[3] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c03[3]);
                     }
@@ -449,7 +477,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c13[1] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c13[1] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c13[1]);
                     }
@@ -457,7 +485,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c13[3] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c13[3] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c13[3]);
                     }
@@ -473,7 +501,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c04[0] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c04[0] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c04[0]);
                     }
@@ -481,7 +509,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c04[2] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c04[2] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c04[2]);
                     }
@@ -489,7 +517,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c14[0] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c14[0] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c14[0]);
                     }
@@ -497,7 +525,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c14[2] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c14[2] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c14[2]);
                     }
@@ -513,7 +541,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c04[1] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c04[1] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c04[1]);
                     }
@@ -521,7 +549,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c04[3] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c04[3] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c04[3]);
                     }
@@ -529,7 +557,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c14[1] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c14[1] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c14[1]);
                     }
@@ -537,7 +565,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c14[3] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c14[3] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c14[3]);
                     }
@@ -553,7 +581,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c05[0] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c05[0] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c05[0]);
                     }
@@ -561,7 +589,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c05[2] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c05[2] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c05[2]);
                     }
@@ -569,7 +597,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c15[0] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c15[0] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c15[0]);
                     }
@@ -577,7 +605,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c15[2] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c15[2] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c15[2]);
                     }
@@ -593,7 +621,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c05[1] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c05[1] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c05[1]);
                     }
@@ -601,7 +629,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c05[3] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c05[3] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c05[3]);
                     }
@@ -609,7 +637,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c15[1] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c15[1] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c15[1]);
                     }
@@ -617,7 +645,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c15[3] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c15[3] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c15[3]);
                     }
@@ -633,7 +661,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c06[0] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c06[0] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c06[0]);
                     }
@@ -641,7 +669,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c06[2] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c06[2] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c06[2]);
                     }
@@ -649,7 +677,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c16[0] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c16[0] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c16[0]);
                     }
@@ -657,7 +685,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c16[2] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c16[2] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c16[2]);
                     }
@@ -673,7 +701,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c06[1] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c06[1] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c06[1]);
                     }
@@ -681,7 +709,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c06[3] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c06[3] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c06[3]);
                     }
@@ -689,7 +717,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c16[1] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c16[1] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c16[1]);
                     }
@@ -697,7 +725,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c16[3] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c16[3] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c16[3]);
                     }
@@ -713,7 +741,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c07[0] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c07[0] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c07[0]);
                     }
@@ -721,7 +749,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c07[2] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c07[2] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c07[2]);
                     }
@@ -729,7 +757,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c17[0] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c17[0] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c17[0]);
                     }
@@ -737,7 +765,7 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c17[2] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c17[2] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c17[2]);
                     }
@@ -753,7 +781,7 @@ public final class MmaInt8Kernels {
                 int r00 = rBase + 0;
                 if (r00 < m) {
                     if (splits == 1) {
-                        c.set(r00 * n + col, f * (c07[1] - corr) + add);
+                        c.set(outIndex(r00, col, n, hw), f * (c07[1] - corr) + add);
                     } else {
                         partial.set(pBase + r00 * n + col, c07[1]);
                     }
@@ -761,7 +789,7 @@ public final class MmaInt8Kernels {
                 int r01 = rBase + 8;
                 if (r01 < m) {
                     if (splits == 1) {
-                        c.set(r01 * n + col, f * (c07[3] - corr) + add);
+                        c.set(outIndex(r01, col, n, hw), f * (c07[3] - corr) + add);
                     } else {
                         partial.set(pBase + r01 * n + col, c07[3]);
                     }
@@ -769,7 +797,7 @@ public final class MmaInt8Kernels {
                 int r10 = rBase + 16;
                 if (r10 < m) {
                     if (splits == 1) {
-                        c.set(r10 * n + col, f * (c17[1] - corr) + add);
+                        c.set(outIndex(r10, col, n, hw), f * (c17[1] - corr) + add);
                     } else {
                         partial.set(pBase + r10 * n + col, c17[1]);
                     }
@@ -777,7 +805,812 @@ public final class MmaInt8Kernels {
                 int r11 = rBase + 24;
                 if (r11 < m) {
                     if (splits == 1) {
-                        c.set(r11 * n + col, f * (c17[3] - corr) + add);
+                        c.set(outIndex(r11, col, n, hw), f * (c17[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c17[3]);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * {@link #gemm} for a 2-D convolution as an implicit GEMM: A's rows are the output pixels and
+     * its columns the (ky, kx, channel) taps, gathered from the NHWC activations of quantizeNhwc
+     * (geometry: padded channels cp, cp / 4, H, W, OH, OW, kh, kw, stride y, x, pad top, left,
+     * dilation y, x); taps in the padding read the zero point.
+     */
+    public static void gemmConv(KernelContext ctx, IntArray a, IntArray b, FloatArray c, IntArray partial, int m, int n, int kp, int splits, FloatArray sx,
+            FloatArray zp, int offset, FloatArray sw, IntArray colsum, FloatArray bias, int hasBias, int hw, IntArray geometry) {
+        int tid = ctx.localIdx;
+        int lane = tid & 31;
+        int warp = tid >> 5;
+        int warpM = warp / 2;
+        int warpN = warp - warpM * 2;
+        int row0 = ctx.groupIdx * 128;
+        int col0 = ctx.groupIdy * 128;
+        int z = ctx.groupIdz;
+        int lda = kp >> 2;
+        int steps = kp / 32;
+        int per = (steps + splits - 1) / splits;
+        int s0 = z * per;
+        int s1 = s0 + per < steps ? s0 + per : steps;
+        int bBase = ctx.groupIdy * steps * 1024;
+        int[] aTile = ctx.allocateIntLocalArray(1024);
+        int[] bTile = ctx.allocateIntLocalArray(1024);
+        int[] c00 = ctx.mmaFragmentInt(0);
+        int[] c01 = ctx.mmaFragmentInt(0);
+        int[] c02 = ctx.mmaFragmentInt(0);
+        int[] c03 = ctx.mmaFragmentInt(0);
+        int[] c04 = ctx.mmaFragmentInt(0);
+        int[] c05 = ctx.mmaFragmentInt(0);
+        int[] c06 = ctx.mmaFragmentInt(0);
+        int[] c07 = ctx.mmaFragmentInt(0);
+        int[] c10 = ctx.mmaFragmentInt(0);
+        int[] c11 = ctx.mmaFragmentInt(0);
+        int[] c12 = ctx.mmaFragmentInt(0);
+        int[] c13 = ctx.mmaFragmentInt(0);
+        int[] c14 = ctx.mmaFragmentInt(0);
+        int[] c15 = ctx.mmaFragmentInt(0);
+        int[] c16 = ctx.mmaFragmentInt(0);
+        int[] c17 = ctx.mmaFragmentInt(0);
+        int ra0 = row0 + ((tid + 0) >> 3);
+        boolean va0 = ra0 < m;
+        int ga0 = ra0 * lda + ((tid + 0) & 7);
+        int ra1 = row0 + ((tid + 256) >> 3);
+        boolean va1 = ra1 < m;
+        int ga1 = ra1 * lda + ((tid + 256) & 7);
+        int ra2 = row0 + ((tid + 512) >> 3);
+        boolean va2 = ra2 < m;
+        int ga2 = ra2 * lda + ((tid + 512) & 7);
+        int ra3 = row0 + ((tid + 768) >> 3);
+        boolean va3 = ra3 < m;
+        int ga3 = ra3 * lda + ((tid + 768) & 7);
+        int cp = geometry.get(0);
+        int c4s = geometry.get(1);
+        int h = geometry.get(2);
+        int wd = geometry.get(3);
+        int oh = geometry.get(4);
+        int ow = geometry.get(5);
+        int kh = geometry.get(6);
+        int kw = geometry.get(7);
+        int sy = geometry.get(8);
+        int sxs = geometry.get(9);
+        int py = geometry.get(10);
+        int px = geometry.get(11);
+        int dy = geometry.get(12);
+        int dx = geometry.get(13);
+        int kTotal = kh * kw * cp;
+        int zb = ((int) zp.get(0) - offset) & 0xFF;
+        int pad = zb | (zb << 8) | (zb << 16) | (zb << 24);
+        int im0 = ra0 / (oh * ow);
+        int px0 = ra0 - im0 * oh * ow;
+        int oy0 = px0 / ow;
+        int ox0 = px0 - oy0 * ow;
+        int kc0 = ((tid + 0) & 7) << 2;
+        int im1 = ra1 / (oh * ow);
+        int px1 = ra1 - im1 * oh * ow;
+        int oy1 = px1 / ow;
+        int ox1 = px1 - oy1 * ow;
+        int kc1 = ((tid + 256) & 7) << 2;
+        int im2 = ra2 / (oh * ow);
+        int px2 = ra2 - im2 * oh * ow;
+        int oy2 = px2 / ow;
+        int ox2 = px2 - oy2 * ow;
+        int kc2 = ((tid + 512) & 7) << 2;
+        int im3 = ra3 / (oh * ow);
+        int px3 = ra3 - im3 * oh * ow;
+        int oy3 = px3 / ow;
+        int ox3 = px3 - oy3 * ow;
+        int kc3 = ((tid + 768) & 7) << 2;
+        if (s0 < s1) {
+            aTile[tid + 0] = convA(a, va0, im0, oy0, ox0, s0 * 32 + kc0, kTotal, cp, c4s, h, wd, kw, sy, sxs, py, px, dy, dx, pad);
+            bTile[tid + 0] = b.get(bBase + s0 * 1024 + tid + 0);
+            aTile[tid + 256] = convA(a, va1, im1, oy1, ox1, s0 * 32 + kc1, kTotal, cp, c4s, h, wd, kw, sy, sxs, py, px, dy, dx, pad);
+            bTile[tid + 256] = b.get(bBase + s0 * 1024 + tid + 256);
+            aTile[tid + 512] = convA(a, va2, im2, oy2, ox2, s0 * 32 + kc2, kTotal, cp, c4s, h, wd, kw, sy, sxs, py, px, dy, dx, pad);
+            bTile[tid + 512] = b.get(bBase + s0 * 1024 + tid + 512);
+            aTile[tid + 768] = convA(a, va3, im3, oy3, ox3, s0 * 32 + kc3, kTotal, cp, c4s, h, wd, kw, sy, sxs, py, px, dy, dx, pad);
+            bTile[tid + 768] = b.get(bBase + s0 * 1024 + tid + 768);
+        }
+        ctx.localBarrier();
+        for (int s = s0; s < s1; s++) {
+            int na0 = 0;
+            int nb0 = 0;
+            int na1 = 0;
+            int nb1 = 0;
+            int na2 = 0;
+            int nb2 = 0;
+            int na3 = 0;
+            int nb3 = 0;
+            if (s + 1 < s1) {
+                na0 = convA(a, va0, im0, oy0, ox0, (s + 1) * 32 + kc0, kTotal, cp, c4s, h, wd, kw, sy, sxs, py, px, dy, dx, pad);
+                nb0 = b.get(bBase + (s + 1) * 1024 + tid + 0);
+                na1 = convA(a, va1, im1, oy1, ox1, (s + 1) * 32 + kc1, kTotal, cp, c4s, h, wd, kw, sy, sxs, py, px, dy, dx, pad);
+                nb1 = b.get(bBase + (s + 1) * 1024 + tid + 256);
+                na2 = convA(a, va2, im2, oy2, ox2, (s + 1) * 32 + kc2, kTotal, cp, c4s, h, wd, kw, sy, sxs, py, px, dy, dx, pad);
+                nb2 = b.get(bBase + (s + 1) * 1024 + tid + 512);
+                na3 = convA(a, va3, im3, oy3, ox3, (s + 1) * 32 + kc3, kTotal, cp, c4s, h, wd, kw, sy, sxs, py, px, dy, dx, pad);
+                nb3 = b.get(bBase + (s + 1) * 1024 + tid + 768);
+            }
+            byte[] a0 = ctx.mmaLoadAInt8(aTile, 32, warpM * 1024 + 0);
+            byte[] a1 = ctx.mmaLoadAInt8(aTile, 32, warpM * 1024 + 512);
+            byte[] b0 = ctx.mmaLoadBInt8(bTile, 32, (warpN * 8 + 0) * 256);
+            byte[] b1 = ctx.mmaLoadBInt8(bTile, 32, (warpN * 8 + 1) * 256);
+            byte[] b2 = ctx.mmaLoadBInt8(bTile, 32, (warpN * 8 + 2) * 256);
+            byte[] b3 = ctx.mmaLoadBInt8(bTile, 32, (warpN * 8 + 3) * 256);
+            byte[] b4 = ctx.mmaLoadBInt8(bTile, 32, (warpN * 8 + 4) * 256);
+            byte[] b5 = ctx.mmaLoadBInt8(bTile, 32, (warpN * 8 + 5) * 256);
+            byte[] b6 = ctx.mmaLoadBInt8(bTile, 32, (warpN * 8 + 6) * 256);
+            byte[] b7 = ctx.mmaLoadBInt8(bTile, 32, (warpN * 8 + 7) * 256);
+            ctx.localBarrier();
+            if (s + 1 < s1) {
+                aTile[tid + 0] = na0;
+                bTile[tid + 0] = nb0;
+                aTile[tid + 256] = na1;
+                bTile[tid + 256] = nb1;
+                aTile[tid + 512] = na2;
+                bTile[tid + 512] = nb2;
+                aTile[tid + 768] = na3;
+                bTile[tid + 768] = nb3;
+            }
+            c00 = ctx.mmaInt8(a0, b0, c00, MMAShape.M16N8K32);
+            c01 = ctx.mmaInt8(a0, b1, c01, MMAShape.M16N8K32);
+            c02 = ctx.mmaInt8(a0, b2, c02, MMAShape.M16N8K32);
+            c03 = ctx.mmaInt8(a0, b3, c03, MMAShape.M16N8K32);
+            c04 = ctx.mmaInt8(a0, b4, c04, MMAShape.M16N8K32);
+            c05 = ctx.mmaInt8(a0, b5, c05, MMAShape.M16N8K32);
+            c06 = ctx.mmaInt8(a0, b6, c06, MMAShape.M16N8K32);
+            c07 = ctx.mmaInt8(a0, b7, c07, MMAShape.M16N8K32);
+            c10 = ctx.mmaInt8(a1, b0, c10, MMAShape.M16N8K32);
+            c11 = ctx.mmaInt8(a1, b1, c11, MMAShape.M16N8K32);
+            c12 = ctx.mmaInt8(a1, b2, c12, MMAShape.M16N8K32);
+            c13 = ctx.mmaInt8(a1, b3, c13, MMAShape.M16N8K32);
+            c14 = ctx.mmaInt8(a1, b4, c14, MMAShape.M16N8K32);
+            c15 = ctx.mmaInt8(a1, b5, c15, MMAShape.M16N8K32);
+            c16 = ctx.mmaInt8(a1, b6, c16, MMAShape.M16N8K32);
+            c17 = ctx.mmaInt8(a1, b7, c17, MMAShape.M16N8K32);
+            ctx.localBarrier();
+        }
+        float scale = sx.get(0);
+        int zero = (int) zp.get(0) - offset;
+        int rBase = row0 + warpM * 32 + (lane >> 2);
+        int cBase = col0 + warpN * 64 + ((lane & 3) << 1);
+        int pBase = z * m * n;
+        {
+            int col = cBase + 0;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c00[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c00[0]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c00[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c00[2]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c10[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c10[0]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c10[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c10[2]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 1;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c00[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c00[1]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c00[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c00[3]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c10[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c10[1]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c10[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c10[3]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 8;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c01[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c01[0]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c01[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c01[2]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c11[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c11[0]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c11[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c11[2]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 9;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c01[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c01[1]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c01[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c01[3]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c11[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c11[1]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c11[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c11[3]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 16;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c02[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c02[0]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c02[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c02[2]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c12[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c12[0]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c12[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c12[2]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 17;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c02[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c02[1]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c02[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c02[3]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c12[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c12[1]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c12[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c12[3]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 24;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c03[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c03[0]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c03[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c03[2]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c13[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c13[0]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c13[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c13[2]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 25;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c03[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c03[1]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c03[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c03[3]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c13[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c13[1]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c13[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c13[3]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 32;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c04[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c04[0]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c04[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c04[2]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c14[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c14[0]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c14[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c14[2]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 33;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c04[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c04[1]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c04[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c04[3]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c14[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c14[1]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c14[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c14[3]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 40;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c05[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c05[0]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c05[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c05[2]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c15[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c15[0]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c15[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c15[2]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 41;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c05[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c05[1]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c05[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c05[3]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c15[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c15[1]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c15[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c15[3]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 48;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c06[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c06[0]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c06[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c06[2]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c16[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c16[0]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c16[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c16[2]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 49;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c06[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c06[1]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c06[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c06[3]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c16[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c16[1]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c16[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c16[3]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 56;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c07[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c07[0]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c07[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c07[2]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c17[0] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c17[0]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c17[2] - corr) + add);
+                    } else {
+                        partial.set(pBase + r11 * n + col, c17[2]);
+                    }
+                }
+            }
+        }
+        {
+            int col = cBase + 57;
+            if (col < n) {
+                float f = scale * sw.get(col);
+                int corr = zero * colsum.get(col);
+                float add = hasBias != 0 ? bias.get(col) : 0.0f;
+                int r00 = rBase + 0;
+                if (r00 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r00, col, n, hw), f * (c07[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r00 * n + col, c07[1]);
+                    }
+                }
+                int r01 = rBase + 8;
+                if (r01 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r01, col, n, hw), f * (c07[3] - corr) + add);
+                    } else {
+                        partial.set(pBase + r01 * n + col, c07[3]);
+                    }
+                }
+                int r10 = rBase + 16;
+                if (r10 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r10, col, n, hw), f * (c17[1] - corr) + add);
+                    } else {
+                        partial.set(pBase + r10 * n + col, c17[1]);
+                    }
+                }
+                int r11 = rBase + 24;
+                if (r11 < m) {
+                    if (splits == 1) {
+                        c.set(outIndex(r11, col, n, hw), f * (c17[3] - corr) + add);
                     } else {
                         partial.set(pBase + r11 * n + col, c17[3]);
                     }
@@ -788,7 +1621,7 @@ public final class MmaInt8Kernels {
 
     /** Adds the INT32 partial sums of the K splits of {@link #gemm} and dequantises them, one thread per output. */
     public static void reduce(KernelContext ctx, IntArray partial, FloatArray c, int m, int n, int splits, FloatArray sx, FloatArray zp, int offset, FloatArray sw,
-            IntArray colsum, FloatArray bias, int hasBias) {
+            IntArray colsum, FloatArray bias, int hasBias, int hw) {
         int id = ctx.globalIdx;
         if (id < m * n) {
             int col = id % n;
@@ -798,7 +1631,7 @@ public final class MmaInt8Kernels {
             }
             int zero = (int) zp.get(0) - offset;
             float add = hasBias != 0 ? bias.get(col) : 0.0f;
-            c.set(id, sx.get(0) * sw.get(col) * (acc - zero * colsum.get(col)) + add);
+            c.set(outIndex(id / n, col, n, hw), sx.get(0) * sw.get(col) * (acc - zero * colsum.get(col)) + add);
         }
     }
 
@@ -826,6 +1659,38 @@ public final class MmaInt8Kernels {
                 packed |= (v & 0xFF) << (j << 3);
             }
             q.set(id, packed);
+        }
+    }
+
+    /**
+     * x [N, C, H, W] quantised as {@link #quantize} does into NHWC, four channels to an int, C padded
+     * to cp (a multiple of 4) with the zero point: the activations {@link #gemmConv} gathers. One
+     * thread per int, consecutive threads along W.
+     */
+    public static void quantizeNhwc(KernelContext ctx, FloatArray x, IntArray q, FloatArray scale, FloatArray zp, float lo, float hi, int offset, int images, int channels,
+            int h, int wd, int cp) {
+        int id = ctx.globalIdx;
+        int c4s = cp >> 2;
+        if (id < images * c4s * h * wd) {
+            int ix = id % wd;
+            int rest = id / wd;
+            int iy = rest % h;
+            rest = rest / h;
+            int c4 = rest % c4s;
+            int image = rest / c4s;
+            float s = scale.get(0);
+            float zero = zp.get(0);
+            int packed = 0;
+            for (int j = 0; j < 4; j++) {
+                int ch = (c4 << 2) + j;
+                float f = zero;
+                if (ch < channels) {
+                    f = ElementwiseKernels.roundHalfEven(x.get(((image * channels + ch) * h + iy) * wd + ix) / s) + zero;
+                }
+                f = f < lo ? lo : (f > hi ? hi : f);
+                packed |= (((int) f - offset) & 0xFF) << (j << 3);
+            }
+            q.set(((image * h + iy) * wd + ix) * c4s + c4, packed);
         }
     }
 }

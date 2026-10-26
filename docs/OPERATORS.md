@@ -336,8 +336,10 @@ INT8 models from ONNX Runtime's quantisation tools run as they are:
   `quantize_dynamic` writes);
 - `QLinearMatMul` and `QLinearConv`.
 
-Products with a constant INT8 weight (zero point 0, per-tensor or per-column scale) run in INT8:
-`MatMul` between dequantised activations and such a weight, `MatMulInteger` and `QLinearMatMul`.
+Products with a constant INT8 weight (zero point 0, per-tensor or per-output scale) run in INT8:
+`MatMul` between dequantised activations and such a weight, `MatMulInteger`, `QLinearMatMul`, and
+2-D `Conv` with group 1 (as an implicit GEMM: the input is quantised once into NHWC INT8 and the
+product gathers each output pixel's window from it, the padding reading the zero point).
 The activations are quantised as the model says (or as `DynamicQuantizeLinear` found), the
 products accumulate exactly in INT32 (on CUDA on the tensor cores, `mma.sync` m16n8k32), and one
 epilogue dequantises them and adds the bias: the `Cast`, `Mul` by the scales and bias `Add` that
@@ -346,12 +348,12 @@ only finds the scale and zero point. The weights stay INT8. `-Djitnn.onnx.int8=f
 products in FP32 instead.
 
 Everything else is rewritten at load into dequantise, the float operator and quantise. Every
-dequantisation of another constant (convolution weights, INT32 biases) is folded into an FP32
-weight. A quantise followed by a dequantise of an activation with the same
+dequantisation of another constant (grouped convolutions' weights, INT32 biases) is folded into an
+FP32 weight. A quantise followed by a dequantise of an activation with the same
 per-tensor scale and zero point becomes one fake-quantise operator, which the element-wise fusion
 merges with the residual add and ReLU before it. The quantisation of activations is applied exactly: scale, round half to
-even, zero point and saturation for UINT8, INT8, UINT16 and INT16. Integer convolutions are
-computed in FP32. Blocked quantisation (`block_size`) and FP8/INT4 targets are not supported.
+even, zero point and saturation for UINT8, INT8, UINT16 and INT16. `ConvInteger`, grouped and
+non-2-D convolutions are computed in FP32. Blocked quantisation (`block_size`) and FP8/INT4 targets are not supported.
 
 On the RTX 5070 Ti, jitNN's outputs differ from ONNX Runtime's integer CPU kernels by 0.75-1.2% of
 the largest value, which is the size of the INT8 model's own difference from the FP32 model.
@@ -364,8 +366,17 @@ ResNet-50's top-1 class agrees with FP32 on every image. Times (ms, median):
 | ResNet-50 b1, QDQ | 1.8 | 1.9 | 1.6 | 3.4 |
 | ResNet-50 b32, QDQ | 23.3 | 23.4 | 22.9 | 23.5 |
 
-ResNet-50's convolutions still run in FP32 on dequantised weights, so its INT8 file runs at about
-the speed of the FP32 one.
+The ResNet-50 rows above predate the INT8 convolutions. On an A100 (ms, median):
+
+| Model | jitNN INT8 | jitNN INT8 file, FP32 products |
+|---|---|---|
+| BERT-base b1 s128, dynamic | 10.5 | 13.9 |
+| BERT-base b32 s128, dynamic | 32.5 | 98.3 |
+| ResNet-50 b1, QDQ | 3.6 | 2.8 |
+| ResNet-50 b32, QDQ | 12.8 | 22.1 |
+
+At batch 1 the INT8 convolutions are slower: their outputs are too small for the 128 x 128 tiles,
+and the quantisation of each input is a launch of its own.
 `scripts/onnx/int8_onnx.py` makes these files and ONNX Runtime's references.
 
 ### Export

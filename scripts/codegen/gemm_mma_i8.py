@@ -15,6 +15,10 @@ registers while the current step's MMAs run; warp (wm, wn) owns rows 32 wm .. + 
 64 wn .. + 63. With several K splits (groupIdz), each writes INT32 partial sums and reduce adds them
 and dequantises.
 
+gemmConv is the same product for a 2-D convolution as an implicit GEMM: A's rows are the output
+pixels and its K the (ky, kx, channel) taps, gathered while staging from the NHWC activations
+quantizeNhwc writes (channels padded to a multiple of 4); taps in the padding read the zero point.
+
 Shared layouts are those the fragment loads read: A as 16 x 32-byte rows, B as 8-column panels of
 16 rows of 4 ints (int (kr, jp) holds B(2 kr, j), B(2 kr + 1, j), B(2 kr, j + 1), B(2 kr + 1, j + 1)
 for j = 2 jp).
@@ -59,99 +63,159 @@ w("")
 w("    private MmaInt8Kernels() {")
 w("    }")
 w("")
-w("    public static void gemm(KernelContext ctx, IntArray a, IntArray b, FloatArray c, IntArray partial, int m, int n, int kp, int splits, FloatArray sx, FloatArray zp,")
-w("            int offset, FloatArray sw, IntArray colsum, FloatArray bias, int hasBias) {")
-i = 2
-w(ind(i) + "int tid = ctx.localIdx;")
-w(ind(i) + "int lane = tid & 31;")
-w(ind(i) + "int warp = tid >> 5;")
-w(ind(i) + "int warpM = warp / %d;" % WARPS_N)
-w(ind(i) + "int warpN = warp - warpM * %d;" % WARPS_N)
-w(ind(i) + "int row0 = ctx.groupIdx * %d;" % BM)
-w(ind(i) + "int col0 = ctx.groupIdy * %d;" % BN)
-w(ind(i) + "int z = ctx.groupIdz;")
-w(ind(i) + "int lda = kp >> 2;")
-w(ind(i) + "int steps = kp / %d;" % BK)
-w(ind(i) + "int per = (steps + splits - 1) / splits;")
-w(ind(i) + "int s0 = z * per;")
-w(ind(i) + "int s1 = s0 + per < steps ? s0 + per : steps;")
-w(ind(i) + "int bBase = ctx.groupIdy * steps * %d;" % (BN * BK // 4))
-w(ind(i) + "int[] aTile = ctx.allocateIntLocalArray(%d);" % (BM * BK // 4))
-w(ind(i) + "int[] bTile = ctx.allocateIntLocalArray(%d);" % (BN * BK // 4))
-for fm in range(FM):
-    for fn in range(FN):
-        w(ind(i) + "int[] c%d%d = ctx.mmaFragmentInt(0);" % (fm, fn))
-# per-thread staging indices: A int e = row * 8 + c; rows past m read as 0
-for p in range(PER):
-    w(ind(i) + "int ra%d = row0 + ((tid + %d) >> 3);" % (p, p * 256))
-    w(ind(i) + "boolean va%d = ra%d < m;" % (p, p))
-    w(ind(i) + "int ga%d = ra%d * lda + ((tid + %d) & 7);" % (p, p, p * 256))
-# prologue: stage step s0
-w(ind(i) + "if (s0 < s1) {")
-for p in range(PER):
-    w(ind(i + 1) + "aTile[tid + %d] = va%d ? a.get(ga%d + s0 * 8) : 0;" % (p * 256, p, p))
-    w(ind(i + 1) + "bTile[tid + %d] = b.get(bBase + s0 * %d + tid + %d);" % (p * 256, BN * BK // 4, p * 256))
-w(ind(i) + "}")
-w(ind(i) + "ctx.localBarrier();")
-w(ind(i) + "for (int s = s0; s < s1; s++) {")
-i = 3
-for p in range(PER):
-    w(ind(i) + "int na%d = 0;" % p)
-    w(ind(i) + "int nb%d = 0;" % p)
-w(ind(i) + "if (s + 1 < s1) {")
-for p in range(PER):
-    w(ind(i + 1) + "na%d = va%d ? a.get(ga%d + (s + 1) * 8) : 0;" % (p, p, p))
-    w(ind(i + 1) + "nb%d = b.get(bBase + (s + 1) * %d + tid + %d);" % (p, BN * BK // 4, p * 256))
-w(ind(i) + "}")
-for fm in range(FM):
-    w(ind(i) + "byte[] a%d = ctx.mmaLoadAInt8(aTile, %d, warpM * %d + %d);" % (fm, BK, 32 * 32, fm * 16 * 32))
-for fn in range(FN):
-    w(ind(i) + "byte[] b%d = ctx.mmaLoadBInt8(bTile, %d, (warpN * %d + %d) * 256);" % (fn, BK, FN, fn))
-w(ind(i) + "ctx.localBarrier();")
-w(ind(i) + "if (s + 1 < s1) {")
-for p in range(PER):
-    w(ind(i + 1) + "aTile[tid + %d] = na%d;" % (p * 256, p))
-    w(ind(i + 1) + "bTile[tid + %d] = nb%d;" % (p * 256, p))
-w(ind(i) + "}")
-for fm in range(FM):
-    for fn in range(FN):
-        w(ind(i) + "c%d%d = ctx.mmaInt8(a%d, b%d, c%d%d, MMAShape.M16N8K32);" % (fm, fn, fm, fn, fm, fn))
-w(ind(i) + "ctx.localBarrier();")
-i = 2
-w(ind(i) + "}")
-# epilogue
-w(ind(i) + "float scale = sx.get(0);")
-w(ind(i) + "int zero = (int) zp.get(0) - offset;")
-w(ind(i) + "int rBase = row0 + warpM * 32 + (lane >> 2);")
-w(ind(i) + "int cBase = col0 + warpN * 64 + ((lane & 3) << 1);")
-w(ind(i) + "int pBase = z * m * n;")
-for fn in range(FN):
-    for half in range(2):
-        w(ind(i) + "{")
-        w(ind(i + 1) + "int col = cBase + %d;" % (fn * 8 + half))
-        w(ind(i + 1) + "if (col < n) {")
-        w(ind(i + 2) + "float f = scale * sw.get(col);")
-        w(ind(i + 2) + "int corr = zero * colsum.get(col);")
-        w(ind(i + 2) + "float add = hasBias != 0 ? bias.get(col) : 0.0f;")
-        for fm in range(FM):
-            for rh in range(2):
-                e = rh * 2 + half
-                r = "r%d%d" % (fm, rh)
-                w(ind(i + 2) + "int %s = rBase + %d;" % (r, fm * 16 + rh * 8))
-                w(ind(i + 2) + "if (%s < m) {" % r)
-                w(ind(i + 3) + "if (splits == 1) {")
-                w(ind(i + 4) + "c.set(%s * n + col, f * (c%d%d[%d] - corr) + add);" % (r, fm, fn, e))
-                w(ind(i + 3) + "} else {")
-                w(ind(i + 4) + "partial.set(pBase + %s * n + col, c%d%d[%d]);" % (r, fm, fn, e))
-                w(ind(i + 3) + "}")
-                w(ind(i + 2) + "}")
-        w(ind(i + 1) + "}")
-        w(ind(i) + "}")
+w("    /** Index of output (r, col) in C: row-major [M, N], or NCHW [M / hw, N, hw] for a convolution's hw > 0 pixels per image. */")
+w("    private static int outIndex(int r, int col, int n, int hw) {")
+w("        int i = r * n + col;")
+w("        if (hw > 0) {")
+w("            int image = r / hw;")
+w("            i = (image * n + col) * hw + r - image * hw;")
+w("        }")
+w("        return i;")
 w("    }")
 w("")
+def gen_gemm(conv):
+    if conv:
+        w("    /**")
+        w("     * {@link #gemm} for a 2-D convolution as an implicit GEMM: A's rows are the output pixels and")
+        w("     * its columns the (ky, kx, channel) taps, gathered from the NHWC activations of quantizeNhwc")
+        w("     * (geometry: padded channels cp, cp / 4, H, W, OH, OW, kh, kw, stride y, x, pad top, left,")
+        w("     * dilation y, x); taps in the padding read the zero point.")
+        w("     */")
+        w("    public static void gemmConv(KernelContext ctx, IntArray a, IntArray b, FloatArray c, IntArray partial, int m, int n, int kp, int splits, FloatArray sx,")
+        w("            FloatArray zp, int offset, FloatArray sw, IntArray colsum, FloatArray bias, int hasBias, int hw, IntArray geometry) {")
+    else:
+        w("    public static void gemm(KernelContext ctx, IntArray a, IntArray b, FloatArray c, IntArray partial, int m, int n, int kp, int splits, FloatArray sx, FloatArray zp,")
+        w("            int offset, FloatArray sw, IntArray colsum, FloatArray bias, int hasBias, int hw) {")
+    i = 2
+    w(ind(i) + "int tid = ctx.localIdx;")
+    w(ind(i) + "int lane = tid & 31;")
+    w(ind(i) + "int warp = tid >> 5;")
+    w(ind(i) + "int warpM = warp / %d;" % WARPS_N)
+    w(ind(i) + "int warpN = warp - warpM * %d;" % WARPS_N)
+    w(ind(i) + "int row0 = ctx.groupIdx * %d;" % BM)
+    w(ind(i) + "int col0 = ctx.groupIdy * %d;" % BN)
+    w(ind(i) + "int z = ctx.groupIdz;")
+    w(ind(i) + "int lda = kp >> 2;")
+    w(ind(i) + "int steps = kp / %d;" % BK)
+    w(ind(i) + "int per = (steps + splits - 1) / splits;")
+    w(ind(i) + "int s0 = z * per;")
+    w(ind(i) + "int s1 = s0 + per < steps ? s0 + per : steps;")
+    w(ind(i) + "int bBase = ctx.groupIdy * steps * %d;" % (BN * BK // 4))
+    w(ind(i) + "int[] aTile = ctx.allocateIntLocalArray(%d);" % (BM * BK // 4))
+    w(ind(i) + "int[] bTile = ctx.allocateIntLocalArray(%d);" % (BN * BK // 4))
+    for fm in range(FM):
+        for fn in range(FN):
+            w(ind(i) + "int[] c%d%d = ctx.mmaFragmentInt(0);" % (fm, fn))
+    # per-thread staging indices: A int e = row * 8 + c; rows past m read as 0
+    for p in range(PER):
+        w(ind(i) + "int ra%d = row0 + ((tid + %d) >> 3);" % (p, p * 256))
+        w(ind(i) + "boolean va%d = ra%d < m;" % (p, p))
+        w(ind(i) + "int ga%d = ra%d * lda + ((tid + %d) & 7);" % (p, p, p * 256))
+    if conv:
+        for g, name in enumerate(["cp", "c4s", "h", "wd", "oh", "ow", "kh", "kw", "sy", "sxs", "py", "px", "dy", "dx"]):
+            w(ind(i) + "int %s = geometry.get(%d);" % (name, g))
+        w(ind(i) + "int kTotal = kh * kw * cp;")
+        w(ind(i) + "int zb = ((int) zp.get(0) - offset) & 0xFF;")
+        w(ind(i) + "int pad = zb | (zb << 8) | (zb << 16) | (zb << 24);")
+        for p in range(PER):
+            w(ind(i) + "int im%d = ra%d / (oh * ow);" % (p, p))
+            w(ind(i) + "int px%d = ra%d - im%d * oh * ow;" % (p, p, p))
+            w(ind(i) + "int oy%d = px%d / ow;" % (p, p))
+            w(ind(i) + "int ox%d = px%d - oy%d * ow;" % (p, p, p))
+            w(ind(i) + "int kc%d = ((tid + %d) & 7) << 2;" % (p, p * 256))
+
+    def aload(p, step):
+        if conv:
+            return "convA(a, va%d, im%d, oy%d, ox%d, %s * %d + kc%d, kTotal, cp, c4s, h, wd, kw, sy, sxs, py, px, dy, dx, pad)" % (p, p, p, p, step, BK, p)
+        return "va%d ? a.get(ga%d + %s * 8) : 0" % (p, p, step)
+    # prologue: stage step s0
+    w(ind(i) + "if (s0 < s1) {")
+    for p in range(PER):
+        w(ind(i + 1) + "aTile[tid + %d] = %s;" % (p * 256, aload(p, "s0")))
+        w(ind(i + 1) + "bTile[tid + %d] = b.get(bBase + s0 * %d + tid + %d);" % (p * 256, BN * BK // 4, p * 256))
+    w(ind(i) + "}")
+    w(ind(i) + "ctx.localBarrier();")
+    w(ind(i) + "for (int s = s0; s < s1; s++) {")
+    i = 3
+    for p in range(PER):
+        w(ind(i) + "int na%d = 0;" % p)
+        w(ind(i) + "int nb%d = 0;" % p)
+    w(ind(i) + "if (s + 1 < s1) {")
+    for p in range(PER):
+        w(ind(i + 1) + "na%d = %s;" % (p, aload(p, "(s + 1)")))
+        w(ind(i + 1) + "nb%d = b.get(bBase + (s + 1) * %d + tid + %d);" % (p, BN * BK // 4, p * 256))
+    w(ind(i) + "}")
+    for fm in range(FM):
+        w(ind(i) + "byte[] a%d = ctx.mmaLoadAInt8(aTile, %d, warpM * %d + %d);" % (fm, BK, 32 * 32, fm * 16 * 32))
+    for fn in range(FN):
+        w(ind(i) + "byte[] b%d = ctx.mmaLoadBInt8(bTile, %d, (warpN * %d + %d) * 256);" % (fn, BK, FN, fn))
+    w(ind(i) + "ctx.localBarrier();")
+    w(ind(i) + "if (s + 1 < s1) {")
+    for p in range(PER):
+        w(ind(i + 1) + "aTile[tid + %d] = na%d;" % (p * 256, p))
+        w(ind(i + 1) + "bTile[tid + %d] = nb%d;" % (p * 256, p))
+    w(ind(i) + "}")
+    for fm in range(FM):
+        for fn in range(FN):
+            w(ind(i) + "c%d%d = ctx.mmaInt8(a%d, b%d, c%d%d, MMAShape.M16N8K32);" % (fm, fn, fm, fn, fm, fn))
+    w(ind(i) + "ctx.localBarrier();")
+    i = 2
+    w(ind(i) + "}")
+    # epilogue
+    w(ind(i) + "float scale = sx.get(0);")
+    w(ind(i) + "int zero = (int) zp.get(0) - offset;")
+    w(ind(i) + "int rBase = row0 + warpM * 32 + (lane >> 2);")
+    w(ind(i) + "int cBase = col0 + warpN * 64 + ((lane & 3) << 1);")
+    w(ind(i) + "int pBase = z * m * n;")
+    for fn in range(FN):
+        for half in range(2):
+            w(ind(i) + "{")
+            w(ind(i + 1) + "int col = cBase + %d;" % (fn * 8 + half))
+            w(ind(i + 1) + "if (col < n) {")
+            w(ind(i + 2) + "float f = scale * sw.get(col);")
+            w(ind(i + 2) + "int corr = zero * colsum.get(col);")
+            w(ind(i + 2) + "float add = hasBias != 0 ? bias.get(col) : 0.0f;")
+            for fm in range(FM):
+                for rh in range(2):
+                    e = rh * 2 + half
+                    r = "r%d%d" % (fm, rh)
+                    w(ind(i + 2) + "int %s = rBase + %d;" % (r, fm * 16 + rh * 8))
+                    w(ind(i + 2) + "if (%s < m) {" % r)
+                    w(ind(i + 3) + "if (splits == 1) {")
+                    w(ind(i + 4) + "c.set(outIndex(%s, col, n, hw), f * (c%d%d[%d] - corr) + add);" % (r, fm, fn, e))
+                    w(ind(i + 3) + "} else {")
+                    w(ind(i + 4) + "partial.set(pBase + %s * n + col, c%d%d[%d]);" % (r, fm, fn, e))
+                    w(ind(i + 3) + "}")
+                    w(ind(i + 2) + "}")
+            w(ind(i + 1) + "}")
+            w(ind(i) + "}")
+    w("    }")
+    w("")
+
+
+w("    /** Int (4 channels) of the conv window of row (image, oy, ox) at K offset kk from NHWC a; the zero point in the padding. */")
+w("    private static int convA(IntArray a, boolean valid, int image, int oy, int ox, int kk, int kTotal, int cp, int c4s, int h, int wd, int kw, int sy, int sxs, int py,")
+w("            int px, int dy, int dx, int pad) {")
+w("        int r = pad;")
+w("        if (valid & (kk < kTotal)) {")
+w("            int tap = kk / cp;")
+w("            int ci = kk - tap * cp;")
+w("            int ky = tap / kw;")
+w("            int kx = tap - ky * kw;")
+w("            int iy = oy * sy - py + ky * dy;")
+w("            int ix = ox * sxs - px + kx * dx;")
+w("            if ((iy >= 0) & (iy < h) & (ix >= 0) & (ix < wd)) {")
+w("                r = a.get(((image * h + iy) * wd + ix) * c4s + (ci >> 2));")
+w("            }")
+w("        }")
+w("        return r;")
+w("    }")
+w("")
+gen_gemm(False)
+gen_gemm(True)
 w("    /** Adds the INT32 partial sums of the K splits of {@link #gemm} and dequantises them, one thread per output. */")
 w("    public static void reduce(KernelContext ctx, IntArray partial, FloatArray c, int m, int n, int splits, FloatArray sx, FloatArray zp, int offset, FloatArray sw,")
-w("            IntArray colsum, FloatArray bias, int hasBias) {")
+w("            IntArray colsum, FloatArray bias, int hasBias, int hw) {")
 w("        int id = ctx.globalIdx;")
 w("        if (id < m * n) {")
 w("            int col = id % n;")
@@ -161,7 +225,7 @@ w("                acc += partial.get(z * m * n + id);")
 w("            }")
 w("            int zero = (int) zp.get(0) - offset;")
 w("            float add = hasBias != 0 ? bias.get(col) : 0.0f;")
-w("            c.set(id, sx.get(0) * sw.get(col) * (acc - zero * colsum.get(col)) + add);")
+w("            c.set(outIndex(id / n, col, n, hw), sx.get(0) * sw.get(col) * (acc - zero * colsum.get(col)) + add);")
 w("        }")
 w("    }")
 w("")
@@ -189,6 +253,38 @@ w("                }")
 w("                packed |= (v & 0xFF) << (j << 3);")
 w("            }")
 w("            q.set(id, packed);")
+w("        }")
+w("    }")
+w("")
+w("    /**")
+w("     * x [N, C, H, W] quantised as {@link #quantize} does into NHWC, four channels to an int, C padded")
+w("     * to cp (a multiple of 4) with the zero point: the activations {@link #gemmConv} gathers. One")
+w("     * thread per int, consecutive threads along W.")
+w("     */")
+w("    public static void quantizeNhwc(KernelContext ctx, FloatArray x, IntArray q, FloatArray scale, FloatArray zp, float lo, float hi, int offset, int images, int channels,")
+w("            int h, int wd, int cp) {")
+w("        int id = ctx.globalIdx;")
+w("        int c4s = cp >> 2;")
+w("        if (id < images * c4s * h * wd) {")
+w("            int ix = id % wd;")
+w("            int rest = id / wd;")
+w("            int iy = rest % h;")
+w("            rest = rest / h;")
+w("            int c4 = rest % c4s;")
+w("            int image = rest / c4s;")
+w("            float s = scale.get(0);")
+w("            float zero = zp.get(0);")
+w("            int packed = 0;")
+w("            for (int j = 0; j < 4; j++) {")
+w("                int ch = (c4 << 2) + j;")
+w("                float f = zero;")
+w("                if (ch < channels) {")
+w("                    f = ElementwiseKernels.roundHalfEven(x.get(((image * channels + ch) * h + iy) * wd + ix) / s) + zero;")
+w("                }")
+w("                f = f < lo ? lo : (f > hi ? hi : f);")
+w("                packed |= (((int) f - offset) & 0xFF) << (j << 3);")
+w("            }")
+w("            q.set(((image * h + iy) * wd + ix) * c4s + c4, packed);")
 w("        }")
 w("    }")
 w("}")
