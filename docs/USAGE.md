@@ -493,6 +493,41 @@ Map<String, Tensor> out = session.run(Map.of("input_ids", ids, "attention_mask",
 - **Any ONNX session:** `-Djitnn.onnx.buckets=1,2,4,...` gives every ONNX session buckets,
   DJL's and TensorFlow's included.
 
+**Buckets for jitNN models.** `Buckets` holds the sizes a dimension rounds up to, and
+`Bucketing` runs a model on padded inputs and returns the real rows and positions only:
+
+```java
+Buckets batch = Buckets.powersOfTwo(1, 16), seq = Buckets.multiplesOf(64, 256);
+Engine.reservePlans(20);   // 5 batch x 4 sequence sizes
+Tensor logits = Grad.inference(() -> Bucketing.causal(batch, seq, idx, 0, gpt2::forward));      // GPT-2, Llama
+Tensor hidden = Grad.inference(() -> Bucketing.masked(batch, seq, idx, mask, 0, bert::encode)); // BERT
+Tensor scores = Grad.inference(() -> Bucketing.rows(batch, images, resnet::forward));           // CNNs
+Tensor loss = Bucketing.crossEntropy(model.forward(Buckets.pad(x, 0, batch.size(n), 0)), labels);  // training
+```
+
+- **Padding:** on the host, before the model runs; results are cut on the host. Causal models
+  pad sequences at the end; `masked` gives padded positions `-1e9` in the additive mask.
+- **Training:** `Bucketing.crossEntropy` weighs each real row 1/N and each padded row 0 through
+  a weight tensor, so the loss and gradients equal those of the real rows and every N in a bucket
+  runs one plan.
+- **Not with BatchNorm in training mode:** its batch statistics would include the padded rows.
+- **Inputs:** make request inputs on the host (`Tensor.of`). `Tensor.uniform(seed, ...)` puts the
+  seed in its plan, so every seed compiles a plan.
+- **Plan cache:** reserve room for every bucket (`Engine.reservePlans`); the default cache holds 16
+  plans.
+
+On an A10, 100 requests of random shapes:
+
+| Scenario | Exact shapes | Buckets | Per request, compiled |
+|---|---|---|---|
+| GPT-2 (4 x 256, batch 1-16 x 8-256 tokens) | 100 plans, 24.9 s | 19 plans, 4.1 s | 8.9 ms |
+| BERT (4 x 256, ragged masks) | 100 plans, 14.1 s | 18 plans, 1.7 s | 5.7 ms |
+| ResNet-18 (batch 1-64, 32 x 32) | 61 plans, 33.8 s | 6 plans, 1.7 s | 9.4 ms (6.2 exact) |
+| MLP training step (batch 1-128) | 83 plans, 49.6 s | 16 plans, 0.9 s | 1.3 ms (1.2 exact) |
+
+Padded rows cost device time: a ResNet-18 request is 50% slower once compiled. Pick buckets
+closer together when requests repeat their shapes often.
+
 ## Inference and memory
 
 ```java
