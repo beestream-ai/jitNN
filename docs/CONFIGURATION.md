@@ -12,6 +12,7 @@ Sizes are in bytes.
 | `jitnn.cpu.spinMicros` | `200` | how long idle `cpu` backend threads (and a caller waiting for them) spin before they sleep |
 | `jitnn.cpu.poolBytes` | `2147483648` (2 GiB) | host arrays the `cpu` backend keeps for reuse (activations, intermediates), unless `jitnn.hostPool.bytes` is set |
 | `jitnn.cpu.gemm.kc`, `jitnn.cpu.gemm.mcPanels`, `jitnn.cpu.gemm.nc`, `jitnn.cpu.gemm.tileMacs` | `256`, `16`, `256`, `1048576` | the `cpu` backend's GEMM blocking: depth per block, rows of A per tile (in panels of 6), columns of B per tile, and the multiply-adds a parallel tile holds at least |
+| `jitnn.cpu.reuse` | `true` | when the `cpu` backend runs a trace of the same structure again (the next training or inference step), its intermediates take the arrays of the previous execution's, as a compiled plan reuses its device buffers; tensors not requested at that sync (`Engine.sync(t)`, `t.item()`) are then gone, as on a device |
 | `jitnn.cpu.stats.shapes` | `false` | with `jitnn.cpu.stats`: one row per operator and attributes (its shapes) |
 | `jitnn.cpu.stats` | `false` | time every operator on the `cpu` backend and print calls, time and reference fallbacks per operator at exit; `Engine.cpuStats()` gives the counts without it |
 | `jitnn.device` | TornadoVM's default device | `<driver>:<device>`, as listed by `tornado --devices` |
@@ -142,7 +143,7 @@ Properties of `jitnn-bench` (`KernelBenchAccelTest`, `ModelProfileAccelTest`), w
 | `jitnn.kbench.from` | `0` | skip the first n calls, to resume a run |
 | `jitnn.kbench.only` | empty | comma-separated call indices to run (1-based, in capture order) |
 | `jitnn.kbench.warmup`, `jitnn.kbench.calls` | `20`, `100` | warm-up and minimum timed calls per operator call (timed for at least 0.3 s) |
-| `jitnn.kbench.steps` | `30` | timed steps per workload of `ModelProfileAccelTest` |
+| `jitnn.kbench.steps`, `jitnn.kbench.modelWarmup` | `30`, `10` | timed and warm-up steps per workload of `ModelProfileAccelTest` (with `jitnn.cpu.stats`, it also prints the CPU backend's operators by time) |
 | `jitnn.kbench.gpu` | `0` | `nvidia-smi` index of the GPU whose clocks are sampled |
 | `jitnn.kbench.minMhz` | `1350` | a timed window is retried when the mean SM clock is below this or the GPU was power or thermal capped |
 | `jitnn.kbench.bandwidth`, `jitnn.kbench.fp32`, `jitnn.kbench.half` | `1721e9`, `19.0e12`, `245e12` | peak bytes/s and FLOP/s that the efficiency columns are relative to |

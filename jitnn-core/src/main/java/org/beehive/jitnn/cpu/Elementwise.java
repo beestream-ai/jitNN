@@ -29,7 +29,8 @@ public final class Elementwise {
     private Elementwise() {
     }
 
-    private static boolean vectorBinary(int code) {
+    /** True when {@link #binaryBlock} runs {@code code} in vector lanes. */
+    public static boolean vectorBinary(int code) {
         return code == ElementwiseKernels.ADD || code == ElementwiseKernels.SUB || code == ElementwiseKernels.MUL || code == ElementwiseKernels.DIV
                 || code == ElementwiseKernels.ADD_RELU || code == ElementwiseKernels.RELU_GRAD || code == ElementwiseKernels.MAX || code == ElementwiseKernels.MIN;
     }
@@ -51,7 +52,7 @@ public final class Elementwise {
                 boolean aConst = aDiv > 1 || aMod == 1;
                 boolean bConst = bDiv > 1 || bMod == 1;
                 if (vector) {
-                    binaryRun(code, a, ai, aConst, b, bi, bConst, out, i, end - i);
+                    binaryBlock(code, a, ai, aConst, b, bi, bConst, out, i, end - i);
                 } else {
                     for (int j = 0; j < end - i; j++) {
                         float x = a.getAtIndex(F, aConst ? ai : ai + j);
@@ -75,7 +76,11 @@ public final class Elementwise {
         return (i / mod + 1) * mod;
     }
 
-    private static void binaryRun(int code, MemorySegment a, long ai, boolean aConst, MemorySegment b, long bi, boolean bConst, MemorySegment out, long oi, int len) {
+    /**
+     * out[oi + j] = op(a, b) for j in [0, len): an operand is contiguous from its index, or one value
+     * when its {@code const} flag is set. op is a {@link #vectorBinary} code.
+     */
+    public static void binaryBlock(int code, MemorySegment a, long ai, boolean aConst, MemorySegment b, long bi, boolean bConst, MemorySegment out, long oi, int len) {
         FloatVector ac = aConst ? FloatVector.broadcast(S, a.getAtIndex(F, ai)) : null;
         FloatVector bc = bConst ? FloatVector.broadcast(S, b.getAtIndex(F, bi)) : null;
         int vEnd = S.loopBound(len);
@@ -110,7 +115,8 @@ public final class Elementwise {
         }
     }
 
-    private static boolean vectorUnary(int code) {
+    /** True when {@link #unaryBlock} runs {@code code} in vector lanes. */
+    public static boolean vectorUnary(int code) {
         return code == ElementwiseKernels.NEG || code == ElementwiseKernels.ABS || code == ElementwiseKernels.RELU || code == ElementwiseKernels.AFFINE
                 || code == ElementwiseKernels.CLAMP || code == ElementwiseKernels.SQUARE || code == ElementwiseKernels.RECIPROCAL || code == ElementwiseKernels.SQRT
                 || code == ElementwiseKernels.EXP || code == ElementwiseKernels.SIGMOID || code == ElementwiseKernels.SILU || code == ElementwiseKernels.TANH
@@ -121,48 +127,57 @@ public final class Elementwise {
     public static void unary(int code, MemorySegment x, MemorySegment out, int n, float alpha, float beta) {
         boolean vector = vectorUnary(code);
         Cpu.parallelFor(n, GRAIN, (from, to) -> {
-            int j = from;
             if (vector) {
-                int vEnd = from + S.loopBound(to - from);
-                for (; j < vEnd; j += L) {
-                    FloatVector v = FloatVector.fromMemorySegment(S, x, (long) j * 4, ORDER);
-                    FloatVector r;
-                    if (code == ElementwiseKernels.NEG) {
-                        r = v.neg();
-                    } else if (code == ElementwiseKernels.ABS) {
-                        r = v.abs();
-                    } else if (code == ElementwiseKernels.RELU) {
-                        r = v.lanewise(VectorOperators.MAX, 0f);
-                    } else if (code == ElementwiseKernels.AFFINE) {
-                        r = v.fma(alpha, beta);
-                    } else if (code == ElementwiseKernels.CLAMP) {
-                        r = v.lanewise(VectorOperators.MAX, alpha).lanewise(VectorOperators.MIN, beta);
-                    } else if (code == ElementwiseKernels.SQUARE) {
-                        r = v.mul(v);
-                    } else if (code == ElementwiseKernels.RECIPROCAL) {
-                        r = FloatVector.broadcast(S, 1f).div(v);
-                    } else if (code == ElementwiseKernels.SQRT) {
-                        r = v.sqrt();
-                    } else if (code == ElementwiseKernels.EXP) {
-                        r = v.lanewise(VectorOperators.EXP);
-                    } else if (code == ElementwiseKernels.SIGMOID) {
-                        r = sigmoid(v);
-                    } else if (code == ElementwiseKernels.SILU) {
-                        r = v.mul(sigmoid(v));
-                    } else if (code == ElementwiseKernels.TANH) {
-                        r = v.lanewise(VectorOperators.TANH);
-                    } else if (code == ElementwiseKernels.GELU) {
-                        r = gelu(v);
-                    } else {
-                        r = v.mul(alpha).blend(v, v.compare(VectorOperators.GT, 0f));
-                    }
-                    r.intoMemorySegment(out, (long) j * 4, ORDER);
+                unaryBlock(code, x, from, out, from, to - from, alpha, beta);
+            } else {
+                for (int j = from; j < to; j++) {
+                    out.setAtIndex(F, j, ElementwiseKernels.unaryOp(code, x.getAtIndex(F, j), alpha, beta));
                 }
             }
-            for (; j < to; j++) {
-                out.setAtIndex(F, j, ElementwiseKernels.unaryOp(code, x.getAtIndex(F, j), alpha, beta));
-            }
         });
+    }
+
+    /** out[oOff + j] = op(x[xOff + j]) for j in [0, len), op a {@link #vectorUnary} code. */
+    public static void unaryBlock(int code, MemorySegment x, long xOff, MemorySegment out, long oOff, int len, float alpha, float beta) {
+        int vEnd = S.loopBound(len);
+        int j = 0;
+        for (; j < vEnd; j += L) {
+            FloatVector v = FloatVector.fromMemorySegment(S, x, (xOff + j) * 4, ORDER);
+            FloatVector r;
+            if (code == ElementwiseKernels.NEG) {
+                r = v.neg();
+            } else if (code == ElementwiseKernels.ABS) {
+                r = v.abs();
+            } else if (code == ElementwiseKernels.RELU) {
+                r = v.lanewise(VectorOperators.MAX, 0f);
+            } else if (code == ElementwiseKernels.AFFINE) {
+                r = v.fma(alpha, beta);
+            } else if (code == ElementwiseKernels.CLAMP) {
+                r = v.lanewise(VectorOperators.MAX, alpha).lanewise(VectorOperators.MIN, beta);
+            } else if (code == ElementwiseKernels.SQUARE) {
+                r = v.mul(v);
+            } else if (code == ElementwiseKernels.RECIPROCAL) {
+                r = FloatVector.broadcast(S, 1f).div(v);
+            } else if (code == ElementwiseKernels.SQRT) {
+                r = v.sqrt();
+            } else if (code == ElementwiseKernels.EXP) {
+                r = v.lanewise(VectorOperators.EXP);
+            } else if (code == ElementwiseKernels.SIGMOID) {
+                r = sigmoid(v);
+            } else if (code == ElementwiseKernels.SILU) {
+                r = v.mul(sigmoid(v));
+            } else if (code == ElementwiseKernels.TANH) {
+                r = v.lanewise(VectorOperators.TANH);
+            } else if (code == ElementwiseKernels.GELU) {
+                r = gelu(v);
+            } else {
+                r = v.mul(alpha).blend(v, v.compare(VectorOperators.GT, 0f));
+            }
+            r.intoMemorySegment(out, (oOff + j) * 4, ORDER);
+        }
+        for (; j < len; j++) {
+            out.setAtIndex(F, oOff + j, ElementwiseKernels.unaryOp(code, x.getAtIndex(F, xOff + j), alpha, beta));
+        }
     }
 
     /**
@@ -294,6 +309,67 @@ public final class Elementwise {
         }
         for (; i < n; i++) {
             x.setAtIndex(F, off + i, x.getAtIndex(F, off + i) * scale);
+        }
+    }
+
+    /** y[i] = act(x[i] * scale + shift) for one row of n values; act is ReLU when {@code relu}. */
+    public static void affineRow(MemorySegment x, long xOff, float scale, float shift, boolean relu, MemorySegment y, long yOff, int n) {
+        int vEnd = S.loopBound(n);
+        int i = 0;
+        for (; i < vEnd; i += L) {
+            FloatVector v = FloatVector.fromMemorySegment(S, x, (xOff + i) * 4, ORDER).fma(scale, shift);
+            if (relu) {
+                v = v.lanewise(VectorOperators.MAX, 0f);
+            }
+            v.intoMemorySegment(y, (yOff + i) * 4, ORDER);
+        }
+        for (; i < n; i++) {
+            float v = x.getAtIndex(F, xOff + i) * scale + shift;
+            y.setAtIndex(F, yOff + i, relu ? Math.max(v, 0) : v);
+        }
+    }
+
+    /** sum of dy[i] * (x[i] - mean) over one row of n values. */
+    public static float sumCentredProduct(MemorySegment dy, long dyOff, MemorySegment x, long xOff, float mean, int n) {
+        FloatVector acc = FloatVector.zero(S);
+        FloatVector m = FloatVector.broadcast(S, mean);
+        int vEnd = S.loopBound(n);
+        int i = 0;
+        for (; i < vEnd; i += L) {
+            FloatVector d = FloatVector.fromMemorySegment(S, x, (xOff + i) * 4, ORDER).sub(m);
+            acc = d.fma(FloatVector.fromMemorySegment(S, dy, (dyOff + i) * 4, ORDER), acc);
+        }
+        float s = acc.reduceLanes(VectorOperators.ADD);
+        for (; i < n; i++) {
+            s += dy.getAtIndex(F, dyOff + i) * (x.getAtIndex(F, xOff + i) - mean);
+        }
+        return s;
+    }
+
+    /** out[i] = a * dy[i] + b * x[i] + c over one row of n values. */
+    public static void combineRow(MemorySegment dy, long dyOff, float a, MemorySegment x, long xOff, float b, float c, MemorySegment out, long outOff, int n) {
+        int vEnd = S.loopBound(n);
+        int i = 0;
+        FloatVector vc = FloatVector.broadcast(S, c);
+        for (; i < vEnd; i += L) {
+            FloatVector v = FloatVector.fromMemorySegment(S, x, (xOff + i) * 4, ORDER).fma(b, 0f).add(vc);
+            v = FloatVector.fromMemorySegment(S, dy, (dyOff + i) * 4, ORDER).fma(FloatVector.broadcast(S, a), v);
+            v.intoMemorySegment(out, (outOff + i) * 4, ORDER);
+        }
+        for (; i < n; i++) {
+            out.setAtIndex(F, outOff + i, a * dy.getAtIndex(F, dyOff + i) + b * x.getAtIndex(F, xOff + i) + c);
+        }
+    }
+
+    /** dst[dOff + i] += src[sOff + i] for i in [0, n). */
+    public static void addRow(MemorySegment src, long sOff, MemorySegment dst, long dOff, int n) {
+        int vEnd = S.loopBound(n);
+        int i = 0;
+        for (; i < vEnd; i += L) {
+            FloatVector.fromMemorySegment(S, dst, (dOff + i) * 4, ORDER).add(FloatVector.fromMemorySegment(S, src, (sOff + i) * 4, ORDER)).intoMemorySegment(dst, (dOff + i) * 4, ORDER);
+        }
+        for (; i < n; i++) {
+            dst.setAtIndex(F, dOff + i, dst.getAtIndex(F, dOff + i) + src.getAtIndex(F, sOff + i));
         }
     }
 }

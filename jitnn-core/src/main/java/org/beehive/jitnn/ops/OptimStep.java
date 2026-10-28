@@ -216,70 +216,100 @@ public final class OptimStep implements Op {
 
     @Override
     public void reference(Node n) {
+        update(n, false);
+    }
+
+    /** The reference's update, each tensor in parallel chunks of elements. */
+    @Override
+    public boolean cpu(Node n) {
+        for (Tensor t : n.inputs) {
+            if (!(t.storage().host() instanceof FloatArray)) {
+                return false;
+            }
+        }
+        update(n, true);
+        return true;
+    }
+
+    private static void update(Node n, boolean parallel) {
         Kind kind = Kind.values()[n.iattr[0]];
         int count = n.iattr[2];
         int width = 2 + kind.states;
         FloatArray h = (FloatArray) n.in(count * width).storage().host();
-        double factor = 1.0;
+        double factor;
         if (n.iattr[1] != 0) {
             FloatArray stats = (FloatArray) n.in(count * width + 1).storage().host();
             if (stats.get(2) != 0.0f) {
                 return;
             }
             factor = stats.get(1);
+        } else {
+            factor = 1.0;
         }
         for (int k = 0; k < count; k++) {
             FloatArray p = (FloatArray) n.in(k * width).storage().host();
             FloatArray g = (FloatArray) n.in(k * width + 1).storage().host();
             int size = n.in(k * width).numel();
-            switch (kind) {
-                case SGD -> {
-                    for (int i = 0; i < size; i++) {
-                        double w = p.get(i);
-                        p.set(i, (float) (w - h.get(0) * (g.get(i) * factor + h.get(2) * w)));
-                    }
+            FloatArray[] st = new FloatArray[kind.states];
+            for (int j = 0; j < st.length; j++) {
+                st[j] = (FloatArray) n.in(k * width + 2 + j).storage().host();
+            }
+            if (parallel) {
+                org.beehive.jitnn.cpu.Cpu.parallelFor(size, 1 << 14, (from, to) -> range(kind, h, factor, p, g, st, from, to));
+            } else {
+                range(kind, h, factor, p, g, st, 0, size);
+            }
+        }
+    }
+
+    private static void range(Kind kind, FloatArray h, double factor, FloatArray p, FloatArray g, FloatArray[] st, int from, int to) {
+        switch (kind) {
+            case SGD -> {
+                for (int i = from; i < to; i++) {
+                    double w = p.get(i);
+                    p.set(i, (float) (w - h.get(0) * (g.get(i) * factor + h.get(2) * w)));
                 }
-                case SGD_MOMENTUM -> {
-                    FloatArray buf = (FloatArray) n.in(k * width + 2).storage().host();
-                    for (int i = 0; i < size; i++) {
-                        double w = p.get(i);
-                        double grad = g.get(i) * factor + h.get(2) * w;
-                        double v = h.get(1) * buf.get(i) + grad;
-                        buf.set(i, (float) v);
-                        double step = h.get(3) != 0 ? grad + h.get(1) * v : v;
-                        p.set(i, (float) (w - h.get(0) * step));
-                    }
+            }
+            case SGD_MOMENTUM -> {
+                FloatArray buf = st[0];
+                for (int i = from; i < to; i++) {
+                    double w = p.get(i);
+                    double grad = g.get(i) * factor + h.get(2) * w;
+                    double v = h.get(1) * buf.get(i) + grad;
+                    buf.set(i, (float) v);
+                    double step = h.get(3) != 0 ? grad + h.get(1) * v : v;
+                    p.set(i, (float) (w - h.get(0) * step));
                 }
-                case AMSGRAD, ADAGRAD, RMSPROP, ADADELTA, ADAMAX, NADAM -> {
-                    FloatArray[] st = new FloatArray[kind.states];
-                    for (int j = 0; j < st.length; j++) {
-                        st[j] = (FloatArray) n.in(k * width + 2 + j).storage().host();
-                    }
-                    for (int i = 0; i < size; i++) {
-                        p.set(i, (float) referenceStep(kind, h, p.get(i), g.get(i) * factor, st, i));
-                    }
+            }
+            case AMSGRAD, ADAGRAD, RMSPROP, ADADELTA, ADAMAX, NADAM -> {
+                for (int i = from; i < to; i++) {
+                    p.set(i, (float) referenceStep(kind, h, p.get(i), g.get(i) * factor, st, i));
                 }
-                case ADAM -> {
-                    FloatArray m = (FloatArray) n.in(k * width + 2).storage().host();
-                    FloatArray v = (FloatArray) n.in(k * width + 3).storage().host();
-                    double lr = h.get(0);
-                    double b1 = h.get(1);
-                    double b2 = h.get(2);
-                    double wd = h.get(6);
-                    for (int i = 0; i < size; i++) {
-                        double w = p.get(i);
-                        double grad = g.get(i) * factor;
-                        if (h.get(7) != 0) {
-                            w -= lr * wd * w;
-                        } else {
-                            grad += wd * w;
-                        }
-                        double mi = b1 * m.get(i) + (1 - b1) * grad;
-                        double vi = b2 * v.get(i) + (1 - b2) * grad * grad;
-                        m.set(i, (float) mi);
-                        v.set(i, (float) vi);
-                        p.set(i, (float) (w - lr * (mi / h.get(4)) / (Math.sqrt(vi / h.get(5)) + h.get(3))));
+            }
+            case ADAM -> {
+                FloatArray m = st[0];
+                FloatArray v = st[1];
+                double lr = h.get(0);
+                double b1 = h.get(1);
+                double b2 = h.get(2);
+                double eps = h.get(3);
+                double c1 = h.get(4);
+                double c2 = h.get(5);
+                double wd = h.get(6);
+                boolean decoupled = h.get(7) != 0;
+                for (int i = from; i < to; i++) {
+                    double w = p.get(i);
+                    double grad = g.get(i) * factor;
+                    if (decoupled) {
+                        w -= lr * wd * w;
+                    } else {
+                        grad += wd * w;
                     }
+                    double mi = b1 * m.get(i) + (1 - b1) * grad;
+                    double vi = b2 * v.get(i) + (1 - b2) * grad * grad;
+                    m.set(i, (float) mi);
+                    v.set(i, (float) vi);
+                    p.set(i, (float) (w - lr * (mi / c1) / (Math.sqrt(vi / c2) + eps)));
                 }
             }
         }

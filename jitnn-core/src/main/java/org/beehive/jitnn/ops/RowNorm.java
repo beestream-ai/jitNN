@@ -392,6 +392,13 @@ public final class RowNorm implements Op {
         }
 
         @Override
+        public boolean cpu(Node n) {
+            boolean hasBias = n.iattr[3] != 0;
+            return CpuKernels.rowNormBackward(n.in(0), n.in(1), n.in(2), n.in(3), n.in(4), n.out(0), n.out(1), hasBias ? n.out(2) : null, n.iattr[0], n.iattr[1],
+                    n.iattr[2] == NormKernels.LAYER);
+        }
+
+        @Override
         public void reference(Node n) {
             int rows = n.iattr[0];
             int cols = n.iattr[1];

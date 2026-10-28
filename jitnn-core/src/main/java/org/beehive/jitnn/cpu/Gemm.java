@@ -48,6 +48,8 @@ public final class Gemm {
     public static final int RELU = 4;
     /** Epilogue: exact GELU, x Phi(x), after the bias. */
     public static final int GELU = 8;
+    /** C += A B: add the product to C's contents instead of overwriting them (before any other epilogue). */
+    public static final int ACCUMULATE = 16;
 
     private Gemm() {
     }
@@ -215,6 +217,83 @@ public final class Gemm {
         }
     }
 
+    /**
+     * Packs the transposed im2col matrices of {@code images} images, from image {@code img0}, as B
+     * for a weight gradient: column q is (ci, kh, kw) of {@code cg} input channels starting at index
+     * {@code off} of image 0 (images {@code imageStride} floats apart), depth d is output pixel
+     * {@code d % (oh * ow)} of image {@code img0 + d / (oh * ow)}; zero outside the image.
+     */
+    public static float[] packIm2colT(MemorySegment x, long off, long imageStride, int img0, int images, int cg, int h, int w, int r, int stride, int pad, int dil, int oh, int ow,
+            float[] dst) {
+        int k = cg * r * r;
+        int pixels = oh * ow;
+        int depth = images * pixels;
+        int panels = panels(k, NR);
+        Cpu.parallelFor(panels, Math.max(1, PACK_GRAIN / Math.max(1, depth * NR)), (from, to) -> {
+            for (int p = from; p < to; p++) {
+                int base = p * depth * NR;
+                for (int c = 0; c < NR; c++) {
+                    int q = p * NR + c;
+                    if (q >= k) {
+                        for (int d = 0; d < depth; d++) {
+                            dst[base + d * NR + c] = 0;
+                        }
+                        continue;
+                    }
+                    int ci = q / (r * r);
+                    int kh = (q / r) % r;
+                    int kw = q % r;
+                    for (int i = 0; i < images; i++) {
+                        long plane = off + (long) (img0 + i) * imageStride + (long) ci * h * w;
+                        int d0 = i * pixels;
+                        for (int y = 0; y < oh; y++) {
+                            int ih = y * stride - pad + kh * dil;
+                            int row = d0 + y * ow;
+                            if (ih < 0 || ih >= h) {
+                                for (int xo = 0; xo < ow; xo++) {
+                                    dst[base + (row + xo) * NR + c] = 0;
+                                }
+                                continue;
+                            }
+                            long src = plane + (long) ih * w;
+                            for (int xo = 0; xo < ow; xo++) {
+                                int iw = xo * stride - pad + kw * dil;
+                                dst[base + (row + xo) * NR + c] = iw >= 0 && iw < w ? x.getAtIndex(F, src + iw) : 0;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        return dst;
+    }
+
+    /**
+     * Packs, as A, rows {@code row0 ..} of the output gradients of {@code images} images from
+     * {@code img0}: row co, depth d = pixel {@code d % pixels} of image {@code img0 + d / pixels}, the
+     * value at {@code off + image * imageStride + co * pixels + pixel}.
+     */
+    public static float[] packRowsOverImages(MemorySegment g, long off, long imageStride, int img0, int images, int rows, int pixels, float[] dst) {
+        int depth = images * pixels;
+        int panels = panels(rows, MR);
+        Cpu.parallelFor(panels, Math.max(1, PACK_GRAIN / Math.max(1, depth * MR)), (from, to) -> {
+            for (int p = from; p < to; p++) {
+                int base = p * depth * MR;
+                for (int rr = 0; rr < MR; rr++) {
+                    int co = p * MR + rr;
+                    for (int i = 0; i < images; i++) {
+                        long src = off + (long) (img0 + i) * imageStride + (long) co * pixels;
+                        int d0 = i * pixels;
+                        for (int px = 0; px < pixels; px++) {
+                            dst[base + (d0 + px) * MR + rr] = co < rows ? g.getAtIndex(F, src + px) : 0;
+                        }
+                    }
+                }
+            }
+        });
+        return dst;
+    }
+
     /** One cached packing of an operand that does not change: the source's version it was made from. */
     private record Packed(long version, float[] data) {
     }
@@ -295,7 +374,8 @@ public final class Gemm {
 
     private static void tile(float[] ap, int apOff, float[] bp, int m, int n, int k, MemorySegment c, long cOff, long ldc, MemorySegment bias, long biasOff, int epilogue, int ip0, int ip1,
             int jp0, int jp1, float[] edge) {
-        if (k == 0) {
+        boolean accumulate = (epilogue & ACCUMULATE) != 0;
+        if (k == 0 && !accumulate) {
             for (int i = ip0 * MR; i < Math.min(m, ip1 * MR); i++) {
                 long row = cOff + i * ldc;
                 for (int j = jp0 * NR; j < Math.min(n, jp1 * NR); j++) {
@@ -305,7 +385,7 @@ public final class Gemm {
         }
         for (int pc = 0; pc < k; pc += KC) {
             int kc = Math.min(KC, k - pc);
-            boolean first = pc == 0;
+            boolean first = pc == 0 && !accumulate;
             for (int jp = jp0; jp < jp1; jp++) {
                 int bo = (jp * k + pc) * NR;
                 for (int ip = ip0; ip < ip1; ip++) {
@@ -313,7 +393,7 @@ public final class Gemm {
                 }
             }
         }
-        if (epilogue != 0) {
+        if ((epilogue & ~ACCUMULATE) != 0) {
             epilogue(c, cOff, ldc, bias, biasOff, epilogue, ip0 * MR, Math.min(m, ip1 * MR), jp0 * NR, Math.min(n, jp1 * NR));
         }
     }

@@ -118,6 +118,134 @@ final class ElementwiseFused implements Op {
         return true;
     }
 
+    /** The reference's program in FP32, in parallel chunks of elements, with the device kernels' scalar functions. */
+    @Override
+    public boolean cpu(Node n) {
+        int[] m = n.iattr;
+        int inputs = m[0], instructions = m[1], rank = m[2];
+        java.lang.foreign.MemorySegment[] in = new java.lang.foreign.MemorySegment[inputs];
+        for (int k = 0; k < inputs; k++) {
+            in[k] = CpuKernels.f32(n.in(k));
+            if (in[k] == null) {
+                return false;
+            }
+        }
+        int outputs = m[3 + rank + FusedKernels.MAX_INPUTS * rank + 5 * instructions];
+        java.lang.foreign.MemorySegment[] out = new java.lang.foreign.MemorySegment[outputs];
+        for (int k = 0; k < outputs; k++) {
+            out[k] = CpuKernels.f32(n.out(k));
+            if (out[k] == null) {
+                return false;
+            }
+        }
+        java.lang.foreign.ValueLayout.OfFloat f = java.lang.foreign.ValueLayout.JAVA_FLOAT;
+        if (contiguous(m, inputs, rank)) {
+            blocks(n, in, out, inputs, instructions, rank, outputs);
+            return true;
+        }
+        org.beehive.jitnn.cpu.Cpu.parallelFor(n.out(0).numel(), 1 << 14, (from, to) -> {
+            float[] regs = new float[FusedKernels.REGISTERS];
+            int[] off = new int[FusedKernels.MAX_INPUTS];
+            for (int i = from; i < to; i++) {
+                int rem = i;
+                java.util.Arrays.fill(off, 0);
+                for (int d = rank - 1; d >= 0; d--) {
+                    int c = rem % m[3 + d];
+                    rem /= m[3 + d];
+                    for (int k = 0; k < inputs; k++) {
+                        off[k] += c * m[3 + (1 + k) * rank + d];
+                    }
+                }
+                for (int k = 0; k < inputs; k++) {
+                    regs[k] = in[k].getAtIndex(f, off[k]);
+                }
+                int p = 3 + rank + FusedKernels.MAX_INPUTS * rank;
+                for (int j = 0; j < instructions; j++) {
+                    float x = regs[m[p + 2]];
+                    float y = regs[m[p + 3]];
+                    float alpha = n.fattr[2 * j];
+                    float beta = n.fattr[2 * j + 1];
+                    regs[m[p + 4]] = m[p] == FusedKernels.UNARY ? org.beehive.jitnn.kernels.ElementwiseKernels.unaryOp(m[p + 1], x, alpha, beta)
+                            : org.beehive.jitnn.kernels.ElementwiseKernels.binaryOp(m[p + 1], x, y, alpha, beta);
+                    p += 5;
+                }
+                for (int k = 0; k < outputs; k++) {
+                    out[k].setAtIndex(f, i, regs[m[p + 1 + k]]);
+                }
+            }
+        });
+        return true;
+    }
+
+    /** True when every input is read at the output's own index (no broadcast). */
+    private static boolean contiguous(int[] m, int inputs, int rank) {
+        for (int k = 0; k < inputs; k++) {
+            long stride = 1;
+            for (int d = rank - 1; d >= 0; d--) {
+                if (m[3 + d] != 1 && m[3 + (1 + k) * rank + d] != stride) {
+                    return false;
+                }
+                stride *= m[3 + d];
+            }
+        }
+        return true;
+    }
+
+    /** Block of elements the vector path runs each instruction over (registers stay in L1). */
+    private static final int BLOCK = 512;
+
+    /**
+     * The chain over contiguous operands: blocks of elements, each instruction one vector loop over
+     * the block's registers (FP32 arrays), the scalar functions for operators without a vector form.
+     */
+    private static void blocks(Node n, java.lang.foreign.MemorySegment[] in, java.lang.foreign.MemorySegment[] out, int inputs, int instructions, int rank, int outputs) {
+        int[] m = n.iattr;
+        int total = n.out(0).numel();
+        int program = 3 + rank + FusedKernels.MAX_INPUTS * rank;
+        org.beehive.jitnn.cpu.Cpu.parallelFor((total + BLOCK - 1) / BLOCK, 16, (b0, b1) -> {
+            java.lang.foreign.MemorySegment[] regs = new java.lang.foreign.MemorySegment[FusedKernels.REGISTERS];
+            for (int r = 0; r < regs.length; r++) {
+                regs[r] = java.lang.foreign.MemorySegment.ofArray(new float[BLOCK]);
+            }
+            java.lang.foreign.ValueLayout.OfFloat f = java.lang.foreign.ValueLayout.JAVA_FLOAT;
+            for (int blk = b0; blk < b1; blk++) {
+                long i0 = (long) blk * BLOCK;
+                int len = (int) Math.min(BLOCK, total - i0);
+                for (int k = 0; k < inputs; k++) {
+                    java.lang.foreign.MemorySegment.copy(in[k], i0 * 4, regs[k], 0, len * 4L);
+                }
+                int p = program;
+                for (int j = 0; j < instructions; j++) {
+                    int code = m[p + 1];
+                    java.lang.foreign.MemorySegment x = regs[m[p + 2]];
+                    java.lang.foreign.MemorySegment y = regs[m[p + 3]];
+                    java.lang.foreign.MemorySegment dst = regs[m[p + 4]];
+                    float alpha = n.fattr[2 * j];
+                    float beta = n.fattr[2 * j + 1];
+                    if (m[p] == FusedKernels.UNARY) {
+                        if (org.beehive.jitnn.cpu.Elementwise.vectorUnary(code)) {
+                            org.beehive.jitnn.cpu.Elementwise.unaryBlock(code, x, 0, dst, 0, len, alpha, beta);
+                        } else {
+                            for (int e = 0; e < len; e++) {
+                                dst.setAtIndex(f, e, org.beehive.jitnn.kernels.ElementwiseKernels.unaryOp(code, x.getAtIndex(f, e), alpha, beta));
+                            }
+                        }
+                    } else if (org.beehive.jitnn.cpu.Elementwise.vectorBinary(code)) {
+                        org.beehive.jitnn.cpu.Elementwise.binaryBlock(code, x, 0, false, y, 0, false, dst, 0, len);
+                    } else {
+                        for (int e = 0; e < len; e++) {
+                            dst.setAtIndex(f, e, org.beehive.jitnn.kernels.ElementwiseKernels.binaryOp(code, x.getAtIndex(f, e), y.getAtIndex(f, e), alpha, beta));
+                        }
+                    }
+                    p += 5;
+                }
+                for (int k = 0; k < outputs; k++) {
+                    java.lang.foreign.MemorySegment.copy(regs[m[p + 1 + k]], 0, out[k], i0 * 4, len * 4L);
+                }
+            }
+        });
+    }
+
     @Override
     public void reference(Node n) {
         int[] m = n.iattr;

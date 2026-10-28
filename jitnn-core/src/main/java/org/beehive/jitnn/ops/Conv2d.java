@@ -536,6 +536,12 @@ public final class Conv2d implements Op {
         }
 
         @Override
+        public boolean cpu(Node node) {
+            int[] a = node.iattr;
+            return CpuKernels.conv2dBackwardData(node.in(0), node.in(1), node.out(0), a[N], a[CIN], a[H], a[W], a[COUT], a[OH], a[OW], a[K], a[STRIDE], a[PAD], a[DIL], a[GROUPS]);
+        }
+
+        @Override
         public void reference(Node node) {
             int[] a = node.iattr;
             FloatArray dy = (FloatArray) node.in(0).storage().host();
@@ -631,6 +637,12 @@ public final class Conv2d implements Op {
             if (sp > 1) {
                 e.task(Emitter.grid1D(weights), (g, id) -> g.task(id, ReduceKernels::reduceThread, e.context(), partial, dw, 1, sp, weights, ReduceKernels.SUM, 1.0f));
             }
+        }
+
+        @Override
+        public boolean cpu(Node node) {
+            int[] a = node.iattr;
+            return CpuKernels.conv2dBackwardWeight(node.in(0), node.in(1), node.out(0), a[N], a[CIN], a[H], a[W], a[COUT], a[OH], a[OW], a[K], a[STRIDE], a[PAD], a[DIL], a[GROUPS]);
         }
 
         @Override

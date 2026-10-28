@@ -435,4 +435,419 @@ final class CpuKernels {
         });
         return true;
     }
+
+    /**
+     * BatchNorm of x [n, c, hw] per channel: in training, the batch statistics (saved as mean and
+     * invstd, the running statistics updated in place); in inference the running ones; then
+     * y = act((x - mean) invstd gamma + beta). Statistics sum per-row vector sums in double.
+     */
+    static boolean batchNorm(Tensor x, Tensor gamma, Tensor beta, Tensor runMean, Tensor runVar, Tensor y, Tensor mean, Tensor invstd, int n, int c, int hw, boolean training,
+            boolean relu, float eps, float momentum) {
+        MemorySegment xs = f32(x);
+        MemorySegment gs = f32(gamma);
+        MemorySegment bs = f32(beta);
+        MemorySegment rm = f32(runMean);
+        MemorySegment rv = f32(runVar);
+        MemorySegment ys = f32(y);
+        MemorySegment ms = mean == null ? null : f32(mean);
+        MemorySegment is = invstd == null ? null : f32(invstd);
+        if (xs == null || gs == null || bs == null || rm == null || rv == null || ys == null || training && (ms == null || is == null)) {
+            return false;
+        }
+        long count = (long) n * hw;
+        Cpu.parallelFor(c, 1, (from, to) -> {
+            for (int ch = from; ch < to; ch++) {
+                float mu;
+                float inv;
+                if (training) {
+                    double sum = 0;
+                    for (int b = 0; b < n; b++) {
+                        sum += Elementwise.sum(xs, ((long) b * c + ch) * hw, hw);
+                    }
+                    mu = (float) (sum / count);
+                    double sq = 0;
+                    for (int b = 0; b < n; b++) {
+                        sq += Elementwise.sumSquares(xs, ((long) b * c + ch) * hw, hw, mu);
+                    }
+                    double var = sq / count;
+                    inv = (float) (1 / Math.sqrt(var + eps));
+                    ms.setAtIndex(F, ch, mu);
+                    is.setAtIndex(F, ch, inv);
+                    double unbiased = count > 1 ? sq / (count - 1) : var;
+                    rm.setAtIndex(F, ch, (float) ((1 - momentum) * rm.getAtIndex(F, ch) + momentum * mu));
+                    rv.setAtIndex(F, ch, (float) ((1 - momentum) * rv.getAtIndex(F, ch) + momentum * unbiased));
+                } else {
+                    mu = rm.getAtIndex(F, ch);
+                    inv = (float) (1 / Math.sqrt(rv.getAtIndex(F, ch) + eps));
+                }
+                float scale = inv * gs.getAtIndex(F, ch);
+                float shift = bs.getAtIndex(F, ch) - mu * scale;
+                for (int b = 0; b < n; b++) {
+                    long off = ((long) b * c + ch) * hw;
+                    Elementwise.affineRow(xs, off, scale, shift, relu, ys, off, hw);
+                }
+            }
+        });
+        return true;
+    }
+
+    /** BatchNorm's gradient per channel from the saved mean and invstd: dx, dgamma and dbeta. */
+    static boolean batchNormBackward(Tensor dy, Tensor x, Tensor mean, Tensor invstd, Tensor gamma, Tensor dx, Tensor dgamma, Tensor dbeta, int n, int c, int hw) {
+        MemorySegment dys = f32(dy);
+        MemorySegment xs = f32(x);
+        MemorySegment ms = f32(mean);
+        MemorySegment is = f32(invstd);
+        MemorySegment gs = f32(gamma);
+        MemorySegment dxs = f32(dx);
+        MemorySegment dgs = f32(dgamma);
+        MemorySegment dbs = f32(dbeta);
+        if (dys == null || xs == null || ms == null || is == null || gs == null || dxs == null || dgs == null || dbs == null) {
+            return false;
+        }
+        double count = (double) n * hw;
+        Cpu.parallelFor(c, 1, (from, to) -> {
+            for (int ch = from; ch < to; ch++) {
+                float mu = ms.getAtIndex(F, ch);
+                float inv = is.getAtIndex(F, ch);
+                double sa = 0;
+                double sb = 0;
+                for (int b = 0; b < n; b++) {
+                    long off = ((long) b * c + ch) * hw;
+                    sa += Elementwise.sum(dys, off, hw);
+                    sb += Elementwise.sumCentredProduct(dys, off, xs, off, mu, hw);
+                }
+                sb *= inv;
+                dbs.setAtIndex(F, ch, (float) sa);
+                dgs.setAtIndex(F, ch, (float) sb);
+                // dx = g inv (dy - sa / count - (x - mu) inv sb / count)
+                float gi = gs.getAtIndex(F, ch) * inv;
+                float bx = (float) (-gi * inv * sb / count);
+                float c0 = (float) (-gi * sa / count) - bx * mu;
+                for (int b = 0; b < n; b++) {
+                    long off = ((long) b * c + ch) * hw;
+                    Elementwise.combineRow(dys, off, gi, xs, off, bx, c0, dxs, off, hw);
+                }
+            }
+        });
+        return true;
+    }
+
+    private static final ThreadLocal<float[]> COLUMNS = ThreadLocal.withInitial(() -> new float[0]);
+
+    /**
+     * The input gradient of a convolution: per image and group, dcol = W^T dy (a GEMM of depth
+     * cout / groups), then col2im adds the columns back onto the input's pixels.
+     */
+    static boolean conv2dBackwardData(Tensor dy, Tensor w, Tensor dx, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad, int dil, int groups) {
+        MemorySegment dys = f32(dy);
+        MemorySegment ws = f32(w);
+        MemorySegment dxs = f32(dx);
+        if (dys == null || ws == null || dxs == null) {
+            return false;
+        }
+        int cg = cin / groups;
+        int cog = cout / groups;
+        int k = cg * r * r;
+        int pixels = oh * ow;
+        float[][] weightsT = new float[groups][];
+        for (int g = 0; g < groups; g++) {
+            weightsT[g] = Gemm.packA(new Matrix(ws, (long) g * cog * k, 1, k), k, cog, new float[Gemm.packedSize(k, cog, Gemm.MR)]);
+        }
+        int items = n * groups;
+        Cpu.Range body = (from, to) -> {
+            for (int item = from; item < to; item++) {
+                int img = item / groups;
+                int g = item % groups;
+                float[] bp = Gemm.packB(new Matrix(dys, ((long) img * cout + (long) g * cog) * pixels, 1, pixels), pixels, cog, Gemm.scratch(1, Gemm.packedSize(pixels, cog, Gemm.NR)));
+                float[] cols = COLUMNS.get();
+                if (cols.length < k * pixels) {
+                    cols = new float[k * pixels];
+                    COLUMNS.set(cols);
+                }
+                MemorySegment cs = MemorySegment.ofArray(cols);
+                Gemm.compute(weightsT[g], bp, k, pixels, cog, cs, 0, pixels, null, 0, 0);
+                long base = ((long) img * cin + (long) g * cg) * h * wd;
+                float[] dcol = cols;
+                Cpu.parallelFor(cg, 1, (c0, c1) -> {
+                    for (int ci = c0; ci < c1; ci++) {
+                        long plane = base + (long) ci * h * wd;
+                        dxs.asSlice(plane * 4, (long) h * wd * 4).fill((byte) 0);
+                        for (int kh = 0; kh < r; kh++) {
+                            for (int kw = 0; kw < r; kw++) {
+                                int q = (ci * r + kh) * r + kw;
+                                for (int y = 0; y < oh; y++) {
+                                    int ih = y * stride - pad + kh * dil;
+                                    if (ih < 0 || ih >= h) {
+                                        continue;
+                                    }
+                                    long rowAt = plane + (long) ih * wd;
+                                    int src = q * pixels + y * ow;
+                                    for (int xo = 0; xo < ow; xo++) {
+                                        int iw = xo * stride - pad + kw * dil;
+                                        if (iw >= 0 && iw < wd) {
+                                            dxs.setAtIndex(F, rowAt + iw, dxs.getAtIndex(F, rowAt + iw) + dcol[src + xo]);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        };
+        if (items * 2 >= Cpu.threads()) {
+            Cpu.parallelFor(items, 1, body);
+        } else {
+            body.run(0, items);
+        }
+        return true;
+    }
+
+    /**
+     * The weight gradient of a convolution: dw[g] = sum over images of dy (cout / groups rows) times
+     * the transposed im2col matrix, images grouped so each GEMM is about {@code 512} pixels deep,
+     * accumulating into dw.
+     */
+    static boolean conv2dBackwardWeight(Tensor dy, Tensor x, Tensor dw, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad, int dil, int groups) {
+        MemorySegment dys = f32(dy);
+        MemorySegment xs = f32(x);
+        MemorySegment dws = f32(dw);
+        if (dys == null || xs == null || dws == null) {
+            return false;
+        }
+        int cg = cin / groups;
+        int cog = cout / groups;
+        int k = cg * r * r;
+        int pixels = oh * ow;
+        int perChunk = Math.max(1, Math.min(n, (int) Math.min(512 / Math.max(1, pixels) + 1, (1L << 23) / Math.max(1L, (long) Math.max(k, cog) * pixels))));
+        for (int g = 0; g < groups; g++) {
+            for (int img0 = 0; img0 < n; img0 += perChunk) {
+                int images = Math.min(perChunk, n - img0);
+                int depth = images * pixels;
+                float[] ap = Gemm.packRowsOverImages(dys, (long) g * cog * pixels, (long) cout * pixels, img0, images, cog, pixels, Gemm.scratch(0, Gemm.packedSize(cog, depth, Gemm.MR)));
+                float[] bp = Gemm.packIm2colT(xs, (long) g * cg * h * wd, (long) cin * h * wd, img0, images, cg, h, wd, r, stride, pad, dil, oh, ow,
+                        Gemm.scratch(1, Gemm.packedSize(k, depth, Gemm.NR)));
+                Gemm.compute(ap, bp, cog, k, depth, dws, (long) g * cog * k, k, null, 0, img0 == 0 ? 0 : Gemm.ACCUMULATE);
+            }
+        }
+        return true;
+    }
+
+    /** Mean cross-entropy of logits x [rows, cols] against labels: one log-sum-exp per row, in parallel. */
+    static boolean crossEntropy(Tensor x, Tensor labels, Tensor out, int rows, int cols) {
+        MemorySegment xs = f32(x);
+        MemorySegment os = f32(out);
+        MemorySegment ls = labels.storage().host() instanceof IntArray ia ? ia.getSegment() : null;
+        if (xs == null || os == null || ls == null) {
+            return false;
+        }
+        double[] loss = new double[rows];
+        Cpu.parallelFor(rows, Math.max(1, Elementwise_GRAIN / Math.max(1, cols)), (from, to) -> {
+            float[] row = new float[cols];
+            MemorySegment rs = MemorySegment.ofArray(row);
+            for (int rr = from; rr < to; rr++) {
+                int label = ls.getAtIndex(I, rr);
+                if (label < 0 || label >= cols) {
+                    throw new IllegalArgumentException("label " + label + " out of range [0, " + cols + ")");
+                }
+                MemorySegment.copy(xs, (long) rr * cols * 4, rs, 0, cols * 4L);
+                float lse = Elementwise.softmaxRow(rs, 0, cols);
+                loss[rr] = lse - xs.getAtIndex(F, (long) rr * cols + label);
+            }
+        });
+        double total = 0;
+        for (double v : loss) {
+            total += v;
+        }
+        os.setAtIndex(F, 0, (float) (total / rows));
+        return true;
+    }
+
+    /** dx = (softmax(x) - onehot(label)) * g / rows, per row in parallel. */
+    static boolean crossEntropyBackward(Tensor x, Tensor labels, Tensor g, Tensor dx, int rows, int cols) {
+        MemorySegment xs = f32(x);
+        MemorySegment gs = f32(g);
+        MemorySegment ds = f32(dx);
+        MemorySegment ls = labels.storage().host() instanceof IntArray ia ? ia.getSegment() : null;
+        if (xs == null || gs == null || ds == null || ls == null) {
+            return false;
+        }
+        float scale = gs.getAtIndex(F, 0) / rows;
+        Cpu.parallelFor(rows, Math.max(1, Elementwise_GRAIN / Math.max(1, cols)), (from, to) -> {
+            for (int rr = from; rr < to; rr++) {
+                long off = (long) rr * cols;
+                MemorySegment.copy(xs, off * 4, ds, off * 4, cols * 4L);
+                Elementwise.softmaxRow(ds, off, cols);
+                Elementwise.scale(ds, off, cols, scale);
+                long at = off + ls.getAtIndex(I, rr);
+                ds.setAtIndex(F, at, ds.getAtIndex(F, at) - scale);
+            }
+        });
+        return true;
+    }
+
+    /** dw [vocab, dim]: row v is the sum of the gradient rows of the tokens that read row v (offsets, positions: CSR by row). */
+    static boolean embeddingBackward(Tensor dy, Tensor offsets, Tensor positions, Tensor dw, int vocab, int dim) {
+        MemorySegment dys = f32(dy);
+        MemorySegment dws = f32(dw);
+        MemorySegment os = offsets.storage().host() instanceof IntArray a ? a.getSegment() : null;
+        MemorySegment ps = positions.storage().host() instanceof IntArray b ? b.getSegment() : null;
+        if (dys == null || dws == null || os == null || ps == null) {
+            return false;
+        }
+        Cpu.parallelFor(vocab, Math.max(1, Elementwise_GRAIN / Math.max(1, dim)), (from, to) -> {
+            for (int v = from; v < to; v++) {
+                long row = (long) v * dim;
+                int k0 = os.getAtIndex(I, v);
+                int k1 = os.getAtIndex(I, v + 1);
+                if (k0 == k1) {
+                    dws.asSlice(row * 4, dim * 4L).fill((byte) 0);
+                    continue;
+                }
+                MemorySegment.copy(dys, (long) ps.getAtIndex(I, k0) * dim * 4, dws, row * 4, dim * 4L);
+                for (int k = k0 + 1; k < k1; k++) {
+                    Elementwise.addRow(dys, (long) ps.getAtIndex(I, k) * dim, dws, row, dim);
+                }
+            }
+        });
+        return true;
+    }
+
+    /** LayerNorm (or RMSNorm) gradient: dx per row; dw (and db) summed over rows in per-chunk partials. */
+    static boolean rowNormBackward(Tensor dy, Tensor x, Tensor w, Tensor mean, Tensor rstd, Tensor dx, Tensor dw, Tensor db, int rows, int cols, boolean layer) {
+        MemorySegment dys = f32(dy);
+        MemorySegment xs = f32(x);
+        MemorySegment ws = f32(w);
+        MemorySegment ms = f32(mean);
+        MemorySegment ss = f32(rstd);
+        MemorySegment dxs = f32(dx);
+        MemorySegment dws = f32(dw);
+        MemorySegment dbs = db == null ? null : f32(db);
+        if (dys == null || xs == null || ws == null || ms == null || ss == null || dxs == null || dws == null || db != null && dbs == null) {
+            return false;
+        }
+        int chunks = Math.max(1, Math.min(Cpu.threads(), rows));
+        float[][] pw = new float[chunks][cols];
+        float[][] pb = new float[chunks][cols];
+        Cpu.parallelFor(chunks, 1, (c0, c1) -> {
+            float[] g = new float[cols];
+            for (int ch = c0; ch < c1; ch++) {
+                int r0 = (int) ((long) rows * ch / chunks);
+                int r1 = (int) ((long) rows * (ch + 1) / chunks);
+                float[] aw = pw[ch];
+                float[] ab = pb[ch];
+                for (int rr = r0; rr < r1; rr++) {
+                    long off = (long) rr * cols;
+                    float mu = ms.getAtIndex(F, rr);
+                    float is = ss.getAtIndex(F, rr);
+                    double sa = 0;
+                    double sb = 0;
+                    for (int c = 0; c < cols; c++) {
+                        float d = dys.getAtIndex(F, off + c);
+                        float xhat = (xs.getAtIndex(F, off + c) - mu) * is;
+                        float gc = d * ws.getAtIndex(F, c);
+                        g[c] = gc;
+                        sa += gc;
+                        sb += gc * xhat;
+                        aw[c] += d * xhat;
+                        ab[c] += d;
+                    }
+                    float meanG = layer ? (float) (sa / cols) : 0;
+                    float meanGX = (float) (sb / cols);
+                    for (int c = 0; c < cols; c++) {
+                        float xhat = (xs.getAtIndex(F, off + c) - mu) * is;
+                        dxs.setAtIndex(F, off + c, is * (g[c] - meanG - xhat * meanGX));
+                    }
+                }
+            }
+        });
+        for (int c = 0; c < cols; c++) {
+            double sw = 0;
+            double sbias = 0;
+            for (int ch = 0; ch < chunks; ch++) {
+                sw += pw[ch][c];
+                sbias += pb[ch][c];
+            }
+            dws.setAtIndex(F, c, (float) sw);
+            if (dbs != null) {
+                dbs.setAtIndex(F, c, (float) sbias);
+            }
+        }
+        return true;
+    }
+
+    private static final ThreadLocal<float[][]> ATTENTION_BACKWARD = ThreadLocal.withInitial(() -> new float[2][0]);
+
+    /**
+     * The attention gradient per problem (batch and head), as GEMMs: P from the saved log-sum-exp,
+     * dV = P^T dO, dP = dO V^T, dS = P (dP - rowsum(dO o O)) scale, dQ = dS K, dK = dS^T Q.
+     */
+    static boolean attentionBackward(int[] a, float scale, Tensor q, Tensor k, Tensor v, Tensor mask, Tensor o, Tensor lse, Tensor dout, Tensor dq, Tensor dk, Tensor dv) {
+        MemorySegment qs = f32(q);
+        MemorySegment ks = f32(k);
+        MemorySegment vs = f32(v);
+        MemorySegment ms = mask == null ? null : f32(mask);
+        MemorySegment os = f32(o);
+        MemorySegment ls = f32(lse);
+        MemorySegment gos = f32(dout);
+        MemorySegment dqs = f32(dq);
+        MemorySegment dks = f32(dk);
+        MemorySegment dvs = f32(dv);
+        if (qs == null || ks == null || vs == null || os == null || ls == null || gos == null || dqs == null || dks == null || dvs == null || mask != null && ms == null) {
+            return false;
+        }
+        int z = a[0], t = a[1], s = a[2], d = a[3], heads = a[5];
+        boolean causal = a[4] != 0;
+        int[] meta = FlashAttention.meta(a);
+        long qRow = meta[8], kRow = meta[12], vRow = meta[16], oRow = meta[20];
+        Cpu.parallelFor(z, 1, (from, to) -> {
+            float[][] buf = ATTENTION_BACKWARD.get();
+            if (buf[0].length < t * s) {
+                buf[0] = new float[t * s];
+                buf[1] = new float[t * s];
+            }
+            MemorySegment p = MemorySegment.ofArray(buf[0]);
+            MemorySegment dp = MemorySegment.ofArray(buf[1]);
+            for (int zi = from; zi < to; zi++) {
+                long q0 = FlashAttention.at(meta, 0, zi, 0);
+                long k0 = FlashAttention.at(meta, 1, zi, 0);
+                long v0 = FlashAttention.at(meta, 2, zi, 0);
+                long o0 = FlashAttention.at(meta, 3, zi, 0);
+                int b = zi / heads;
+                int h = zi - b * heads;
+                // P = exp(scores * scale + mask - lse)
+                Gemm.multiply(new Matrix(qs, q0, qRow, 1), new Matrix(ks, k0, kRow, 1), t, s, d, p, 0, s, null, 0, 0);
+                for (int i = 0; i < t; i++) {
+                    long off = (long) i * s;
+                    float l = ls.getAtIndex(F, (long) zi * t + i);
+                    for (int j = 0; j < s; j++) {
+                        float sc = p.getAtIndex(F, off + j) * scale;
+                        if (ms != null) {
+                            sc += ms.getAtIndex(F, (long) b * a[6] + (long) h * a[7] + (long) i * a[8] + (long) j * a[9]);
+                        }
+                        p.setAtIndex(F, off + j, causal && j > i ? 0 : (float) Math.exp(sc - l));
+                    }
+                }
+                // dV = P^T dO
+                Gemm.multiply(new Matrix(p, 0, 1, s), new Matrix(gos, o0, 1, oRow), s, d, t, dvs, v0, vRow, null, 0, 0);
+                // dP = dO V^T
+                Gemm.multiply(new Matrix(gos, o0, oRow, 1), new Matrix(vs, v0, vRow, 1), t, s, d, dp, 0, s, null, 0, 0);
+                // dS = P (dP - D) scale, D = rowsum(dO o O); kept in dp
+                for (int i = 0; i < t; i++) {
+                    float dd = 0;
+                    for (int c = 0; c < d; c++) {
+                        dd += gos.getAtIndex(F, o0 + i * oRow + c) * os.getAtIndex(F, o0 + i * oRow + c);
+                    }
+                    long off = (long) i * s;
+                    for (int j = 0; j < s; j++) {
+                        dp.setAtIndex(F, off + j, p.getAtIndex(F, off + j) * (dp.getAtIndex(F, off + j) - dd) * scale);
+                    }
+                }
+                // dQ = dS K, dK = dS^T Q
+                Gemm.multiply(new Matrix(dp, 0, s, 1), new Matrix(ks, k0, 1, kRow), t, d, s, dqs, q0, qRow, null, 0, 0);
+                Gemm.multiply(new Matrix(dp, 0, 1, s), new Matrix(qs, q0, 1, qRow), s, d, t, dks, k0, kRow, null, 0, 0);
+            }
+        });
+        return true;
+    }
 }

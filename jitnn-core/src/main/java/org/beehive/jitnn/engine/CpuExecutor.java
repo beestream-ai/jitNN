@@ -48,12 +48,58 @@ final class CpuExecutor {
     private CpuExecutor() {
     }
 
+    /** Reuse the arrays of a trace's previous execution ({@code -Djitnn.cpu.reuse=false} turns it off). */
+    private static final boolean REUSE = !"false".equals(System.getProperty("jitnn.cpu.reuse"));
+    /** Trace structures remembered per thread. */
+    private static final int REMEMBERED = Integer.getInteger("jitnn.cpu.reuse.traces", 32);
+
+    /**
+     * The previous execution of one trace structure: per storage slot, the storage it produced (weakly:
+     * a storage nobody holds returns its array to the pool when collected) and whether that sync
+     * requested it.
+     */
+    private static final class Previous {
+        final java.lang.ref.WeakReference<Storage>[] storages;
+        final boolean[] wanted;
+
+        @SuppressWarnings("unchecked")
+        Previous(int slots) {
+            storages = new java.lang.ref.WeakReference[slots];
+            wanted = new boolean[slots];
+        }
+    }
+
+    private static final ThreadLocal<java.util.LinkedHashMap<String, Previous>> PREVIOUS = ThreadLocal.withInitial(() -> new java.util.LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Previous> eldest) {
+            return size() > REMEMBERED;
+        }
+    });
+
     static void run(List<Node> recorded, Tensor[] wanted) {
         List<Node> nodes = org.beehive.jitnn.ops.Fusion.rewrite(recorded, wanted);
         Set<Storage> wantedSet = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Tensor t : wanted) {
             wantedSet.add(t.storage());
         }
+        // Storage slots in order of first appearance, and the trace's structure: a later execution of
+        // the same structure (the next training step) takes the arrays of this one's intermediates, as
+        // a compiled plan reuses its buffers on a device; those it did not request at the sync go stale.
+        IdentityHashMap<Storage, Integer> slotOf = new IdentityHashMap<>();
+        List<Storage> slots = new java.util.ArrayList<>();
+        StringBuilder key = new StringBuilder(64 * nodes.size());
+        for (Node n : nodes) {
+            key.append(n.op.name()).append(java.util.Arrays.toString(n.iattr));
+            for (Tensor t : n.inputs) {
+                key.append('<').append(slot(slotOf, slots, t.storage())).append(t.storage().persistent ? 'P' : ':').append(t.storage().numel);
+            }
+            for (Tensor t : n.outputs) {
+                key.append('>').append(slot(slotOf, slots, t.storage())).append(t.storage().persistent ? 'P' : ':').append(t.storage().numel);
+            }
+            key.append('|');
+        }
+        String structure = key.toString();
+        Previous previous = REUSE ? PREVIOUS.get().get(structure) : null;
         // the last node that reads or writes each storage, and the storages a node reads
         IdentityHashMap<Storage, Integer> lastUse = new IdentityHashMap<>();
         Set<Storage> produced = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -93,12 +139,14 @@ final class CpuExecutor {
             for (Tensor t : n.outputs) {
                 Storage s = t.storage();
                 if (s.array == null && s.heap == null && !s.persistent) {
-                    // a pooled array holds old contents: CPU kernels write every element; the
-                    // reference gets zeros
-                    TornadoNativeArray a = HostPool.take(s.dtype, s.numel);
-                    pooled.add(a);
-                    s.array = a;
-                    s.lease = HostPool.lease(s, a);
+                    // a pooled or reused array holds old contents: CPU kernels write every element;
+                    // the reference gets zeros
+                    if (!steal(previous, slotOf, s)) {
+                        TornadoNativeArray a = HostPool.take(s.dtype, s.numel);
+                        s.array = a;
+                        s.lease = HostPool.lease(s, a);
+                    }
+                    pooled.add(s.array);
                 } else {
                     s.allocate();
                 }
@@ -124,6 +172,55 @@ final class CpuExecutor {
                 }
             }
         }
+        if (REUSE) {
+            Previous now = new Previous(slots.size());
+            for (int i = 0; i < slots.size(); i++) {
+                Storage s = slots.get(i);
+                if (!s.persistent && produced.contains(s)) {
+                    now.storages[i] = new java.lang.ref.WeakReference<>(s);
+                    now.wanted[i] = wantedSet.contains(s);
+                }
+            }
+            PREVIOUS.get().put(structure, now);
+        }
+    }
+
+    private static int slot(IdentityHashMap<Storage, Integer> slotOf, List<Storage> slots, Storage s) {
+        Integer i = slotOf.get(s);
+        if (i == null) {
+            i = slots.size();
+            slotOf.put(s, i);
+            slots.add(s);
+        }
+        return i;
+    }
+
+    /**
+     * Gives {@code s} the array its slot had in the previous execution of the same trace, if that
+     * storage was not requested at its sync, is not read by this execution, and still holds the
+     * array; the previous storage goes stale. True when it did.
+     */
+    private static boolean steal(Previous previous, IdentityHashMap<Storage, Integer> slotOf, Storage s) {
+        if (previous == null) {
+            return false;
+        }
+        int i = slotOf.get(s);
+        Storage prev = previous.storages[i] == null ? null : previous.storages[i].get();
+        if (prev == null || prev == s || previous.wanted[i] || prev.persistent || prev.array == null || prev.lease == null || prev.dropped || slotOf.containsKey(prev)
+                || prev.dtype != s.dtype || prev.numel != s.numel) {
+            return false;
+        }
+        HostPool.Lease lease = prev.lease.transfer(s);
+        if (lease == null) {
+            return false;
+        }
+        s.array = prev.array;
+        s.lease = lease;
+        prev.lease = null;
+        prev.array = null;
+        prev.hostValid = false;
+        prev.stale = true;
+        return true;
     }
 
     private static void count(String name, long nanos, boolean reference) {

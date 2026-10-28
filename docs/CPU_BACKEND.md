@@ -1,6 +1,6 @@
 # CPU backend (Java Vector API): design
 
-Status: phases 1–3 done (executor, GEMM and convolution, inference operators); GEMM and convolution scaling tuned; training kernels (phase 4) next.
+Status: phases 1–4 done (executor, GEMM and convolution, inference operators, training kernels and buffer reuse); remaining: tuning (phase 5).
 
 ## Goal
 

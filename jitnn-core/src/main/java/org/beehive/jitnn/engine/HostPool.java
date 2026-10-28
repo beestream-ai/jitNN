@@ -97,5 +97,17 @@ final class HostPool {
                 give(array, dtype, numel);
             }
         }
+
+        /**
+         * Hands the array to {@code owner} without passing through the pool: this lease no longer
+         * returns it (its owner's cleaner then does nothing); the new lease does. Null if the array was
+         * already returned.
+         */
+        Lease transfer(Storage owner) {
+            if (!returned.compareAndSet(false, true)) {
+                return null;
+            }
+            return lease(owner, array);
+        }
     }
 }

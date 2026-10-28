@@ -145,6 +145,11 @@ public final class Embedding implements Op {
         }
 
         @Override
+        public boolean cpu(Node n) {
+            return CpuKernels.embeddingBackward(n.in(0), n.in(1), n.in(2), n.out(0), n.iattr[1], n.iattr[2]);
+        }
+
+        @Override
         public void reference(Node n) {
             FloatArray dy = (FloatArray) n.in(0).storage().host();
             IntArray offsets = (IntArray) n.in(1).storage().host();

@@ -64,6 +64,13 @@ public final class RandomFill implements Op {
         e.task(Emitter.grid1D(count), (g, id) -> g.task(id, RandomKernels::philox, e.context(), out, seedLo, seedHi, stream, mode, a, b, count, RandomKernels.ROUNDS));
     }
 
+    /** The host fill is already parallel over Philox's independent counter blocks: it is the CPU kernel too. */
+    @Override
+    public boolean cpu(Node n) {
+        reference(n);
+        return true;
+    }
+
     @Override
     public void reference(Node n) {
         FloatArray out = (FloatArray) n.out(0).storage().host();

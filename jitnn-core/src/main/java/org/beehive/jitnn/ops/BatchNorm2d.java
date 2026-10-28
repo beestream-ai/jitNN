@@ -166,6 +166,14 @@ public final class BatchNorm2d implements Op {
     }
 
     @Override
+    public boolean cpu(Node node) {
+        int[] a = node.iattr;
+        boolean training = a[3] != 0;
+        return CpuKernels.batchNorm(node.in(0), node.in(1), node.in(2), node.in(3), node.in(4), node.out(0), training ? node.out(1) : null, training ? node.out(2) : null, a[0], a[1],
+                a[2], training, a[4] != 0, node.fattr[0], node.fattr[1]);
+    }
+
+    @Override
     public Tensor[] backward(Node node, Tensor gy) {
         if (node.iattr[3] == 0) {
             throw new UnsupportedOperationException("batch norm backward in inference mode");
@@ -208,6 +216,12 @@ public final class BatchNorm2d implements Op {
             FloatArray dbeta = e.f32(node.out(2));
             e.task(Emitter.groups(c), (g, id) -> g.task(id, NormKernels::batchBackwardReduce, e.context(), dy, x, mean, invstd, dgamma, dbeta, n, c, hw));
             e.task(Emitter.grid1D(total), (g, id) -> g.task(id, NormKernels::batchBackwardApply, e.context(), dy, x, mean, invstd, gamma, dgamma, dbeta, dx, c, hw, total, invCount));
+        }
+
+        @Override
+        public boolean cpu(Node node) {
+            return CpuKernels.batchNormBackward(node.in(0), node.in(1), node.in(2), node.in(3), node.in(4), node.out(0), node.out(1), node.out(2), node.iattr[0], node.iattr[1],
+                    node.iattr[2]);
         }
 
         @Override

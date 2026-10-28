@@ -55,6 +55,11 @@ public final class CrossEntropy implements Op {
     }
 
     @Override
+    public boolean cpu(Node n) {
+        return CpuKernels.crossEntropy(n.in(0), n.in(1), n.out(0), n.iattr[0], n.iattr[1]);
+    }
+
+    @Override
     public void reference(Node n) {
         FloatArray x = (FloatArray) n.in(0).storage().host();
         IntArray labels = (IntArray) n.in(1).storage().host();
@@ -104,6 +109,11 @@ public final class CrossEntropy implements Op {
             int cols = n.iattr[1];
             float scale = 1.0f / rows;
             e.task(Emitter.groups(rows), (tg, id) -> tg.task(id, SoftmaxKernels::crossEntropyBackwardRows, e.context(), x, labels, g, dx, cols, scale));
+        }
+
+        @Override
+        public boolean cpu(Node n) {
+            return CpuKernels.crossEntropyBackward(n.in(0), n.in(1), n.in(2), n.out(0), n.iattr[0], n.iattr[1]);
         }
 
         @Override
