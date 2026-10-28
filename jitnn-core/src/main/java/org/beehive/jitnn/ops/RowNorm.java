@@ -290,6 +290,13 @@ public final class RowNorm implements Op {
     }
 
     @Override
+    public boolean cpu(Node n) {
+        boolean residual = n.iattr.length > 4 && n.iattr[4] != 0;
+        return CpuKernels.rowNorm(n.in(0), residual ? n.in(n.inputs.length - 1) : null, n.in(1), n.iattr[3] != 0 ? n.in(2) : null, n.out(0), n.out(1), n.out(2), n.iattr[0], n.iattr[1],
+                n.iattr[2] == NormKernels.LAYER, n.fattr[0]);
+    }
+
+    @Override
     public Tensor[] backward(Node n, Tensor gy) {
         boolean hasBias = n.iattr[3] != 0;
         Tensor x = n.in(0);

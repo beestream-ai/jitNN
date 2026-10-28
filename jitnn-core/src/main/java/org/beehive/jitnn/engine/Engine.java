@@ -12,17 +12,23 @@ import org.beehive.jitnn.Tensor;
  * <li>{@link Backend#TORNADO}: operators are recorded lazily; a sync point compiles everything
  * recorded since the last one into one TornadoVM task graph, caches the compiled plan by the
  * trace's structure, and replays it when the same structure comes back (a training step).</li>
+ * <li>{@link Backend#CPU}: operators are recorded lazily as on TORNADO; a sync point rewrites the
+ * trace with the same fusion pass and runs it on the host, each operator with its multithreaded,
+ * vectorised CPU kernel (Java Vector API) or, when it has none, its reference implementation. It
+ * needs no TornadoVM runtime, but the JVM needs {@code --add-modules jdk.incubator.vector}.</li>
  * <li>{@link Backend#REFERENCE}: operators run eagerly on the host with the Java reference
  * implementations. Tests use it as the oracle; it needs no TornadoVM runtime.</li>
  * </ul>
  *
- * <p>The default is TORNADO when a TornadoVM runtime is on the class path, else REFERENCE; the
- * {@code jitnn.backend} system property ({@code tornado} or {@code reference}) overrides it.
+ * <p>The default is TORNADO when a TornadoVM runtime is on the class path, else CPU when the JVM has
+ * the Vector API module, else REFERENCE; the {@code jitnn.backend} system property ({@code tornado},
+ * {@code cpu} or {@code reference}) overrides it.
  */
 public final class Engine {
 
     public enum Backend {
         TORNADO,
+        CPU,
         REFERENCE
     }
 
@@ -34,14 +40,24 @@ public final class Engine {
     private static Backend defaultBackend() {
         String p = System.getProperty("jitnn.backend");
         if (p != null) {
-            return Backend.valueOf(p.trim().toUpperCase());
+            return checked(Backend.valueOf(p.trim().toUpperCase(java.util.Locale.ROOT)));
         }
         try {
             Class.forName("uk.ac.manchester.tornado.runtime.TornadoCoreRuntime", false, Engine.class.getClassLoader());
             return Backend.TORNADO;
         } catch (ClassNotFoundException e) {
-            return Backend.REFERENCE;
+            return VECTOR_API ? Backend.CPU : Backend.REFERENCE;
         }
+    }
+
+    /** True when the JVM resolved the Vector API module the CPU backend's kernels use. */
+    private static final boolean VECTOR_API = ModuleLayer.boot().findModule("jdk.incubator.vector").isPresent();
+
+    private static Backend checked(Backend b) {
+        if (b == Backend.CPU && !VECTOR_API) {
+            throw new IllegalStateException("the CPU backend needs the Vector API: run the JVM with --add-modules jdk.incubator.vector");
+        }
+        return b;
     }
 
     public static Backend backend() {
@@ -64,6 +80,7 @@ public final class Engine {
 
     /** Switches this thread's backend, first running anything recorded on the old one. */
     public static void setBackend(Backend backend) {
+        checked(backend);
         sync();
         BACKEND.set(backend);
     }
@@ -102,7 +119,7 @@ public final class Engine {
     /** Set while {@link #capture} records: operators are kept, never run, on every backend. */
     private static final ThreadLocal<Boolean> CAPTURING = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
-    /** Records a node: executes it now on REFERENCE, defers it on TORNADO. */
+    /** Records a node: executes it now on REFERENCE, defers it to the next sync on TORNADO and CPU. */
     public static void record(Node node) {
         if (backend() == Backend.REFERENCE && !CAPTURING.get()) {
             ReferenceExecutor.run(node);
@@ -139,7 +156,11 @@ public final class Engine {
         }
         List<Node> nodes = Trace.drain();
         if (!nodes.isEmpty()) {
-            TornadoExecutor.run(nodes, wanted);
+            if (backend() == Backend.CPU) {
+                CpuExecutor.run(nodes, wanted);
+            } else {
+                TornadoExecutor.run(nodes, wanted);
+            }
         }
         for (Tensor t : wanted) {
             ensureHost(t.storage());
@@ -162,6 +183,23 @@ public final class Engine {
             CAPTURING.set(Boolean.FALSE);
             Trace.drain();
         }
+    }
+
+    /**
+     * The CPU backend's counters so far, per operator name: {@code [calls, nanoseconds, calls that
+     * ran the reference implementation]}; the times only with {@code -Djitnn.cpu.stats=true}, which
+     * also prints the table at exit.
+     */
+    public static java.util.Map<String, long[]> cpuStats() {
+        return CpuExecutor.stats();
+    }
+
+    /**
+     * The CPU backend's operators by time since the last call (as printed at exit with
+     * {@code jitnn.cpu.stats}), then starts counting again; empty when nothing ran.
+     */
+    public static String cpuReport() {
+        return CpuExecutor.drainReport();
     }
 
     /** Number of operators recorded and not yet run on this thread. */

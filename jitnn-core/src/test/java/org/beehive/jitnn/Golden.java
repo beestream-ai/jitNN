@@ -475,6 +475,10 @@ public final class Golden {
         if (c.op().equals("pow") || c.op().equals("exp")) {
             rtol = 1e-5;
         }
+        if (c.op().equals("gguf_linear")) {
+            // dequantised weights reach about 120: FP32 sums of 512 products round at 1e-4 and more
+            atol = 1e-3;
+        }
         return gradient ? new double[] { rtol * 10, atol * 10 } : new double[] { rtol, atol };
     }
 }

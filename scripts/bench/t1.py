@@ -5,10 +5,13 @@ Protocol for every framework: host input in, host output out, 10 warm-up calls, 
 of 50 timed calls. FP32 runs have TF32 off everywhere (PyTorch and ONNX Runtime's CUDA provider),
 so they compare FP32 arithmetic; FP16 runs use FP16 weights and activations.
 
-usage: python t1.py [--device cuda|mps] [--models resnet50,bert] <work dir> [jitnn output dir]
+usage: python t1.py [--device cuda|mps|cpu] [--threads N] [--models resnet50,bert] <work dir> [jitnn output dir]
 
 --device mps runs PyTorch on Apple's Metal (MPS) and ONNX Runtime on its CoreML provider, limited
 to the CPU and GPU (not the Neural Engine), so both use the same GPU as jitNN's Metal backend.
+
+--device cpu runs PyTorch eager and ONNX Runtime's CPU provider, FP32 only, on --threads threads
+(default: all the cores PyTorch sees); the comparison for jitNN's CPU backend.
 
 Exports one ONNX model per configuration into <work dir>, prints one line per run and writes
 <work dir>/t1.json. With a jitNN output dir (written by InferenceBenchAccelTest with
@@ -31,7 +34,7 @@ import transformers  # noqa: E402
 torch.backends.cudnn.allow_tf32 = False
 torch.backends.cuda.matmul.allow_tf32 = False
 
-WARMUP, RUNS = 10, 50
+WARMUP, RUNS = int(os.environ.get("T1_WARMUP", 10)), int(os.environ.get("T1_RUNS", 50))
 VOCAB = 30522
 RESNET_BATCHES = [1, 32, 128]
 BERT_SHAPES = [(1, 128), (32, 128), (8, 512)]
@@ -85,6 +88,9 @@ def ort_session(path, fp32, device):
     import onnxruntime as ort
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    if device == "cpu":
+        opts.intra_op_num_threads = torch.get_num_threads()
+        return ort.InferenceSession(path, opts, providers=["CPUExecutionProvider"])
     if device == "mps":
         coreml = {"ModelFormat": "MLProgram", "MLComputeUnits": "CPUAndGPU", "RequireStaticInputShapes": "1"}
         return ort.InferenceSession(path, opts, providers=[("CoreMLExecutionProvider", coreml), "CPUExecutionProvider"])
@@ -92,10 +98,16 @@ def ort_session(path, fp32, device):
     return ort.InferenceSession(path, opts, providers=[("CUDAExecutionProvider", cuda)])
 
 
-ORT_PROVIDER = {"cuda": "CUDAExecutionProvider", "mps": "CoreMLExecutionProvider"}
+ORT_PROVIDER = {"cuda": "CUDAExecutionProvider", "mps": "CoreMLExecutionProvider", "cpu": "CPUExecutionProvider"}
 
 
 def gpu_name(device):
+    if device == "cpu":
+        import platform
+        import subprocess
+        lscpu = subprocess.run(["lscpu"], capture_output=True, text=True).stdout
+        model = next((l.split(":", 1)[1].strip() for l in lscpu.splitlines() if l.startswith("Model name")), platform.machine())
+        return f"{model}, {torch.get_num_threads()} threads"
     if device == "mps":
         import platform
         import subprocess
@@ -141,8 +153,9 @@ def main(work, jitnn_dir, device="cuda", kinds=("resnet50", "bert")):
         with torch.no_grad():
             ref = net32(torch.from_numpy(x_np).to(dev)).cpu().double().numpy()
         jitnn_check(base + "_fp32", ref)
-        jitnn_check(base + "_fp16", ref)
-        for dtype in ("fp32", "fp16"):
+        if device != "cpu":
+            jitnn_check(base + "_fp16", ref)
+        for dtype in ("fp32",) if device == "cpu" else ("fp32", "fp16"):
             fp32 = dtype == "fp32"
             # a copy: converting the shared model to FP16 and back would round its weights
             net = net32 if fp32 else copy.deepcopy(net32).half()
@@ -162,7 +175,7 @@ def main(work, jitnn_dir, device="cuda", kinds=("resnet50", "bert")):
             del sess
         if device == "cuda":
             torch.cuda.empty_cache()
-        else:
+        elif device == "mps":
             torch.mps.empty_cache()
     import onnxruntime as ort
     with open(os.path.join(work, "t1.json"), "w") as f:
@@ -172,9 +185,12 @@ def main(work, jitnn_dir, device="cuda", kinds=("resnet50", "bert")):
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="ResNet-50 and BERT-base inference with PyTorch and ONNX Runtime")
-    ap.add_argument("--device", choices=["cuda", "mps"], default="cuda")
+    ap.add_argument("--device", choices=["cuda", "mps", "cpu"], default="cuda")
+    ap.add_argument("--threads", type=int, default=0, help="CPU threads for PyTorch and ONNX Runtime (default: PyTorch's)")
     ap.add_argument("--models", default="resnet50,bert")
     ap.add_argument("work")
     ap.add_argument("jitnn_dir", nargs="?")
     a = ap.parse_args()
+    if a.threads > 0:
+        torch.set_num_threads(a.threads)
     main(a.work, a.jitnn_dir, a.device, tuple(a.models.split(",")))

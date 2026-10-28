@@ -146,6 +146,12 @@ public final class Linear implements Op {
     }
 
     @Override
+    public boolean cpu(Node node) {
+        return (node.iattr.length < 6 || node.iattr[5] == 0) && CpuKernels.linear(node.in(0), node.in(1), node.iattr[3] != 0 ? node.in(2) : null, node.out(0), node.iattr[0], node.iattr[1], node.iattr[2],
+                node.iattr[4]);
+    }
+
+    @Override
     public Tensor[] backward(Node node, Tensor gy) {
         Tensor x = node.in(0);
         Tensor w = node.in(1);

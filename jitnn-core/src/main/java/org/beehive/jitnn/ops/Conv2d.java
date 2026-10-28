@@ -437,6 +437,13 @@ public final class Conv2d implements Op {
     }
 
     @Override
+    public boolean cpu(Node node) {
+        int[] a = node.iattr;
+        return CpuKernels.conv2d(node.in(0), node.in(1), a[BIAS] != 0 ? node.in(2) : null, node.out(0), a[N], a[CIN], a[H], a[W], a[COUT], a[OH], a[OW], a[K], a[STRIDE], a[PAD],
+                a[DIL], a[GROUPS], a[RELU] != 0);
+    }
+
+    @Override
     public Tensor[] backward(Node node, Tensor gy) {
         int[] a = node.iattr;
         Tensor x = node.in(0);

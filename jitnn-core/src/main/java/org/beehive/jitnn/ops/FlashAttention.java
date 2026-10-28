@@ -562,6 +562,18 @@ public final class FlashAttention implements Op {
     }
 
     @Override
+    public boolean cpu(Node n) {
+        int[] a = n.iattr;
+        if (a.length > QKV_BIAS && a[QKV_BIAS] != 0) {
+            return false;
+        }
+        boolean packed = a[10] == PACKED;
+        int qkv = packed ? 1 : 3;
+        Tensor q = n.in(0);
+        return CpuKernels.attention(a, n.fattr[0], q, packed ? q : n.in(1), packed ? q : n.in(2), n.inputs.length > qkv ? n.in(qkv) : null, n.out(0), n.out(1));
+    }
+
+    @Override
     public void reference(Node n) {
         int[] a = n.iattr;
         int z = a[0];

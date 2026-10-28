@@ -137,6 +137,11 @@ public final class Unary implements Op {
     }
 
     @Override
+    public boolean cpu(Node n) {
+        return CpuKernels.unary(n.iattr[0], n.in(0), n.out(0), n.fattr[0], n.fattr[1]);
+    }
+
+    @Override
     public Tensor[] backward(Node n, Tensor gy) {
         Tensor x = n.in(0);
         Tensor y = n.out(0);

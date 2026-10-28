@@ -26,6 +26,16 @@ public interface Op {
     void reference(Node node);
 
     /**
+     * Computes {@code node} with the CPU backend's kernels: inputs are host-valid and output arrays
+     * allocated, but they may hold old contents, so the kernel writes every element. Returns false,
+     * before writing anything, when the operator has no kernel for these operands; the CPU backend
+     * then zeroes the outputs and runs {@link #reference}.
+     */
+    default boolean cpu(Node node) {
+        return false;
+    }
+
+    /**
      * Gradients with respect to each input, given the gradient of the (first) output. Entries may
      * be null for inputs that need no gradient. Called with gradient tracking disabled.
      */

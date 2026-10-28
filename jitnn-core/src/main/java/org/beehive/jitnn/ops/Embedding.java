@@ -77,6 +77,11 @@ public final class Embedding implements Op {
     }
 
     @Override
+    public boolean cpu(Node n) {
+        return CpuKernels.embedding(n.in(0), n.in(1), n.out(0), n.iattr[0], n.iattr[1], n.iattr[2]);
+    }
+
+    @Override
     public Tensor[] backward(Node n, Tensor gy) {
         if (!n.in(1).requiresGrad()) {
             return new Tensor[] { null, null };

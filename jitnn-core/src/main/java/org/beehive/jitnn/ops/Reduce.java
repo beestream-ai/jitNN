@@ -160,6 +160,11 @@ public final class Reduce implements Op {
     }
 
     @Override
+    public boolean cpu(Node n) {
+        return CpuKernels.reduce(n.in(0), n.out(0), n.iattr[0], n.iattr[1], n.iattr[2], n.iattr[3], n.fattr[0]);
+    }
+
+    @Override
     public Tensor[] backward(Node n, Tensor gy) {
         Tensor x = n.in(0);
         int axis = n.iattr[5];

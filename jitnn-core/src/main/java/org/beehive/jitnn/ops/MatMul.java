@@ -609,6 +609,13 @@ public final class MatMul implements Op {
     }
 
     @Override
+    public boolean cpu(Node node) {
+        int[] a = node.iattr;
+        boolean batched = a.length > 5;
+        return CpuKernels.matmul(node.in(0), node.in(1), node.out(0), a[0], a[1], a[2], a[3] != 0, a[4] != 0, batched ? a[5] : 1, batched ? a[6] : 0, batched ? a[7] : 0);
+    }
+
+    @Override
     public Tensor[] backward(Node node, Tensor gcOut) {
         Tensor a = node.in(0);
         Tensor b = node.in(1);

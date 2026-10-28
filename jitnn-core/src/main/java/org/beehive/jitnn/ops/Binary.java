@@ -256,6 +256,11 @@ public final class Binary implements Op {
     }
 
     @Override
+    public boolean cpu(Node n) {
+        return CpuKernels.binary(n.iattr[0], n.in(0), n.in(1), n.out(0), n.fattr[0], n.fattr[1]);
+    }
+
+    @Override
     public Tensor[] backward(Node n, Tensor gy) {
         Tensor a = n.in(0);
         Tensor b = n.in(1);

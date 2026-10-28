@@ -8,7 +8,7 @@ steps, then the median of 30 steps, each ending with loss.item(). TF32 off, unle
 cuDNN's convolutions use it as PyTorch does by default (jitNN's cuDNN convolutions do too, unless
 NVIDIA_TF32_OVERRIDE=0); cudnn.benchmark on (the tuning PyTorch recommends).
 
-usage: python train_bench.py [--device cuda] [--cudnn-tf32] [--dim 768] [--layers 12] [--heads 12] [--seq 128] [--batch 16]
+usage: python train_bench.py [--device cuda|cpu] [--threads N] [--cudnn-tf32] [--dim 768] [--layers 12] [--heads 12] [--seq 128] [--batch 16]
 """
 import argparse
 import os
@@ -90,10 +90,14 @@ def main():
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--cudnn-tf32", action="store_true", help="cuDNN convolutions in TF32 (PyTorch's default)")
     ap.add_argument("--only", default="", help="cnn or gpt2 to run one family")
+    ap.add_argument("--threads", type=int, default=0, help="CPU threads with --device cpu (default: PyTorch's)")
     args = ap.parse_args()
+    if args.threads > 0:
+        torch.set_num_threads(args.threads)
     torch.backends.cudnn.allow_tf32 = args.cudnn_tf32
     dev = torch.device(args.device)
-    print(f"[train] torch {torch.__version__}, {torch.cuda.get_device_name() if dev.type == 'cuda' else dev}, cuDNN TF32 {'on' if args.cudnn_tf32 else 'off'}", flush=True)
+    where = torch.cuda.get_device_name() if dev.type == "cuda" else f"{dev}, {torch.get_num_threads()} threads"
+    print(f"[train] torch {torch.__version__}, {where}, cuDNN TF32 {'on' if args.cudnn_tf32 else 'off'}", flush=True)
     if args.only in ("", "cnn"):
         cnn("ResNet-50 224x224", models.resnet50(3, 1000, False, 7), 224, 32, 1000, dev)
         cnn("ResNet-18 32x32", models.resnet18(3, 10, True, 7), 32, 128, 10, dev)

@@ -76,6 +76,13 @@ public final class Pool2d implements Op {
     }
 
     @Override
+    public boolean cpu(Node node) {
+        int[] a = node.iattr;
+        boolean max = a[9] == 0;
+        return CpuKernels.pool2d(node.in(0), node.out(0), max ? node.out(1) : null, a[0] * a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], max);
+    }
+
+    @Override
     public void reference(Node node) {
         int[] a = node.iattr;
         int planes = a[0] * a[1], h = a[2], w = a[3], oh = a[4], ow = a[5], k = a[6], st = a[7], pd = a[8];

@@ -15,9 +15,13 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Every wave 1 operator on the TornadoVM device against the host reference. Run with
- * {@code -Paccel-tests}; the device is {@code -Djitnn.test.device=<driver>:<device>}.
+ * {@code -Paccel-tests}; the device is {@code -Djitnn.test.device=<driver>:<device>}, and
+ * {@code -Djitnn.test.backend=cpu} checks the CPU backend instead.
  */
 class OpsAccelTest {
+
+    /** The backend under test ({@code jitnn.test.backend}: tornado or cpu), checked against REFERENCE. */
+    static final Backend TARGET = Backend.valueOf(System.getProperty("jitnn.test.backend", "tornado").trim().toUpperCase(java.util.Locale.ROOT));
 
     private static final double RTOL = 1e-5;
     private static final double ATOL = 1e-6;
@@ -33,7 +37,7 @@ class OpsAccelTest {
 
     static void same(String what, Supplier<Tensor> f, double rtol, double atol) {
         float[] expected = on(Backend.REFERENCE, f);
-        float[] actual = on(Backend.TORNADO, f);
+        float[] actual = on(TARGET, f);
         close(expected, actual, rtol, atol, what);
     }
 
@@ -57,6 +61,7 @@ class OpsAccelTest {
     /** A model loaded again after the first was closed (its weights released) reuses its plans. */
     @Test
     void releasedWeightsReusePlans() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(TARGET == Backend.TORNADO, "compiled plans exist on TORNADO only");
         java.util.function.BiFunction<Tensor[], Tensor, Tensor> model = (w, x) -> F.linear(F.linear(x, w[0], w[1]).relu(), w[2], w[3]);
         // host weights, as a model file gives them; each "load" has different values
         java.util.function.IntFunction<Tensor[]> load = seed -> new Tensor[] { Tensor.persistent(t(64 * 48, 0.001f * seed, -0.1f, 64, 48)),
@@ -68,7 +73,7 @@ class OpsAccelTest {
             int seed = 200 + 10 * m;
             expected[m] = on(Backend.REFERENCE, () -> model.apply(load.apply(seed), x.get()));
         }
-        Engine.with(Backend.TORNADO, () -> {
+        Engine.with(TARGET, () -> {
             Tensor[] first = load.apply(200);
             close(expected[0], model.apply(first, x.get()).toFloatArray(), RTOL, ATOL, "first model");
             long[] before = Engine.planStats();
@@ -249,15 +254,15 @@ class OpsAccelTest {
         same("q8 round trip", () -> F.dequantize(F.quantizeQ8(x.get())), 0, 1.0 / 127 + 1e-6);
         // the products from the same Q8_0 bytes (quantised once on the device: a value on a rounding
         // boundary can land one step apart between devices)
-        Tensor qw = Engine.with(Backend.TORNADO, () -> {
+        Tensor qw = Engine.with(TARGET, () -> {
             Tensor q = F.quantizeQ8(w.get());
             q.toFloatArray();
             return q;
         });
         same("q8 linear", () -> F.linearQ8(x.get(), qw, Tensor.uniform(43, -1, 1, 300)), 1e-5, 1e-5);
         same("q8 linear batched", () -> F.linearQ8(Tensor.uniform(44, -1, 1, 2, 3, 256), qw, null), 1e-5, 1e-5);
-        float[] exact = on(Backend.TORNADO, () -> F.linear(x.get(), w.get(), null));
-        float[] quantised = on(Backend.TORNADO, () -> F.linearQ8(x.get(), F.quantizeQ8(w.get()), null));
+        float[] exact = on(TARGET, () -> F.linear(x.get(), w.get(), null));
+        float[] quantised = on(TARGET, () -> F.linearQ8(x.get(), F.quantizeQ8(w.get()), null));
         double err = 0;
         double norm = 0;
         for (int i = 0; i < exact.length; i++) {
@@ -341,10 +346,10 @@ class OpsAccelTest {
     @Test
     void philoxMatchesHost() {
         float[] host = on(Backend.REFERENCE, () -> Tensor.uniform(7, -2, 2, 4099));
-        float[] device = on(Backend.TORNADO, () -> Tensor.uniform(7, -2, 2, 4099));
+        float[] device = on(TARGET, () -> Tensor.uniform(7, -2, 2, 4099));
         assertArrayEquals(host, device, "uniform is bit-exact");
         same("normal", () -> Tensor.normal(7, 1, 2, 4099), 1e-5, 1e-5);
-        float[] seeded = on(Backend.TORNADO, () -> Tensor.uniform(Tensor.seed(7), -2, 2, 4099));
+        float[] seeded = on(TARGET, () -> Tensor.uniform(Tensor.seed(7), -2, 2, 4099));
         assertArrayEquals(host, seeded, "uniform with a seed tensor is the same stream");
         same("normal, seed tensor", () -> Tensor.normal(Tensor.seed(7), 1, 2, 4099), 1e-5, 1e-5);
     }
@@ -370,7 +375,7 @@ class OpsAccelTest {
             return all;
         };
         float[] expected = Engine.with(Backend.REFERENCE, grads::get);
-        float[] actual = Engine.with(Backend.TORNADO, grads::get);
+        float[] actual = Engine.with(TARGET, grads::get);
         close(expected, actual, 1e-4, 1e-6, "mlp gradients");
     }
 
@@ -378,14 +383,14 @@ class OpsAccelTest {
     void dropoutMasksMatchAndScale() {
         Supplier<Tensor> drop = () -> F.dropout(t(10_000, 1, 2, 10_000), 0.3f, Tensor.of(new int[] { 1234, 77 }, 2), 5);
         float[] host = on(Backend.REFERENCE, drop);
-        float[] device = on(Backend.TORNADO, drop);
+        float[] device = on(TARGET, drop);
         close(host, device, 1e-6, 1e-7, "same mask on host and device");
         int zeros = 0;
         for (float v : device) {
             zeros += v == 0 ? 1 : 0;
         }
         org.junit.jupiter.api.Assertions.assertEquals(0.3, zeros / 10_000.0, 0.02, "drop rate");
-        float[] grad = Engine.with(Backend.TORNADO, () -> {
+        float[] grad = Engine.with(TARGET, () -> {
             Tensor x = t(10_000, 1, 2, 10_000).requiresGrad(true);
             F.dropout(x, 0.3f, Tensor.of(new int[] { 1234, 77 }, 2), 5).sum().backward();
             return x.grad().toFloatArray();
@@ -399,7 +404,7 @@ class OpsAccelTest {
     void topkIndicesMatchReference() {
         Supplier<int[]> f = () -> Tensor.uniform(5, -1.0f, 1.0f, 3, 700).topk(10)[1].toIntArray();
         int[] expected = Engine.with(Backend.REFERENCE, f::get);
-        int[] actual = Engine.with(Backend.TORNADO, f::get);
+        int[] actual = Engine.with(TARGET, f::get);
         assertArrayEquals(expected, actual, "top-k indices");
     }
 
@@ -412,7 +417,7 @@ class OpsAccelTest {
         }
         Supplier<int[]> f = () -> F.multinomial(Tensor.of(w, rows, 5), Tensor.of(new int[] { 1234, 99 }, 2), 7).toIntArray();
         int[] expected = Engine.with(Backend.REFERENCE, f::get);
-        int[] actual = Engine.with(Backend.TORNADO, f::get);
+        int[] actual = Engine.with(TARGET, f::get);
         int differ = 0;
         int[] counts = new int[5];
         for (int r = 0; r < rows; r++) {
@@ -434,7 +439,7 @@ class OpsAccelTest {
         for (DType d : new DType[] { DType.F16, DType.BF16 }) {
             Supplier<float[]> f = () -> Tensor.of(v, v.length).to(d).toFloat().toFloatArray();
             float[] expected = Engine.with(Backend.REFERENCE, f::get);
-            float[] actual = Engine.with(Backend.TORNADO, f::get);
+            float[] actual = Engine.with(TARGET, f::get);
             for (int i = 0; i < v.length; i++) {
                 org.junit.jupiter.api.Assertions.assertEquals(Float.floatToIntBits(expected[i]), Float.floatToIntBits(actual[i]), d + " cast of " + v[i] + ": " + expected[i] + " vs " + actual[i]);
             }
@@ -496,7 +501,7 @@ class OpsAccelTest {
                 return Tensor.cat(0, y.reshape(-1), x.grad().reshape(-1), w.grad().reshape(-1));
             };
             float[] expected = on(Backend.REFERENCE, f);
-            float[] actual = on(Backend.TORNADO, f);
+            float[] actual = on(TARGET, f);
             int weights = cout * cin;
             int rest = expected.length - weights;
             close(Arrays.copyOf(expected, rest), Arrays.copyOf(actual, rest), convTol(1e-4), convTol(1e-4), what);

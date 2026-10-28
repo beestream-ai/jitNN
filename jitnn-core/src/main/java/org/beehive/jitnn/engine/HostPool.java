@@ -20,7 +20,7 @@ import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
  */
 final class HostPool {
 
-    private static final long CAP = Long.getLong("jitnn.hostPool.bytes", 256L << 20);
+    private static volatile long cap = Long.getLong("jitnn.hostPool.bytes", 256L << 20);
     private static final Cleaner CLEANER = Cleaner.create();
     private static final Map<Long, ArrayDeque<TornadoNativeArray>> FREE = new HashMap<>();
     private static long bytes;
@@ -51,6 +51,11 @@ final class HostPool {
         return l;
     }
 
+    /** Keeps up to {@code bytes} pooled, if that is more than now (the CPU backend's intermediates). */
+    static void raiseCap(long bytes) {
+        cap = Math.max(cap, bytes);
+    }
+
     /** {@code [arrays reused, arrays allocated]} by {@link #take} so far. */
     static long[] stats() {
         synchronized (FREE) {
@@ -61,7 +66,7 @@ final class HostPool {
     private static void give(TornadoNativeArray a, DType dtype, int numel) {
         synchronized (FREE) {
             long size = a.getNumBytesOfSegment();
-            if (bytes + size > CAP) {
+            if (bytes + size > cap) {
                 return;
             }
             FREE.computeIfAbsent(key(dtype, numel), k -> new ArrayDeque<>()).push(a);

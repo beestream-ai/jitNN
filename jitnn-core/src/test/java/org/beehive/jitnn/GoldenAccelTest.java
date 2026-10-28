@@ -7,7 +7,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
-/** The device kernels against PyTorch, every golden case. */
+/** The device kernels (or the CPU backend, {@code -Djitnn.test.backend=cpu}) against PyTorch, every golden case. */
 class GoldenAccelTest {
 
     @AfterAll
@@ -17,6 +17,6 @@ class GoldenAccelTest {
 
     @TestFactory
     List<DynamicTest> deviceMatchesPyTorch() {
-        return GoldenOps.tests(Engine.Backend.TORNADO);
+        return GoldenOps.tests(OpsAccelTest.TARGET);
     }
 }

@@ -88,7 +88,7 @@ public final class Native {
      * backend, not disabled, and available (probed once per device).
      */
     public static synchronized boolean use(String function, Lib lib) {
-        if (!WANTED.contains(lib) || DISABLED.contains(feature(lib, function)) || Devices.backend() != lib.backend) {
+        if (Engine.backend() != Engine.Backend.TORNADO || !WANTED.contains(lib) || DISABLED.contains(feature(lib, function)) || Devices.backend() != lib.backend) {
             return false;
         }
         if (!use(lib)) {

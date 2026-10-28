@@ -203,7 +203,7 @@ public final class Tensor implements AutoCloseable {
     /** Persistent storage without gradient tracking (optimiser state, running statistics). */
     public static Tensor persistent(Tensor init) {
         // a random initial value just recorded is drawn on the host (same values), not by a device plan
-        if (!init.storage.isHostValid() && backendIsDevice()) {
+        if (!init.storage.isHostValid() && backendIsLazy()) {
             org.beehive.jitnn.engine.Engine.generateOnHost(init);
         }
         // host data (not persistent, so no pending operator can write it) is copied without a sync,
@@ -310,8 +310,9 @@ public final class Tensor implements AutoCloseable {
         return storage;
     }
 
-    private static boolean backendIsDevice() {
-        return org.beehive.jitnn.engine.Engine.backend() == org.beehive.jitnn.engine.Engine.Backend.TORNADO;
+    /** True when operators wait in a trace until a sync (every backend but REFERENCE). */
+    private static boolean backendIsLazy() {
+        return org.beehive.jitnn.engine.Engine.backend() != org.beehive.jitnn.engine.Engine.Backend.REFERENCE;
     }
 
     /**

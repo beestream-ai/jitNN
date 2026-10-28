@@ -76,6 +76,11 @@ public final class Softmax implements Op {
     }
 
     @Override
+    public boolean cpu(Node n) {
+        return CpuKernels.softmax(n.in(0), n.out(0), n.iattr[0], n.iattr[1], n.iattr[2] != 0);
+    }
+
+    @Override
     public Tensor[] backward(Node n, Tensor gy) {
         Tensor dx = Tensor.result(n.in(0).shape(), DType.F32);
         Tensor.record(BACKWARD, new Tensor[] { n.out(0), gy }, new Tensor[] { dx }, n.iattr.clone(), null, true);
