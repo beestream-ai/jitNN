@@ -310,7 +310,19 @@ final class CpuKernels {
         if (inner == 1 && sum) {
             Cpu.parallelFor(outer, Math.max(1, Elementwise_GRAIN / Math.max(1, len)), (from, to) -> {
                 for (int o = from; o < to; o++) {
-                    os.setAtIndex(F, o, Elementwise.sum(xs, (long) o * len, len) * scale);
+                    long at = (long) o * len;
+                    float total;
+                    if (len < 64) {
+                        // short rows (a global average pool's 7 x 7): a plain loop; the vector sum's
+                        // few lanes cost more than they save, and the loop is at full speed sooner
+                        total = 0;
+                        for (int q = 0; q < len; q++) {
+                            total += xs.getAtIndex(F, at + q);
+                        }
+                    } else {
+                        total = Elementwise.sum(xs, at, len);
+                    }
+                    os.setAtIndex(F, o, total * scale);
                 }
             });
             return true;

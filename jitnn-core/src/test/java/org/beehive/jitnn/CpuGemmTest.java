@@ -79,6 +79,10 @@ class CpuGemmTest {
         same("conv grouped", () -> F.conv2d(u(52, 2, 12, 10, 10), u(53, 16, 3, 3, 3), u(54, 16), 1, 1, 1, 4));
         same("conv depthwise", () -> F.conv2d(u(55, 2, 8, 10, 10), u(56, 8, 1, 3, 3), null, 1, 1, 1, 8));
         same("conv 3x3 64 channels, deep", () -> F.conv2d(u(57, 2, 64, 14, 14), u(58, 64, 64, 3, 3), null, 1, 1, 1, 1), 1e-5, 5e-5);
+        same("conv batch, dilation 2, stride 2", () -> F.conv2d(u(59, 3, 6, 17, 15), u(60, 10, 6, 3, 3), u(61, 10), 2, 2, 2, 1));
+        same("conv batch of 32 x 32 images", () -> F.conv2dRelu(u(62, 4, 64, 32, 32), u(63, 64, 64, 3, 3).mul(0.1f), u(64, 64), 1, 1, 1, 1), 1e-5, 5e-5);
+        same("conv batch of 48 small maps", () -> F.conv2dRelu(u(65, 48, 64, 14, 14), u(66, 64, 64, 3, 3).mul(0.1f), u(67, 64), 1, 1, 1, 1), 1e-5,
+                5e-5);
         assertEquals(before, fallbacks("conv2d"), "every convolution ran the CPU kernel");
     }
 }

@@ -12,6 +12,7 @@ Sizes are in bytes.
 | `jitnn.cpu.spinMicros` | `200` | how long idle `cpu` backend threads (and a caller waiting for them) spin before they sleep |
 | `jitnn.cpu.poolBytes` | `2147483648` (2 GiB) | host arrays the `cpu` backend keeps for reuse (activations, intermediates), unless `jitnn.hostPool.bytes` is set |
 | `jitnn.cpu.gemm.kc`, `jitnn.cpu.gemm.mcPanels`, `jitnn.cpu.gemm.nc`, `jitnn.cpu.gemm.tileMacs` | `256`, `16`, `256`, `1048576` | the `cpu` backend's GEMM blocking: depth per block, rows of A per tile (in panels of 6), columns of B per tile, and the multiply-adds a parallel tile holds at least |
+| `jitnn.cpu.stats.shapes` | `false` | with `jitnn.cpu.stats`: one row per operator and attributes (its shapes) |
 | `jitnn.cpu.stats` | `false` | time every operator on the `cpu` backend and print calls, time and reference fallbacks per operator at exit; `Engine.cpuStats()` gives the counts without it |
 | `jitnn.device` | TornadoVM's default device | `<driver>:<device>`, as listed by `tornado --devices` |
 | `jitnn.plan.cache` | `16` (`64` under `jitnn-djl` when not set) | compiled plans kept; the least recently used is closed, saving parameters first |

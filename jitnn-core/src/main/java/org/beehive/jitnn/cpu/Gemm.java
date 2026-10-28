@@ -420,20 +420,21 @@ public final class Gemm {
             float rb = rowBias ? bias.getAtIndex(F, biasOff + i) : 0;
             FloatVector vrb = FloatVector.broadcast(S, rb);
             int j = j0;
-            if (!gelu) {
-                for (; j < vEnd; j += L) {
-                    FloatVector v = FloatVector.fromMemorySegment(S, c, (row + j) * 4, ORDER);
-                    if (rowBias) {
-                        v = v.add(vrb);
-                    }
-                    if (colBias) {
-                        v = v.add(FloatVector.fromMemorySegment(S, bias, (biasOff + j) * 4, ORDER));
-                    }
-                    if (relu) {
-                        v = v.lanewise(VectorOperators.MAX, 0f);
-                    }
-                    v.intoMemorySegment(c, (row + j) * 4, ORDER);
+            for (; j < vEnd; j += L) {
+                FloatVector v = FloatVector.fromMemorySegment(S, c, (row + j) * 4, ORDER);
+                if (rowBias) {
+                    v = v.add(vrb);
                 }
+                if (colBias) {
+                    v = v.add(FloatVector.fromMemorySegment(S, bias, (biasOff + j) * 4, ORDER));
+                }
+                if (relu) {
+                    v = v.lanewise(VectorOperators.MAX, 0f);
+                }
+                if (gelu) {
+                    v = Elementwise.gelu(v);
+                }
+                v.intoMemorySegment(c, (row + j) * 4, ORDER);
             }
             for (; j < j1; j++) {
                 float v = c.getAtIndex(F, row + j) + rb + (colBias ? bias.getAtIndex(F, biasOff + j) : 0);

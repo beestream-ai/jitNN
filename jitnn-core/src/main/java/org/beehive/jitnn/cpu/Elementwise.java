@@ -114,7 +114,7 @@ public final class Elementwise {
         return code == ElementwiseKernels.NEG || code == ElementwiseKernels.ABS || code == ElementwiseKernels.RELU || code == ElementwiseKernels.AFFINE
                 || code == ElementwiseKernels.CLAMP || code == ElementwiseKernels.SQUARE || code == ElementwiseKernels.RECIPROCAL || code == ElementwiseKernels.SQRT
                 || code == ElementwiseKernels.EXP || code == ElementwiseKernels.SIGMOID || code == ElementwiseKernels.SILU || code == ElementwiseKernels.TANH
-                || code == ElementwiseKernels.LEAKY_RELU;
+                || code == ElementwiseKernels.LEAKY_RELU || code == ElementwiseKernels.GELU;
     }
 
     /** out[i] = op(x[i]) for i in [0, n), op a unary {@link ElementwiseKernels} code with its alpha and beta. */
@@ -151,6 +151,8 @@ public final class Elementwise {
                         r = v.mul(sigmoid(v));
                     } else if (code == ElementwiseKernels.TANH) {
                         r = v.lanewise(VectorOperators.TANH);
+                    } else if (code == ElementwiseKernels.GELU) {
+                        r = gelu(v);
                     } else {
                         r = v.mul(alpha).blend(v, v.compare(VectorOperators.GT, 0f));
                     }
@@ -161,6 +163,23 @@ public final class Elementwise {
                 out.setAtIndex(F, j, ElementwiseKernels.unaryOp(code, x.getAtIndex(F, j), alpha, beta));
             }
         });
+    }
+
+    /**
+     * Exact GELU, x Phi(x) = x erfc(-x / sqrt(2)) / 2, with the complementary error function of the
+     * device kernels ({@link ElementwiseKernels#erfc}: Numerical Recipes' Chebyshev fit, fractional
+     * error below 1.2e-7) in vector lanes.
+     */
+    public static FloatVector gelu(FloatVector x) {
+        FloatVector u = x.mul(-0.70710678f);
+        FloatVector z = u.abs();
+        FloatVector t = FloatVector.broadcast(S, 1f).div(z.fma(0.5f, 1f));
+        FloatVector poly = t.fma(0.17087277f, -0.82215223f).fma(t, FloatVector.broadcast(S, 1.48851587f)).fma(t, FloatVector.broadcast(S, -1.13520398f))
+                .fma(t, FloatVector.broadcast(S, 0.27886807f)).fma(t, FloatVector.broadcast(S, -0.18628806f)).fma(t, FloatVector.broadcast(S, 0.09678418f))
+                .fma(t, FloatVector.broadcast(S, 0.37409196f)).fma(t, FloatVector.broadcast(S, 1.00002368f)).fma(t, FloatVector.broadcast(S, -1.26551223f));
+        FloatVector r = t.mul(z.mul(z).neg().add(poly).lanewise(VectorOperators.EXP));
+        FloatVector erfc = r.blend(FloatVector.broadcast(S, 2f).sub(r), u.compare(VectorOperators.LT, 0f));
+        return x.mul(erfc).mul(0.5f);
     }
 
     private static FloatVector sigmoid(FloatVector v) {

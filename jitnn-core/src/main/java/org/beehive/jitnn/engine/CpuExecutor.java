@@ -31,6 +31,8 @@ import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
 final class CpuExecutor {
 
     static final boolean STATS = Boolean.getBoolean("jitnn.cpu.stats");
+    /** With {@code jitnn.cpu.stats}: one row per operator and attributes (shapes), not per operator. */
+    private static final boolean BY_SHAPE = Boolean.getBoolean("jitnn.cpu.stats.shapes");
     /** Per operator name: calls, nanoseconds (with {@link #STATS}), calls that ran the reference. */
     private static final Map<String, LongAdder[]> BY_OP = new ConcurrentHashMap<>();
 
@@ -114,7 +116,7 @@ final class CpuExecutor {
                 }
                 n.op.reference(n);
             }
-            count(n.op.name(), STATS ? System.nanoTime() - start : 0, !kernel);
+            count(BY_SHAPE ? n.op.name() + java.util.Arrays.toString(n.iattr) : n.op.name(), STATS ? System.nanoTime() - start : 0, !kernel);
             n.executed = true;
             if (releases[i] != null) {
                 for (Storage s : releases[i]) {
