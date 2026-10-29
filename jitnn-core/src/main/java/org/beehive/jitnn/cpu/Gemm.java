@@ -252,6 +252,121 @@ public final class Gemm {
         }
     }
 
+    /**
+     * The im2col matrix of one image and group, unpacked and row-major: row q is (ci, kh, kw) of
+     * {@code cg} input channels starting at index {@code off} of {@code x} ([cg, h, w] planes), column
+     * j output pixel (j / ow, j % ow), zero outside the image; for a native BLAS. Element (q, j) goes
+     * to index {@code dstOff + q * ld + j} of {@code dst} (several images side by side share rows).
+     * Parallel over rows.
+     */
+    public static void im2col(MemorySegment x, long off, int cg, int h, int w, int r, int stride, int pad, int dil, int oh, int ow, MemorySegment dst, long dstOff, long ld) {
+        int pixels = oh * ow;
+        int rows = cg * r * r;
+        Cpu.parallelFor(rows, Math.max(1, PACK_GRAIN / Math.max(1, pixels)), (from, to) -> {
+            for (int q = from; q < to; q++) {
+                int ci = q / (r * r);
+                int kh = q / r % r;
+                int kw = q % r;
+                long plane = off + (long) ci * h * w;
+                long row = dstOff + q * ld;
+                for (int oy = 0; oy < oh; oy++) {
+                    int iy = oy * stride - pad + kh * dil;
+                    long at = row + (long) oy * ow;
+                    if (iy < 0 || iy >= h) {
+                        dst.asSlice(at * 4, (long) ow * 4).fill((byte) 0);
+                        continue;
+                    }
+                    long src = plane + (long) iy * w;
+                    int x0 = kw * dil - pad;
+                    if (stride == 1) {
+                        // columns ox with 0 <= ox + x0 < w are one contiguous run
+                        int lo = Math.max(0, -x0);
+                        int hi = Math.min(ow, w - x0);
+                        if (hi <= lo) {
+                            dst.asSlice(at * 4, (long) ow * 4).fill((byte) 0);
+                            continue;
+                        }
+                        if (lo > 0) {
+                            dst.asSlice(at * 4, (long) lo * 4).fill((byte) 0);
+                        }
+                        MemorySegment.copy(x, (src + lo + x0) * 4, dst, (at + lo) * 4, (long) (hi - lo) * 4);
+                        if (hi < ow) {
+                            dst.asSlice((at + hi) * 4, (long) (ow - hi) * 4).fill((byte) 0);
+                        }
+                        continue;
+                    }
+                    for (int ox = 0; ox < ow; ox++) {
+                        int ix = ox * stride + x0;
+                        dst.setAtIndex(F, at + ox, ix >= 0 && ix < w ? x.getAtIndex(F, src + ix) : 0f);
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * The inverse of {@link #im2col}: sets the {@code cg} planes ([h, w]) at index {@code off} of
+     * {@code dx} to the sum of the im2col entries that read each input pixel, from the columns at
+     * {@code colOff} (leading dimension {@code ld}) of {@code col}. Parallel over channels.
+     */
+    public static void col2im(MemorySegment col, long colOff, long ld, int cg, int h, int w, int r, int stride, int pad, int dil, int oh, int ow, MemorySegment dx, long off) {
+        Cpu.parallelFor(cg, 1, (c0, c1) -> {
+            for (int ci = c0; ci < c1; ci++) {
+                long plane = off + (long) ci * h * w;
+                dx.asSlice(plane * 4, (long) h * w * 4).fill((byte) 0);
+                for (int kh = 0; kh < r; kh++) {
+                    for (int kw = 0; kw < r; kw++) {
+                        long row = colOff + (long) ((ci * r + kh) * r + kw) * ld;
+                        for (int oy = 0; oy < oh; oy++) {
+                            int iy = oy * stride - pad + kh * dil;
+                            if (iy < 0 || iy >= h) {
+                                continue;
+                            }
+                            long at = plane + (long) iy * w;
+                            long src = row + (long) oy * ow;
+                            int x0 = kw * dil - pad;
+                            int lo = stride == 1 ? Math.max(0, -x0) : 0;
+                            int hi = stride == 1 ? Math.min(ow, w - x0) : ow;
+                            if (stride == 1) {
+                                int ox = lo;
+                                int vEnd = lo + S.loopBound(Math.max(0, hi - lo));
+                                for (; ox < vEnd; ox += L) {
+                                    long d = (at + ox + x0) * 4;
+                                    FloatVector.fromMemorySegment(S, dx, d, ORDER).add(FloatVector.fromMemorySegment(S, col, (src + ox) * 4, ORDER)).intoMemorySegment(dx, d, ORDER);
+                                }
+                                for (; ox < hi; ox++) {
+                                    dx.setAtIndex(F, at + ox + x0, dx.getAtIndex(F, at + ox + x0) + col.getAtIndex(F, src + ox));
+                                }
+                                continue;
+                            }
+                            for (int ox = 0; ox < ow; ox++) {
+                                int ix = ox * stride + x0;
+                                if (ix >= 0 && ix < w) {
+                                    dx.setAtIndex(F, at + ix, dx.getAtIndex(F, at + ix) + col.getAtIndex(F, src + ox));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Gathers {@code rows} rows of {@code pixels} floats from each of {@code images} images (image i's
+     * row c at index {@code off + i * imageStride + c * pixels} of {@code src}) into {@code dst},
+     * row-major [rows, images * pixels]: the images side by side, for one GEMM over all of them.
+     */
+    public static void gatherImages(MemorySegment src, long off, long imageStride, int images, int rows, int pixels, MemorySegment dst) {
+        Cpu.parallelFor(rows, Math.max(1, PACK_GRAIN / Math.max(1, images * pixels)), (from, to) -> {
+            for (int c = from; c < to; c++) {
+                for (int i = 0; i < images; i++) {
+                    MemorySegment.copy(src, (off + i * imageStride + (long) c * pixels) * 4, dst, ((long) c * images * pixels + (long) i * pixels) * 4, (long) pixels * 4);
+                }
+            }
+        });
+    }
+
     /** Depth positions (pixels) one packing work item covers. */
     private static final int DEPTH_BLOCK = 512;
 
@@ -551,6 +666,18 @@ public final class Gemm {
                 c.setAtIndex(F, base + j, first ? v : c.getAtIndex(F, base + j) + v);
             }
         }
+    }
+
+    /**
+     * Applies {@code epilogue} (bias, ReLU, GELU: not {@link #ACCUMULATE}) to the m x n matrix C at
+     * {@code cOff} with leading dimension {@code ldc}, in parallel over rows: after a product
+     * another library computed.
+     */
+    public static void epilogue(MemorySegment c, long cOff, long ldc, int m, int n, MemorySegment bias, long biasOff, int epilogue) {
+        if ((epilogue & ~ACCUMULATE) == 0) {
+            return;
+        }
+        Cpu.parallelFor(m, Math.max(1, (1 << 15) / Math.max(1, n)), (from, to) -> epilogue(c, cOff, ldc, bias, biasOff, epilogue, from, to, 0, n));
     }
 
     private static final float INV_SQRT2 = (float) (1 / Math.sqrt(2));

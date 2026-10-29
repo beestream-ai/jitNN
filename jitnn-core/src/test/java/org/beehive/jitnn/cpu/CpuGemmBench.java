@@ -60,6 +60,44 @@ class CpuGemmBench {
         }
     }
 
+    /**
+     * The CPU backend's GEMM next to the native BLAS of {@code jitnn.cpu.blas} on the same products:
+     * square, BERT-base (inference and training at 8 x 128 tokens) and the per-image GEMMs of
+     * ResNet-50's convolutions (output channels x pixels x input channels times kernel area).
+     */
+    @Test
+    void blasThroughput() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Blas.usable(), "no BLAS library");
+        System.out.printf(Locale.ROOT, "[blas] %s, %d threads%n", Blas.library(), Cpu.threads());
+        int[][] shapes = { { 512, 512, 512 }, { 1024, 1024, 1024 }, { 2048, 2048, 2048 }, { 128, 768, 768 }, { 128, 3072, 768 }, { 1024, 2304, 768 }, { 1024, 3072, 768 }, { 1024, 768, 3072 },
+                { 768, 768, 1024 }, { 4096, 3072, 768 }, { 64, 3136, 576 }, { 256, 3136, 64 }, { 64, 3136, 256 }, { 128, 784, 1152 }, { 256, 196, 2304 }, { 512, 49, 4608 }, { 2048, 49, 512 } };
+        for (int[] s : shapes) {
+            int m = s[0], n = s[1], k = s[2];
+            try (Arena arena = Arena.ofShared()) {
+                MemorySegment a = random(arena, (long) m * k, 1);
+                MemorySegment b = random(arena, (long) k * n, 2);
+                MemorySegment c = arena.allocate((long) m * n * 4, 64);
+                MemorySegment d = arena.allocate((long) m * n * 4, 64);
+                Gemm.Matrix am = new Gemm.Matrix(a, 0, k, 1);
+                Gemm.Matrix bm = new Gemm.Matrix(b, 0, 1, n);
+                float[] bp = Gemm.packB(bm, n, k, new float[Gemm.packedSize(n, k, Gemm.NR)]);
+                String what = String.format(Locale.ROOT, "%dx%dx%d", m, n, k);
+                report(what + " java", 2.0 * m * n * k, () -> {
+                    float[] ap = Gemm.packA(am, m, k, Gemm.scratch(0, Gemm.packedSize(m, k, Gemm.MR)));
+                    Gemm.compute(ap, bp, m, n, k, c, 0, n, null, 0, 0);
+                });
+                report(what + " blas", 2.0 * m * n * k, () -> Blas.sgemm(am, bm, m, n, k, d, 0, n, 0f));
+                float diff = 0;
+                for (long i = 0; i < (long) m * n; i++) {
+                    diff = Math.max(diff, Math.abs(c.getAtIndex(ValueLayout.JAVA_FLOAT, i) - d.getAtIndex(ValueLayout.JAVA_FLOAT, i)));
+                }
+                if (diff > 1e-3f * Math.sqrt(k)) {
+                    throw new AssertionError(what + ": BLAS differs by " + diff);
+                }
+            }
+        }
+    }
+
     /** The micro-kernel alone on L1-resident panels: the ceiling the GEMM can reach on one core. */
     @Test
     void kernelOnly() {

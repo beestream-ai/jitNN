@@ -4,10 +4,13 @@ import java.lang.foreign.MemorySegment;
 
 import org.beehive.jitnn.DType;
 import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.cpu.Blas;
 import org.beehive.jitnn.cpu.Cpu;
+import org.beehive.jitnn.cpu.Dnnl;
 import org.beehive.jitnn.cpu.Elementwise;
 import org.beehive.jitnn.cpu.Gemm;
 import org.beehive.jitnn.cpu.Gemm.Matrix;
+import org.beehive.jitnn.cpu.Race;
 import org.beehive.jitnn.engine.Storage;
 
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
@@ -54,10 +57,12 @@ final class CpuKernels {
         if (xs == null || ws == null || ys == null || b != null && bs == null || act > 2) {
             return false;
         }
-        float[] ap = packed(x, "linearA" + m + "x" + k, 0, m, k, Gemm.MR, new Matrix(xs, 0, k, 1));
-        float[] bp = packed(w, "linearB" + n + "x" + k, 1, n, k, Gemm.NR, new Matrix(ws, 0, k, 1));
         int epilogue = (b != null ? Gemm.BIAS_COL : 0) | (act == 1 ? Gemm.RELU : 0) | (act == 2 ? Gemm.GELU : 0);
-        Gemm.compute(ap, bp, m, n, k, ys, 0, n, bs, 0, epilogue);
+        Blas.multiply("linear " + m + "x" + n + "x" + k, new Matrix(xs, 0, k, 1), new Matrix(ws, 0, k, 1), m, n, k, ys, 0, n, bs, 0, epilogue, () -> {
+            float[] ap = packed(x, "linearA" + m + "x" + k, 0, m, k, Gemm.MR, new Matrix(xs, 0, k, 1));
+            float[] bp = packed(w, "linearB" + n + "x" + k, 1, n, k, Gemm.NR, new Matrix(ws, 0, k, 1));
+            Gemm.compute(ap, bp, m, n, k, ys, 0, n, bs, 0, epilogue);
+        });
         return true;
     }
 
@@ -76,7 +81,16 @@ final class CpuKernels {
         long aqs = ta ? m : 1;
         long bxs = tb ? k : 1;
         long bqs = tb ? 1 : n;
-        if (batch == 1 || strideA == 0 && strideB == 0) {
+        if (batch == 1) {
+            Blas.multiply("matmul " + m + "x" + n + "x" + k + (ta ? "t" : "n") + (tb ? "t" : "n"), new Matrix(as, 0, axs, aqs), new Matrix(bs, 0, bxs, bqs), m, n, k, cs, 0, n, null, 0, 0,
+                    () -> {
+                        float[] ap = packed(a, "matmulA" + m + "x" + k + ta, 0, m, k, Gemm.MR, new Matrix(as, 0, axs, aqs));
+                        float[] bp = packed(b, "matmulB" + n + "x" + k + tb, 1, n, k, Gemm.NR, new Matrix(bs, 0, bxs, bqs));
+                        Gemm.compute(ap, bp, m, n, k, cs, 0, n, null, 0, 0);
+                    });
+            return true;
+        }
+        if (strideA == 0 && strideB == 0) {
             float[] ap = packed(a, "matmulA" + m + "x" + k + ta, 0, m, k, Gemm.MR, new Matrix(as, 0, axs, aqs));
             float[] bp = packed(b, "matmulB" + n + "x" + k + tb, 1, n, k, Gemm.NR, new Matrix(bs, 0, bxs, bqs));
             for (int z = 0; z < batch; z++) {
@@ -86,7 +100,12 @@ final class CpuKernels {
         }
         Cpu.Range one = (from, to) -> {
             for (int z = from; z < to; z++) {
-                Gemm.multiply(new Matrix(as, (long) z * strideA, axs, aqs), new Matrix(bs, (long) z * strideB, bxs, bqs), m, n, k, cs, (long) z * m * n, n, null, 0, 0);
+                Matrix az = new Matrix(as, (long) z * strideA, axs, aqs);
+                Matrix bz = new Matrix(bs, (long) z * strideB, bxs, bqs);
+                long cOff = (long) z * m * n;
+                // inside a parallel loop the library is not used and its race not run
+                Blas.multiply("matmul " + m + "x" + n + "x" + k + (ta ? "t" : "n") + (tb ? "t" : "n") + " batched", az, bz, m, n, k, cs, cOff, n, null, 0, 0,
+                        () -> Gemm.multiply(az, bz, m, n, k, cs, cOff, n, null, 0, 0));
             }
         };
         if (batch >= Cpu.threads() || 2L * m * n * k < 1 << 22) {
@@ -118,6 +137,35 @@ final class CpuKernels {
         int pixels = oh * ow;
         boolean pointwise = r == 1 && stride == 1 && pad == 0;
         int epilogue = (bs != null ? Gemm.BIAS_ROW : 0) | (relu ? Gemm.RELU : 0);
+        // the BLAS library, per image: the image's im2col matrix (the image itself for a 1 x 1,
+        // stride 1 convolution) times the weights, the GEMM on all the library's threads
+        Runnable blas = groups != 1 || !Blas.usable() ? null : () -> {
+            MemorySegment col = pointwise ? null : Blas.scratch(0, (long) k * pixels);
+            for (int img = 0; img < n; img++) {
+                long xOff = (long) img * cin * h * wd;
+                Matrix columns;
+                if (pointwise) {
+                    columns = new Matrix(xs, xOff, 1, (long) h * wd);
+                } else {
+                    Gemm.im2col(xs, xOff, cin, h, wd, r, stride, pad, dil, oh, ow, col, 0, pixels);
+                    columns = new Matrix(col, 0, 1, pixels);
+                }
+                long cOff = (long) img * cout * pixels;
+                Blas.sgemm(new Matrix(wsg, 0, k, 1), columns, cout, pixels, k, os, cOff, pixels, 0f);
+                Gemm.epilogue(os, cOff, pixels, cout, pixels, bs, 0, epilogue);
+            }
+        };
+        Storage weight = w.storage();
+        Object owner = weight.isPersistent() ? weight : null;
+        Runnable onednn = !Dnnl.available() ? null
+                : () -> Dnnl.conv2d(xs, wsg, owner, weight.version(), bs, os, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups, relu);
+        Race.run("conv2d " + n + "x" + cin + "x" + h + "x" + wd + " " + cout + " r" + r + " s" + stride + " p" + pad + " d" + dil + " g" + groups + (relu ? " relu" : ""),
+                () -> conv2dKernel(xs, wsg, os, bs, w, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups, cg, cog, k, pixels, pointwise, epilogue), blas, onednn);
+        return true;
+    }
+
+    private static void conv2dKernel(MemorySegment xs, MemorySegment wsg, MemorySegment os, MemorySegment bs, Tensor w, int n, int cin, int h, int wd, int cout, int oh, int ow, int r,
+            int stride, int pad, int dil, int groups, int cg, int cog, int k, int pixels, boolean pointwise, int epilogue) {
         float[][] weights = new float[groups][];
         for (int g = 0; g < groups; g++) {
             weights[g] = packed(w, "convA" + g + "/" + groups + ":" + cog + "x" + k, groups == 1 ? 0 : -1, cog, k, Gemm.MR, new Matrix(wsg, (long) g * cog * k, k, 1));
@@ -133,7 +181,7 @@ final class CpuKernels {
                 Gemm.packIm2col(xs, 0, cg, h, wd, r, stride, pad, dil, oh, ow, col);
             }
             Gemm.compute(weights[0], col, cog, pixels, k, os, 0, pixels, bs, 0, epilogue);
-            return true;
+            return;
         }
         // several images (or groups): one per work item, the output channels split in two when there
         // are fewer images than threads; each item packs its own columns (a split packs them again,
@@ -162,7 +210,6 @@ final class CpuKernels {
                 Gemm.compute(weights[g], p0 * k * Gemm.MR, col, rows, pixels, k, os, cOff, pixels, bs, (long) g * cog + row0, epilogue);
             }
         });
-        return true;
     }
 
     private static final java.lang.foreign.ValueLayout.OfFloat F = java.lang.foreign.ValueLayout.JAVA_FLOAT;
@@ -534,11 +581,109 @@ final class CpuKernels {
 
     private static final ThreadLocal<float[]> COLUMNS = ThreadLocal.withInitial(() -> new float[0]);
 
+    /** Images per BLAS GEMM of a convolution's gradient: about 4096 pixels deep, at most 16 Mi floats per operand. */
+    private static int imagesPerGemm(int n, int pixels, int rows) {
+        long byDepth = Math.max(1, 4096 / Math.max(1, pixels));
+        long bySize = Math.max(1, (1L << 24) / Math.max(1L, (long) rows * pixels));
+        return (int) Math.max(1, Math.min(n, Math.min(byDepth, bySize)));
+    }
+
+    /** dx = the input gradient of conv2d: the CPU kernel or oneDNN, whichever is faster for the shape. */
+    static boolean conv2dBackwardData(Tensor dy, Tensor w, Tensor dx, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad, int dil, int groups) {
+        MemorySegment dys = f32(dy);
+        MemorySegment ws = f32(w);
+        MemorySegment dxs = f32(dx);
+        if (dys == null || ws == null || dxs == null) {
+            return false;
+        }
+        int k = cin * r * r;
+        int pixels = oh * ow;
+        boolean pointwise = r == 1 && stride == 1 && pad == 0;
+        // the BLAS library, over a chunk of images at once: the columns' gradient W^T dy, then col2im
+        // (a 1 x 1, stride 1 convolution writes W^T dy straight into dx, one image at a time)
+        Runnable blas = groups != 1 || !Blas.usable() ? null : () -> {
+            int chunk = pointwise ? 1 : imagesPerGemm(n, pixels, Math.max(k, cout));
+            Matrix wT = new Matrix(ws, 0, 1, k);
+            for (int img0 = 0; img0 < n; img0 += chunk) {
+                int images = Math.min(chunk, n - img0);
+                long width = (long) images * pixels;
+                Matrix grads;
+                if (images == 1) {
+                    grads = new Matrix(dys, (long) img0 * cout * pixels, 1, pixels);
+                } else {
+                    MemorySegment g = Blas.scratch(0, cout * width);
+                    Gemm.gatherImages(dys, (long) img0 * cout * pixels, (long) cout * pixels, images, cout, pixels, g);
+                    grads = new Matrix(g, 0, 1, width);
+                }
+                if (pointwise) {
+                    Blas.sgemm(wT, grads, cin, pixels, cout, dxs, (long) img0 * cin * pixels, pixels, 0f);
+                    continue;
+                }
+                MemorySegment dcol = Blas.scratch(1, k * width);
+                Blas.sgemm(wT, grads, k, (int) width, cout, dcol, 0, width, 0f);
+                for (int i = 0; i < images; i++) {
+                    Gemm.col2im(dcol, (long) i * pixels, width, cin, h, wd, r, stride, pad, dil, oh, ow, dxs, (long) (img0 + i) * cin * h * wd);
+                }
+            }
+        };
+        Storage weight = w.storage();
+        Object owner = weight.isPersistent() ? weight : null;
+        Race.run("conv2d_bwd_data " + n + "x" + cin + "x" + h + "x" + wd + " " + cout + " r" + r + " s" + stride + " p" + pad + " d" + dil + " g" + groups,
+                () -> conv2dBackwardDataKernel(dy, w, dx, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups), blas,
+                !Dnnl.available() ? null : () -> Dnnl.conv2dBackwardData(dys, ws, owner, weight.version(), dxs, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups));
+        return true;
+    }
+
+    /** dw = the weight gradient of conv2d: the CPU kernel or oneDNN, whichever is faster for the shape. */
+    static boolean conv2dBackwardWeight(Tensor dy, Tensor x, Tensor dw, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad, int dil, int groups) {
+        MemorySegment dys = f32(dy);
+        MemorySegment xs = f32(x);
+        MemorySegment dws = f32(dw);
+        if (dys == null || xs == null || dws == null) {
+            return false;
+        }
+        int k = cin * r * r;
+        int pixels = oh * ow;
+        boolean pointwise = r == 1 && stride == 1 && pad == 0;
+        // the BLAS library, over a chunk of images at once: dy (the images side by side) times their
+        // im2col matrices transposed, accumulated into dw from the second chunk on
+        Runnable blas = groups != 1 || !Blas.usable() ? null : () -> {
+            int chunk = imagesPerGemm(n, pixels, Math.max(k, cout));
+            for (int img0 = 0; img0 < n; img0 += chunk) {
+                int images = Math.min(chunk, n - img0);
+                long width = (long) images * pixels;
+                Matrix grads;
+                Matrix columns;
+                if (images == 1) {
+                    grads = new Matrix(dys, (long) img0 * cout * pixels, width, 1);
+                } else {
+                    MemorySegment g = Blas.scratch(0, cout * width);
+                    Gemm.gatherImages(dys, (long) img0 * cout * pixels, (long) cout * pixels, images, cout, pixels, g);
+                    grads = new Matrix(g, 0, width, 1);
+                }
+                if (pointwise && images == 1) {
+                    columns = new Matrix(xs, (long) img0 * cin * pixels, pixels, 1);
+                } else {
+                    MemorySegment col = Blas.scratch(1, k * width);
+                    for (int i = 0; i < images; i++) {
+                        Gemm.im2col(xs, (long) (img0 + i) * cin * h * wd, cin, h, wd, r, stride, pad, dil, oh, ow, col, (long) i * pixels, width);
+                    }
+                    columns = new Matrix(col, 0, width, 1);
+                }
+                Blas.sgemm(grads, columns, cout, k, (int) width, dws, 0, k, img0 == 0 ? 0f : 1f);
+            }
+        };
+        Race.run("conv2d_bwd_weight " + n + "x" + cin + "x" + h + "x" + wd + " " + cout + " r" + r + " s" + stride + " p" + pad + " d" + dil + " g" + groups,
+                () -> conv2dBackwardWeightKernel(dy, x, dw, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups), blas,
+                !Dnnl.available() ? null : () -> Dnnl.conv2dBackwardWeights(dys, xs, dws, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups));
+        return true;
+    }
+
     /**
      * The input gradient of a convolution: per image and group, dcol = W^T dy (a GEMM of depth
      * cout / groups), then col2im adds the columns back onto the input's pixels.
      */
-    static boolean conv2dBackwardData(Tensor dy, Tensor w, Tensor dx, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad, int dil, int groups) {
+    private static boolean conv2dBackwardDataKernel(Tensor dy, Tensor w, Tensor dx, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad, int dil, int groups) {
         MemorySegment dys = f32(dy);
         MemorySegment ws = f32(w);
         MemorySegment dxs = f32(dx);
@@ -608,7 +753,7 @@ final class CpuKernels {
      * the transposed im2col matrix, images grouped so each GEMM is about 8192 pixels deep,
      * accumulating into dw.
      */
-    static boolean conv2dBackwardWeight(Tensor dy, Tensor x, Tensor dw, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad, int dil, int groups) {
+    private static boolean conv2dBackwardWeightKernel(Tensor dy, Tensor x, Tensor dw, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad, int dil, int groups) {
         MemorySegment dys = f32(dy);
         MemorySegment xs = f32(x);
         MemorySegment dws = f32(dw);
