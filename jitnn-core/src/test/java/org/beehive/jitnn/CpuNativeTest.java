@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import org.beehive.jitnn.cpu.Blas;
+import org.beehive.jitnn.cpu.Bnns;
 import org.beehive.jitnn.cpu.Dnnl;
 import org.beehive.jitnn.cpu.Race;
 import org.beehive.jitnn.engine.Engine;
@@ -19,7 +20,8 @@ import org.junit.jupiter.api.TestFactory;
 
 /**
  * The CPU backend with native libraries: a BLAS ({@code jitnn.cpu.blas}) for linear, matmul and
- * convolutions, oneDNN ({@code jitnn.cpu.onednn}) for convolutions and their gradients. Each gives
+ * convolutions, oneDNN ({@code jitnn.cpu.onednn}) and BNNS ({@code jitnn.cpu.bnns}, macOS) for
+ * convolutions and their gradients. Each gives
  * what the backend's own kernels give. Tests of a library that is not found are skipped.
  */
 class CpuNativeTest {
@@ -42,6 +44,19 @@ class CpuNativeTest {
         Assumptions.assumeTrue(Dnnl.available(), "no oneDNN library");
         System.setProperty("jitnn.cpu.native.choose", "onednn");
         return GoldenOps.tests(Backend.CPU);
+    }
+
+    @TestFactory
+    List<DynamicTest> cpuWithBnnsMatchesPyTorch() {
+        Assumptions.assumeTrue(Bnns.available(), "no BNNS");
+        System.setProperty("jitnn.cpu.native.choose", "bnns");
+        return GoldenOps.tests(Backend.CPU);
+    }
+
+    @Test
+    void bnnsMatchesTheKernels() {
+        Assumptions.assumeTrue(Bnns.available(), "no BNNS");
+        sameAsKernels("bnns");
     }
 
     @Test

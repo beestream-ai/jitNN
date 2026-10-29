@@ -6,21 +6,22 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Which way to run an operator of one shape is fastest: the CPU backend's own kernel, a native BLAS
- * library's GEMM ({@link Blas}) or oneDNN ({@link Dnnl}). The first calls run each available way
+ * library's GEMM ({@link Blas}), oneDNN ({@link Dnnl}) or BNNS ({@link Bnns}). The first calls run each available way
  * three times (the first warms the JIT or builds the library's plan, the best of the other two
  * counts), and the fastest keeps the shape from then on. {@code -Djitnn.cpu.native.choose=kernel},
- * {@code blas} or {@code onednn} takes that way whenever it is available, without timing (tests).
+ * {@code blas}, {@code onednn} or {@code bnns} takes that way whenever it is available, without
+ * timing (tests).
  */
 public final class Race {
 
     /** The ways, in the order {@link #run} takes them. */
-    public static final String[] WAYS = { "kernel", "blas", "onednn" };
+    public static final String[] WAYS = { "kernel", "blas", "onednn", "bnns" };
     private static final int RUNS = 3;
     private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose");
     private static final Map<String, Race> RACES = new ConcurrentHashMap<>();
 
     private final String key;
-    private final long[] best = { Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE };
+    private final long[] best = { Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE };
     private final int[] runs = new int[WAYS.length];
     private final boolean[] failed = new boolean[WAYS.length];
     private int decided = -1;
@@ -35,8 +36,14 @@ public final class Race {
      * (the libraries' threads would oversubscribe the cores).
      */
     public static void run(String key, Runnable kernel, Runnable blas, Runnable onednn) {
-        Runnable[] ways = { kernel, Cpu.inside() ? null : blas, Cpu.inside() ? null : onednn };
-        if (ways[1] == null && ways[2] == null) {
+        run(key, kernel, blas, onednn, null);
+    }
+
+    /** {@link #run(String, Runnable, Runnable, Runnable)} with BNNS ({@code bnns}, null when not available) too. */
+    public static void run(String key, Runnable kernel, Runnable blas, Runnable onednn, Runnable bnns) {
+        boolean in = Cpu.inside();
+        Runnable[] ways = { kernel, in ? null : blas, in ? null : onednn, in ? null : bnns };
+        if (ways[1] == null && ways[2] == null && ways[3] == null) {
             kernel.run();
             return;
         }

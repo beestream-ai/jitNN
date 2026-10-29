@@ -5,6 +5,7 @@ import java.lang.foreign.MemorySegment;
 import org.beehive.jitnn.DType;
 import org.beehive.jitnn.Tensor;
 import org.beehive.jitnn.cpu.Blas;
+import org.beehive.jitnn.cpu.Bnns;
 import org.beehive.jitnn.cpu.Cpu;
 import org.beehive.jitnn.cpu.Dnnl;
 import org.beehive.jitnn.cpu.Elementwise;
@@ -159,8 +160,12 @@ final class CpuKernels {
         Object owner = weight.isPersistent() ? weight : null;
         Runnable onednn = !Dnnl.available() ? null
                 : () -> Dnnl.conv2d(xs, wsg, owner, weight.version(), bs, os, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups, relu);
+        // BNNS packs the weight and the bias into its filter: both versions name the filter's contents
+        long versions = weight.version() * 1_000_003L + (bias != null ? bias.storage().version() : 0);
+        Object owners = owner != null && (bias == null || bias.storage().isPersistent()) ? owner : null;
+        Runnable bnns = !Bnns.available() ? null : () -> Bnns.conv2d(xs, wsg, owners, versions, bs, os, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups, relu);
         Race.run("conv2d " + n + "x" + cin + "x" + h + "x" + wd + " " + cout + " r" + r + " s" + stride + " p" + pad + " d" + dil + " g" + groups + (relu ? " relu" : ""),
-                () -> conv2dKernel(xs, wsg, os, bs, w, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups, cg, cog, k, pixels, pointwise, epilogue), blas, onednn);
+                () -> conv2dKernel(xs, wsg, os, bs, w, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups, cg, cog, k, pixels, pointwise, epilogue), blas, onednn, bnns);
         return true;
     }
 
@@ -630,7 +635,8 @@ final class CpuKernels {
         Object owner = weight.isPersistent() ? weight : null;
         Race.run("conv2d_bwd_data " + n + "x" + cin + "x" + h + "x" + wd + " " + cout + " r" + r + " s" + stride + " p" + pad + " d" + dil + " g" + groups,
                 () -> conv2dBackwardDataKernel(dy, w, dx, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups), blas,
-                !Dnnl.available() ? null : () -> Dnnl.conv2dBackwardData(dys, ws, owner, weight.version(), dxs, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups));
+                !Dnnl.available() ? null : () -> Dnnl.conv2dBackwardData(dys, ws, owner, weight.version(), dxs, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups),
+                !Bnns.available() ? null : () -> Bnns.conv2dBackwardData(dys, ws, owner, weight.version(), dxs, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups));
         return true;
     }
 
@@ -675,7 +681,8 @@ final class CpuKernels {
         };
         Race.run("conv2d_bwd_weight " + n + "x" + cin + "x" + h + "x" + wd + " " + cout + " r" + r + " s" + stride + " p" + pad + " d" + dil + " g" + groups,
                 () -> conv2dBackwardWeightKernel(dy, x, dw, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups), blas,
-                !Dnnl.available() ? null : () -> Dnnl.conv2dBackwardWeights(dys, xs, dws, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups));
+                !Dnnl.available() ? null : () -> Dnnl.conv2dBackwardWeights(dys, xs, dws, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups),
+                !Bnns.available() ? null : () -> Bnns.conv2dBackwardWeights(dys, xs, dws, n, cin, h, wd, cout, oh, ow, r, stride, pad, dil, groups));
         return true;
     }
 
