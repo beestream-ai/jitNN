@@ -58,20 +58,27 @@ default boolean cpu(Node node) {
   random point. Preloading the JVM's signal chaining library,
   `LD_PRELOAD=$JAVA_HOME/lib/libjsig.so`, fixes it for PoCL and for the Intel CPU runtime
   (`POCL_SIGFPE_HANDLER=0` alone does not). Without it the device is left alone, with a warning.
-  PoCL starts one worker thread per logical CPU, and those keep competing with the backend's
-  threads after a plan returns: the GEMMs of a LLaMA step ran 10% slower. Give PoCL the backend's
-  thread count, `POCL_MAX_PTHREAD_COUNT` (PoCL 3) or `POCL_CPU_MAX_CU_COUNT` (later versions).
-  On the x86 machine, PoCL 3.0 with 32 threads (ms per training step, mean of three medians of 10
-  steps, the same session):
+  The drivers start one worker thread per logical CPU, and those keep competing with the backend's
+  threads after a plan returns: the GEMMs of a LLaMA step ran 10% slower on PoCL, 50% slower on the
+  Intel runtime. Give the driver the backend's thread count: `POCL_MAX_PTHREAD_COUNT` (PoCL 3) or
+  `POCL_CPU_MAX_CU_COUNT` (later PoCL versions), `CL_CONFIG_CPU_TBB_NUM_WORKERS` (the Intel runtime).
+  On the x86 machine with 32 threads (ms per training step, mean of three medians of 10 steps; each
+  runtime with its own reference, measured in the same session):
 
-  | Workload | reference | timed choice | on the device |
+  | Runtime | Workload | reference | timed choice |
   |---|---|---|---|
-  | U-Net b32 | 653 | 155 | transposed conv, upsampling and its backward, large concat and narrow, max-pool backward |
-  | LLaMA b4 s256 | 1248 | 1134 | rotary embedding |
+  | PoCL 3.0 | U-Net b32 | 653 | 155 |
+  | PoCL 3.0 | LLaMA b4 s256 | 1248 | 1134 |
+  | Intel CPU runtime 2026.2 | U-Net b32 | 644 | 134 |
+  | Intel CPU runtime 2026.2 | LLaMA b4 s256 | 1154 | 1074 |
 
-  MobileNetV2, the VAE and the MLP have no operator without a CPU kernel and do not change.
-  Running whole models on the OpenCL device instead is no alternative: GPU-shaped kernels on PoCL
-  ran ResNet-50 and BERT 4–15x slower than the Vector API kernels (see Measuring).
+  The U-Net moves its transposed convolutions, upsampling and its backward, large concat and narrow,
+  and max-pool backward to the device; LLaMA its rotary embedding. Without the thread cap the Intel
+  runtime made LLaMA slower than its reference (1719 ms). MobileNetV2, the VAE and the MLP have no
+  operator without a CPU kernel and do not change.
+  Running whole models on the OpenCL device instead does not pay overall: on PoCL GPU-shaped kernels
+  ran ResNet-50 and BERT 4–15x slower than the Vector API kernels, on the Intel runtime they come
+  close and win two of eight rows (see Measuring).
 - **Code split.** Operators decode their own `iattr` layout (the constants are private to each
   op class). They then call shared primitives in a new package `org.beehive.jitnn.cpu`. Those
   primitives take only segments, offsets and sizes. That package is the only code that imports
@@ -178,23 +185,27 @@ Model level: logits match PyTorch FP32 within the bounds that t1 already reports
   backend.
 - **Same harness.** `t1.py --device cpu` and `InferenceBenchAccelTest` with
   `-Djitnn.backend=cpu` produce the comparable rows.
-- **OpenCL on the CPU, whole models.** The TORNADO backend on PoCL 3.0 (the x86 machine, FP32,
-  median ms; training in ms per step) against the Vector API kernels in the same session:
+- **OpenCL on the CPU, whole models.** The TORNADO backend on an OpenCL CPU device (the x86
+  machine, FP32, median ms; training in ms per step) against the Vector API kernels of the same
+  session. PoCL 3.0 in one session; the Intel CPU runtime 2026.2 with all its threads (capped at 32
+  it was 1.3–2x slower) in another, mean of two rounds (GPT-2: one):
 
-  | Workload | PoCL | Vector API |
-  |---|---|---|
-  | ResNet-50 b1 | 302 | 21 |
-  | BERT b1 s128 | 447 | 41 |
-  | ResNet-50 b32 | 1186 | 261 |
-  | BERT b32 s128 | 2888 | 419 |
-  | ResNet-18 training b64 | 1338 | 350 |
-  | ResNet-50 (CIFAR) training b32 | 2644 | 508 |
-  | BERT training b8 s128 | 7221 | 747 |
-  | GPT-2 training b8 s256 | 15350 | 1409 |
+  | Workload | PoCL | Vector API | Intel runtime | Vector API |
+  |---|---|---|---|---|
+  | ResNet-50 b1 | 302 | 21 | 29.6 | 19.8 |
+  | BERT b1 s128 | 447 | 41 | 35.0 | 31.1 |
+  | ResNet-50 b32 | 1186 | 261 | **255** | 277 |
+  | BERT b32 s128 | 2888 | 419 | 490 | 395 |
+  | ResNet-18 training b64 | 1338 | 350 | **260** | 341 |
+  | ResNet-50 (CIFAR) training b32 | 2644 | 508 | 492 | 472 |
+  | BERT training b8 s128 | 7221 | 747 | 838 | 732 |
+  | GPT-2 training b8 s256 | 15350 | 1409 | 1549 | 1381 |
 
-  PoCL passed 452 of the 490 device tests; the rest need FP16, which its CPU driver lacks. Without
-  `libjsig` (see Operator dispatch), the Intel CPU runtime 2026.2 crashed the JVM on the first kernel
-  launch, in TornadoVM's own tests too.
+  The Intel runtime's compiler vectorises the GPU kernels well enough to beat the Vector API on
+  batched convolutions (ResNet-50 b32, ResNet-18 training); PoCL's does not. PoCL passed 452 of the
+  490 device tests; the rest need FP16, which its CPU driver lacks. Both drivers need `libjsig`
+  (see Operator dispatch): without it the Intel runtime crashed the JVM on the first kernel launch,
+  in TornadoVM's own tests too.
 - **Per-phase checks.** Each phase reports:
   - GEMM GFLOP/s against machine peak;
   - per-op time against REFERENCE;
