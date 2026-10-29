@@ -16,8 +16,8 @@ import jdk.incubator.vector.FloatVector;
  * {@link #parallelFor} in static contiguous chunks, the calling thread taking the first one. A call
  * made while another thread holds the pool, or from inside a parallel loop, runs on the calling
  * thread alone rather than oversubscribing the cores. Idle pool threads, and a caller waiting for
- * them, spin for {@code jitnn.cpu.spinMicros} (default 200) before they sleep, so the operators of
- * one step hand work on without waking threads up.
+ * them, spin for {@code jitnn.cpu.spinMicros} (default 200, 0 on macOS) before they sleep, so the
+ * operators of one step hand work on without waking threads up.
  */
 public final class Cpu {
 
@@ -25,7 +25,11 @@ public final class Cpu {
     private static final ReentrantLock POOL = new ReentrantLock();
     private static final ThreadLocal<Boolean> INSIDE = ThreadLocal.withInitial(() -> Boolean.FALSE);
     private static volatile Worker[] workers;
-    private static final long SPIN_NANOS = Long.getLong("jitnn.cpu.spinMicros", 200) * 1000;
+    /**
+     * 200 us by default, none on macOS: there spinning pool threads made ResNet-50 b1 29% slower on
+     * the backend's own kernels and BERT b1 16% slower with Accelerate (M4 Pro).
+     */
+    private static final long SPIN_NANOS = Long.getLong("jitnn.cpu.spinMicros", System.getProperty("os.name", "").startsWith("Mac") ? 0 : 200) * 1000;
 
     private Cpu() {
     }
