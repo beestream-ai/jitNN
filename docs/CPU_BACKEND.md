@@ -79,6 +79,46 @@ default boolean cpu(Node node) {
   Running whole models on the OpenCL device instead does not pay overall: on PoCL GPU-shaped kernels
   ran ResNet-50 and BERT 4–15x slower than the Vector API kernels, on the Intel runtime they come
   close and win two of eight rows (see Measuring).
+- **Native libraries.** Linear, matmul and convolutions (forward with bias and ReLU, backward data
+  and weights) can also run on native libraries, called through the foreign function API with no
+  native code in jitNN: a BLAS's `cblas_sgemm` (`jitnn.cpu.blas`: MKL, OpenBLAS, Arm Performance
+  Libraries, Apple Accelerate), and for convolutions oneDNN (`jitnn.cpu.onednn`) and Apple's BNNS
+  (`jitnn.cpu.bnns`, macOS). A BLAS convolution is im2col and one GEMM per image (forward), or per
+  group of images side by side (backward, then col2im for the data gradient). oneDNN and BNNS keep
+  one plan per convolution shape in the layout they want; a weight is reordered or packed again
+  only when its version changes. Each operator and shape runs every available way three times (the
+  first warms the JIT or builds the plan, the best of the other two counts) and keeps the fastest;
+  a library that rejects a shape leaves it to the kernel. Libraries use the backend's thread count
+  (MKL and OpenBLAS by their calls, OpenMP builds of oneDNN and Arm Performance Libraries per
+  calling thread). Not solved yet: the libraries' idle worker threads keep spinning after a call and
+  compete with the backend's own threads, which the per-operator timing does not see. On the x86
+  machine MKL made ResNet-50 b32 slower end to end (258 to 418 ms) although it won each GEMM it took,
+  and MKL together with oneDNN (two OpenMP runtimes) slower still; OpenBLAS on the Arm machine
+  slowed training by 20–55%. oneDNN alone helped convolutional networks (ms, training ms per step,
+  one round):
+
+  | Workload | kernels | oneDNN |
+  |---|---|---|
+  | ResNet-50 b32 | 258 | 221 |
+  | ResNet-50 (CIFAR) training b32 | 485 | 449 |
+  | MobileNetV2 training b64 | 1543 | 301 |
+
+  On an Apple M4 Pro, Accelerate's GEMM (on the AMX units) runs at 3.0–3.5 TFLOP/s against 0.5 for
+  the Vector API kernel (4 FP32 lanes on NEON), and its threads do not get in the way (ms, training
+  ms per step, 12 threads unless noted, single runs):
+
+  | Workload | kernels | Accelerate (8 threads) | Accelerate | Accelerate + BNNS |
+  |---|---|---|---|---|
+  | ResNet-50 b1 | 40.5 | 16.3 | 18.1–22.0 | 15.6 |
+  | BERT b1 s128 | 72 | 28 | 29 | |
+  | ResNet-50 b32 | 677 | 412 | 438–448 | 256 |
+  | BERT b32 s128 | 1679 | 433 | 452 | |
+  | BERT training b8 s128 | 1713 | 581 | 608 | |
+  | ResNet-18 training b64 | | | 536 | 267 |
+  | MobileNetV2 training b64 | | | 1394 | 657 |
+
+  The BNNS filter API is deprecated since macOS 15 in favour of BNNS graphs (which need a compiled
+  Core ML model) but still runs; its backward pass needs filters that read the weights in place.
 - **Code split.** Operators decode their own `iattr` layout (the constants are private to each
   op class). They then call shared primitives in a new package `org.beehive.jitnn.cpu`. Those
   primitives take only segments, offsets and sizes. That package is the only code that imports
