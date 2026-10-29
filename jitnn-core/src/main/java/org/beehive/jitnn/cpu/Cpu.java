@@ -36,6 +36,11 @@ public final class Cpu {
         void run(int from, int to);
     }
 
+    /** True on a pool thread, or inside a parallel loop's chunk. */
+    public static boolean inside() {
+        return INSIDE.get();
+    }
+
     /** Threads parallel loops use, the calling thread included. */
     public static int threads() {
         return THREADS;

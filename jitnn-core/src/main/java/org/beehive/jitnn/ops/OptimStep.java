@@ -219,7 +219,7 @@ public final class OptimStep implements Op {
         update(n, false);
     }
 
-    /** The reference's update, each tensor in parallel chunks of elements. */
+    /** The reference's update, each tensor in parallel chunks of elements (Adam in FP32 vector lanes). */
     @Override
     public boolean cpu(Node n) {
         for (Tensor t : n.inputs) {
@@ -254,7 +254,13 @@ public final class OptimStep implements Op {
             for (int j = 0; j < st.length; j++) {
                 st[j] = (FloatArray) n.in(k * width + 2 + j).storage().host();
             }
-            if (parallel) {
+            if (parallel && kind == Kind.ADAM) {
+                float lr = h.get(0), b1 = h.get(1), b2 = h.get(2), eps = h.get(3), c1 = h.get(4), c2 = h.get(5), wd = h.get(6);
+                boolean decoupled = h.get(7) != 0;
+                float f = (float) factor;
+                org.beehive.jitnn.cpu.Cpu.parallelFor(size, 1 << 14, (from, to) -> org.beehive.jitnn.cpu.Optim.adam(p.getSegment(), g.getSegment(), st[0].getSegment(), st[1].getSegment(),
+                        from, to, lr, b1, b2, eps, c1, c2, wd, decoupled, f));
+            } else if (parallel) {
                 org.beehive.jitnn.cpu.Cpu.parallelFor(size, 1 << 14, (from, to) -> range(kind, h, factor, p, g, st, from, to));
             } else {
                 range(kind, h, factor, p, g, st, 0, size);

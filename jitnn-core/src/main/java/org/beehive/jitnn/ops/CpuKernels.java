@@ -605,7 +605,7 @@ final class CpuKernels {
 
     /**
      * The weight gradient of a convolution: dw[g] = sum over images of dy (cout / groups rows) times
-     * the transposed im2col matrix, images grouped so each GEMM is about {@code 512} pixels deep,
+     * the transposed im2col matrix, images grouped so each GEMM is about 8192 pixels deep,
      * accumulating into dw.
      */
     static boolean conv2dBackwardWeight(Tensor dy, Tensor x, Tensor dw, int n, int cin, int h, int wd, int cout, int oh, int ow, int r, int stride, int pad, int dil, int groups) {
@@ -619,7 +619,8 @@ final class CpuKernels {
         int cog = cout / groups;
         int k = cg * r * r;
         int pixels = oh * ow;
-        int perChunk = Math.max(1, Math.min(n, (int) Math.min(512 / Math.max(1, pixels) + 1, (1L << 23) / Math.max(1L, (long) Math.max(k, cog) * pixels))));
+        // images per GEMM: about 8192 pixels deep, at most 8 Mi floats per packed operand
+        int perChunk = Math.max(1, Math.min(n, (int) Math.min(Math.max(1, 8192 / Math.max(1, pixels)), (1L << 23) / Math.max(1L, (long) Math.max(k, cog) * pixels))));
         for (int g = 0; g < groups; g++) {
             for (int img0 = 0; img0 < n; img0 += perChunk) {
                 int images = Math.min(perChunk, n - img0);

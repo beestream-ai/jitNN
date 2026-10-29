@@ -62,6 +62,35 @@ public final class Gemm {
     public record Matrix(MemorySegment seg, long off, long xs, long qs) {
     }
 
+    private static final boolean STATS = Boolean.getBoolean("jitnn.cpu.stats");
+    private static final java.util.concurrent.atomic.LongAdder PACK_NANOS = new java.util.concurrent.atomic.LongAdder();
+    private static final java.util.concurrent.atomic.LongAdder COMPUTE_NANOS = new java.util.concurrent.atomic.LongAdder();
+
+    /** A start time for {@link #packed} or {@link #computed}: only with {@code jitnn.cpu.stats}, and only outside parallel loops (wall time). */
+    private static long timing() {
+        return STATS && !Cpu.inside() ? System.nanoTime() : 0;
+    }
+
+    private static void packed(long t0) {
+        if (t0 != 0) {
+            PACK_NANOS.add(System.nanoTime() - t0);
+        }
+    }
+
+    private static void computed(long t0) {
+        if (t0 != 0) {
+            COMPUTE_NANOS.add(System.nanoTime() - t0);
+        }
+    }
+
+    /**
+     * With {@code jitnn.cpu.stats}: {@code [packing ns, multiply ns]} of the GEMMs called outside
+     * parallel loops since the last call, which resets them.
+     */
+    public static long[] drainTimes() {
+        return new long[] { PACK_NANOS.sumThenReset(), COMPUTE_NANOS.sumThenReset() };
+    }
+
     /** Panels of {@code w} rows covering {@code rows}. */
     static int panels(int rows, int w) {
         return (rows + w - 1) / w;
@@ -74,13 +103,17 @@ public final class Gemm {
 
     /** Packs A (m x k) into panels of {@link #MR} rows, in {@code dst} (at least {@link #packedSize}). */
     public static float[] packA(Matrix a, int m, int k, float[] dst) {
+        long t0 = timing();
         pack(a, m, k, MR, dst);
+        packed(t0);
         return dst;
     }
 
     /** Packs B (n columns x k) into panels of {@link #NR} columns, in {@code dst}. */
     public static float[] packB(Matrix b, int n, int k, float[] dst) {
+        long t0 = timing();
         pack(b, n, k, NR, dst);
+        packed(t0);
         return dst;
     }
 
@@ -131,6 +164,7 @@ public final class Gemm {
      * index {@code off} of {@code x} ([cg, h, w] planes), zero outside the image.
      */
     public static float[] packIm2col(MemorySegment x, long off, int cg, int h, int w, int r, int stride, int pad, int dil, int oh, int ow, float[] dst) {
+        long t0 = timing();
         int n = oh * ow;
         int k = cg * r * r;
         int panels = panels(n, NR);
@@ -169,6 +203,7 @@ public final class Gemm {
                 }
             }
         });
+        packed(t0);
         return dst;
     }
 
@@ -217,80 +252,109 @@ public final class Gemm {
         }
     }
 
+    /** Depth positions (pixels) one packing work item covers. */
+    private static final int DEPTH_BLOCK = 512;
+
     /**
      * Packs the transposed im2col matrices of {@code images} images, from image {@code img0}, as B
      * for a weight gradient: column q is (ci, kh, kw) of {@code cg} input channels starting at index
      * {@code off} of image 0 (images {@code imageStride} floats apart), depth d is output pixel
-     * {@code d % (oh * ow)} of image {@code img0 + d / (oh * ow)}; zero outside the image.
+     * {@code d % (oh * ow)} of image {@code img0 + d / (oh * ow)}; zero outside the image. Work items
+     * are (panel, block of depth); each writes its panel rows contiguously.
      */
     public static float[] packIm2colT(MemorySegment x, long off, long imageStride, int img0, int images, int cg, int h, int w, int r, int stride, int pad, int dil, int oh, int ow,
             float[] dst) {
+        long t0 = timing();
         int k = cg * r * r;
         int pixels = oh * ow;
         int depth = images * pixels;
         int panels = panels(k, NR);
-        Cpu.parallelFor(panels, Math.max(1, PACK_GRAIN / Math.max(1, depth * NR)), (from, to) -> {
-            for (int p = from; p < to; p++) {
-                int base = p * depth * NR;
+        int blocks = (depth + DEPTH_BLOCK - 1) / DEPTH_BLOCK;
+        Cpu.parallelFor(panels * blocks, 1, (from, to) -> {
+            long[] plane = new long[NR];
+            int[] dh = new int[NR];
+            int[] dw = new int[NR];
+            boolean[] live = new boolean[NR];
+            for (int item = from; item < to; item++) {
+                int p = item / blocks;
+                int d0 = (item - p * blocks) * DEPTH_BLOCK;
+                int d1 = Math.min(depth, d0 + DEPTH_BLOCK);
                 for (int c = 0; c < NR; c++) {
                     int q = p * NR + c;
-                    if (q >= k) {
-                        for (int d = 0; d < depth; d++) {
-                            dst[base + d * NR + c] = 0;
-                        }
-                        continue;
+                    live[c] = q < k;
+                    if (live[c]) {
+                        int ci = q / (r * r);
+                        plane[c] = off + (long) ci * h * w;
+                        dh[c] = (q / r) % r * dil - pad;
+                        dw[c] = q % r * dil - pad;
                     }
-                    int ci = q / (r * r);
-                    int kh = (q / r) % r;
-                    int kw = q % r;
-                    for (int i = 0; i < images; i++) {
-                        long plane = off + (long) (img0 + i) * imageStride + (long) ci * h * w;
-                        int d0 = i * pixels;
-                        for (int y = 0; y < oh; y++) {
-                            int ih = y * stride - pad + kh * dil;
-                            int row = d0 + y * ow;
-                            if (ih < 0 || ih >= h) {
-                                for (int xo = 0; xo < ow; xo++) {
-                                    dst[base + (row + xo) * NR + c] = 0;
-                                }
-                                continue;
-                            }
-                            long src = plane + (long) ih * w;
-                            for (int xo = 0; xo < ow; xo++) {
-                                int iw = xo * stride - pad + kw * dil;
-                                dst[base + (row + xo) * NR + c] = iw >= 0 && iw < w ? x.getAtIndex(F, src + iw) : 0;
+                }
+                int base = p * depth * NR;
+                for (int d = d0; d < d1; d++) {
+                    int img = d / pixels;
+                    int pix = d - img * pixels;
+                    int y = pix / ow;
+                    int xo = pix - y * ow;
+                    long imageAt = (long) (img0 + img) * imageStride;
+                    int at = base + d * NR;
+                    for (int c = 0; c < NR; c++) {
+                        float v = 0;
+                        if (live[c]) {
+                            int ih = y * stride + dh[c];
+                            int iw = xo * stride + dw[c];
+                            if (ih >= 0 && ih < h && iw >= 0 && iw < w) {
+                                v = x.getAtIndex(F, imageAt + plane[c] + (long) ih * w + iw);
                             }
                         }
+                        dst[at + c] = v;
                     }
                 }
             }
         });
+        packed(t0);
         return dst;
     }
 
     /**
-     * Packs, as A, rows {@code row0 ..} of the output gradients of {@code images} images from
+     * Packs, as A, rows {@code 0 .. rows} of the output gradients of {@code images} images from
      * {@code img0}: row co, depth d = pixel {@code d % pixels} of image {@code img0 + d / pixels}, the
-     * value at {@code off + image * imageStride + co * pixels + pixel}.
+     * value at {@code off + image * imageStride + co * pixels + pixel}. Work items are (panel, block
+     * of depth).
      */
     public static float[] packRowsOverImages(MemorySegment g, long off, long imageStride, int img0, int images, int rows, int pixels, float[] dst) {
+        long t0 = timing();
         int depth = images * pixels;
         int panels = panels(rows, MR);
-        Cpu.parallelFor(panels, Math.max(1, PACK_GRAIN / Math.max(1, depth * MR)), (from, to) -> {
-            for (int p = from; p < to; p++) {
+        int blocks = (depth + DEPTH_BLOCK - 1) / DEPTH_BLOCK;
+        Cpu.parallelFor(panels * blocks, 1, (from, to) -> {
+            for (int item = from; item < to; item++) {
+                int p = item / blocks;
+                int d0 = (item - p * blocks) * DEPTH_BLOCK;
+                int d1 = Math.min(depth, d0 + DEPTH_BLOCK);
                 int base = p * depth * MR;
                 for (int rr = 0; rr < MR; rr++) {
                     int co = p * MR + rr;
-                    for (int i = 0; i < images; i++) {
-                        long src = off + (long) (img0 + i) * imageStride + (long) co * pixels;
-                        int d0 = i * pixels;
-                        for (int px = 0; px < pixels; px++) {
-                            dst[base + (d0 + px) * MR + rr] = co < rows ? g.getAtIndex(F, src + px) : 0;
+                    if (co >= rows) {
+                        for (int d = d0; d < d1; d++) {
+                            dst[base + d * MR + rr] = 0;
                         }
+                        continue;
+                    }
+                    int d = d0;
+                    while (d < d1) {
+                        int img = d / pixels;
+                        int pix = d - img * pixels;
+                        int len = Math.min(d1 - d, pixels - pix);
+                        long src = off + (long) (img0 + img) * imageStride + (long) co * pixels + pix;
+                        for (int t = 0; t < len; t++) {
+                            dst[base + (d + t) * MR + rr] = g.getAtIndex(F, src + t);
+                        }
+                        d += len;
                     }
                 }
             }
         });
+        packed(t0);
         return dst;
     }
 
@@ -343,6 +407,7 @@ public final class Gemm {
      * {@code ap} (a multiple of {@code k * MR}: a slice of a larger packed A).
      */
     public static void compute(float[] ap, int apOff, float[] bp, int m, int n, int k, MemorySegment c, long cOff, long ldc, MemorySegment bias, long biasOff, int epilogue) {
+        long t0 = timing();
         int pm = panels(m, MR);
         int pn = panels(n, NR);
         int mcp = Math.min(MC_PANELS, pm);
@@ -370,6 +435,7 @@ public final class Gemm {
                 tile(ap, apOff, bp, m, n, k, c, cOff, ldc, bias, biasOff, epilogue, ti * fm, Math.min(pm, (ti + 1) * fm), tj * fn, Math.min(pn, (tj + 1) * fn), edge);
             }
         });
+        computed(t0);
     }
 
     private static void tile(float[] ap, int apOff, float[] bp, int m, int n, int k, MemorySegment c, long cOff, long ldc, MemorySegment bias, long biasOff, int epilogue, int ip0, int ip1,

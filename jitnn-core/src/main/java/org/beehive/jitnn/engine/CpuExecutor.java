@@ -287,6 +287,10 @@ final class CpuExecutor {
                     v[2] > 0 ? "  reference: " + v[2] : ""));
         });
         b.append(String.format(java.util.Locale.ROOT, "  total %.3f ms%n", total / 1e6));
+        long[] gemm = org.beehive.jitnn.cpu.Gemm.drainTimes();
+        if (gemm[0] + gemm[1] > 0) {
+            b.append(String.format(java.util.Locale.ROOT, "  of which GEMM operand packing %.3f ms, multiplication %.3f ms (outside per-item parallel loops)%n", gemm[0] / 1e6, gemm[1] / 1e6));
+        }
         return b.toString();
     }
 }

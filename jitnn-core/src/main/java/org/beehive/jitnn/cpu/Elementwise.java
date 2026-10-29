@@ -32,7 +32,8 @@ public final class Elementwise {
     /** True when {@link #binaryBlock} runs {@code code} in vector lanes. */
     public static boolean vectorBinary(int code) {
         return code == ElementwiseKernels.ADD || code == ElementwiseKernels.SUB || code == ElementwiseKernels.MUL || code == ElementwiseKernels.DIV
-                || code == ElementwiseKernels.ADD_RELU || code == ElementwiseKernels.RELU_GRAD || code == ElementwiseKernels.MAX || code == ElementwiseKernels.MIN;
+                || code == ElementwiseKernels.ADD_RELU || code == ElementwiseKernels.RELU_GRAD || code == ElementwiseKernels.MAX || code == ElementwiseKernels.MIN
+                || code == ElementwiseKernels.GELU_TANH_GRAD;
     }
 
     /**
@@ -103,6 +104,8 @@ public final class Elementwise {
                 r = FloatVector.zero(S).blend(y, x.compare(VectorOperators.GT, 0f));
             } else if (code == ElementwiseKernels.MAX) {
                 r = y.blend(x, x.compare(VectorOperators.GT, y));
+            } else if (code == ElementwiseKernels.GELU_TANH_GRAD) {
+                r = geluTanhGrad(x, y);
             } else {
                 r = y.blend(x, x.compare(VectorOperators.LT, y));
             }
@@ -120,7 +123,7 @@ public final class Elementwise {
         return code == ElementwiseKernels.NEG || code == ElementwiseKernels.ABS || code == ElementwiseKernels.RELU || code == ElementwiseKernels.AFFINE
                 || code == ElementwiseKernels.CLAMP || code == ElementwiseKernels.SQUARE || code == ElementwiseKernels.RECIPROCAL || code == ElementwiseKernels.SQRT
                 || code == ElementwiseKernels.EXP || code == ElementwiseKernels.SIGMOID || code == ElementwiseKernels.SILU || code == ElementwiseKernels.TANH
-                || code == ElementwiseKernels.LEAKY_RELU || code == ElementwiseKernels.GELU;
+                || code == ElementwiseKernels.LEAKY_RELU || code == ElementwiseKernels.GELU || code == ElementwiseKernels.GELU_TANH;
     }
 
     /** out[i] = op(x[i]) for i in [0, n), op a unary {@link ElementwiseKernels} code with its alpha and beta. */
@@ -170,6 +173,8 @@ public final class Elementwise {
                 r = v.lanewise(VectorOperators.TANH);
             } else if (code == ElementwiseKernels.GELU) {
                 r = gelu(v);
+            } else if (code == ElementwiseKernels.GELU_TANH) {
+                r = v.mul(0.5f).mul(geluTanhInner(v).lanewise(VectorOperators.TANH).add(1f));
             } else {
                 r = v.mul(alpha).blend(v, v.compare(VectorOperators.GT, 0f));
             }
@@ -195,6 +200,22 @@ public final class Elementwise {
         FloatVector r = t.mul(z.mul(z).neg().add(poly).lanewise(VectorOperators.EXP));
         FloatVector erfc = r.blend(FloatVector.broadcast(S, 2f).sub(r), u.compare(VectorOperators.LT, 0f));
         return x.mul(erfc).mul(0.5f);
+    }
+
+    private static final float SQRT_2_OVER_PI = 0.79788456f;
+    private static final float GELU_CUBIC = 0.044715f;
+
+    /** sqrt(2 / pi) (x + 0.044715 x^3), the argument of tanh-approximated GELU's tanh. */
+    private static FloatVector geluTanhInner(FloatVector x) {
+        return x.mul(x).mul(GELU_CUBIC).add(1f).mul(x).mul(SQRT_2_OVER_PI);
+    }
+
+    /** dy times the derivative of tanh-approximated GELU at x. */
+    private static FloatVector geluTanhGrad(FloatVector x, FloatVector dy) {
+        FloatVector t = geluTanhInner(x).lanewise(VectorOperators.TANH);
+        FloatVector inner = x.mul(x).mul(3 * GELU_CUBIC).add(1f).mul(SQRT_2_OVER_PI);
+        FloatVector d = t.add(1f).mul(0.5f).add(x.mul(0.5f).mul(t.mul(t).neg().add(1f)).mul(inner));
+        return dy.mul(d);
     }
 
     private static FloatVector sigmoid(FloatVector v) {
