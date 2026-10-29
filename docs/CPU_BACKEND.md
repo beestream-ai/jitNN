@@ -86,9 +86,14 @@ default boolean cpu(Node node) {
   (`jitnn.cpu.bnns`, macOS). A BLAS convolution is im2col and one GEMM per image (forward), or per
   group of images side by side (backward, then col2im for the data gradient). oneDNN and BNNS keep
   one plan per convolution shape in the layout they want; a weight is reordered or packed again
-  only when its version changes. Each operator and shape runs every available way three times (the
-  first warms the JIT or builds the plan, the best of the other two counts) and keeps the fastest;
-  a library that rejects a shape leaves it to the kernel. Libraries use the backend's thread count
+  only when its version changes. Each operator and shape takes the available ways in turn, three calls
+  each (the first warms the JIT or builds the plan, the best of the other two counts), and runs
+  the fastest; those first calls fall in the program's warm-up, so after 64 more calls the ways
+  are timed once more, and that choice is final (timing only during warm-up picked the slower way
+  for BERT's attention in some runs). A library that rejects a shape leaves it to the kernel.
+  Attention can run on the BLAS too: each head's two products on the library, the softmax rows of
+  all heads in parallel between them (BERT b1 on an M4 Pro: attention 0.33 to 0.20 ms per layer,
+  the model 24.4 to 22.7 ms). Libraries use the backend's thread count
   (MKL and OpenBLAS by their calls, OpenMP builds of oneDNN and Arm Performance Libraries per
   calling thread). Not solved yet: the libraries' idle worker threads keep spinning after a call and
   compete with the backend's own threads, which the per-operator timing does not see. On the x86

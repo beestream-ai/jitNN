@@ -6,9 +6,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Which way to run an operator of one shape is fastest: the CPU backend's own kernel, a native BLAS
- * library's GEMM ({@link Blas}), oneDNN ({@link Dnnl}) or BNNS ({@link Bnns}). The first calls run each available way
- * three times (the first warms the JIT or builds the library's plan, the best of the other two
- * counts), and the fastest keeps the shape from then on. {@code -Djitnn.cpu.native.choose=kernel},
+ * library's GEMM ({@link Blas}), oneDNN ({@link Dnnl}) or BNNS ({@link Bnns}). The first calls
+ * take the available ways in turn, three calls each (the first warms the JIT or builds the
+ * library's plan, the best of the other two counts), and the fastest runs the shape from then on.
+ * Those first calls fall in the program's warm-up, while the JIT compiles, so after {@value
+ * #SETTLE} more calls the ways are timed once more the same way, and that choice is final.
+ * {@code -Djitnn.cpu.native.choose=kernel},
  * {@code blas}, {@code onednn} or {@code bnns} takes that way whenever it is available, without
  * timing (tests).
  */
@@ -16,7 +19,10 @@ public final class Race {
 
     /** The ways, in the order {@link #run} takes them. */
     public static final String[] WAYS = { "kernel", "blas", "onednn", "bnns" };
+    /** Calls per way in a round of timing: the first warms up, the best of the others counts. */
     private static final int RUNS = 3;
+    /** Calls on the first round's choice before the second, final round of timing. */
+    static final int SETTLE = 64;
     private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose");
     private static final Map<String, Race> RACES = new ConcurrentHashMap<>();
 
@@ -25,6 +31,10 @@ public final class Race {
     private final int[] runs = new int[WAYS.length];
     private final boolean[] failed = new boolean[WAYS.length];
     private int decided = -1;
+    /** 1 while timing the first round or running its choice, 2 from the second round on. */
+    private int round = 1;
+    /** Calls since the first round's choice. */
+    private int since;
 
     private Race(String key) {
         this.key = key;
@@ -83,15 +93,27 @@ public final class Race {
                 return ways[i] != null ? i : 0;
             }
         }
+        if (decided >= 0 && round == 1 && since >= SETTLE) {
+            // the program is past its warm-up: time the ways again
+            round = 2;
+            decided = -1;
+            java.util.Arrays.fill(runs, 0);
+            java.util.Arrays.fill(best, Long.MAX_VALUE);
+        }
         if (decided >= 0 && ways[decided] != null) {
             return decided;
         }
+        // the way with the fewest timed calls, so the ways alternate
+        int next = -1;
         for (int i = 0; i < WAYS.length; i++) {
-            if (ways[i] != null && runs[i] < RUNS) {
-                return i;
+            if (ways[i] != null && runs[i] < RUNS && (next < 0 || runs[i] < runs[next])) {
+                next = i;
             }
         }
-        // all measured: the fastest available
+        if (next >= 0) {
+            return next;
+        }
+        // all timed: the fastest available
         int fastest = 0;
         for (int i = 1; i < WAYS.length; i++) {
             if (ways[i] != null && best[i] < best[fastest]) {
@@ -99,6 +121,7 @@ public final class Race {
             }
         }
         decided = fastest;
+        since = 0;
         if (VERBOSE) {
             StringBuilder s = new StringBuilder();
             for (int i = 0; i < WAYS.length; i++) {
@@ -106,13 +129,14 @@ public final class Race {
                     s.append(String.format(Locale.ROOT, ", %s %.3f ms", WAYS[i], best[i] / 1e6));
                 }
             }
-            System.err.println("[jitnn] " + key + " runs on " + WAYS[fastest] + s);
+            System.err.println("[jitnn] " + key + (round == 1 ? " runs on " : " settles on ") + WAYS[fastest] + s);
         }
         return fastest;
     }
 
     private synchronized void ran(int way, long nanos) {
         if (decided >= 0) {
+            since++;
             return;
         }
         if (runs[way]++ > 0) {
