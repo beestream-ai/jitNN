@@ -437,11 +437,14 @@ final class CpuKernels {
         if (qs == null || ks == null || vs == null || os == null || ls == null || mask != null && ms == null) {
             return false;
         }
-        int z = a[0], t = a[1], s = a[2], d = a[3], heads = a[5];
-        boolean causal = a[4] != 0;
+        int z = a[0], t = a[1], s = a[2], d = a[3];
         int[] meta = FlashAttention.meta(a);
+        long qRow = meta[5 + 3];
+        long kRow = meta[9 + 3];
+        long vRow = meta[13 + 3];
+        long oRow = meta[17 + 3];
         int blocks = (t + ATTENTION_ROWS - 1) / ATTENTION_ROWS;
-        Cpu.parallelFor(z * blocks, 1, (from, to) -> {
+        Runnable kernel = () -> Cpu.parallelFor(z * blocks, 1, (from, to) -> {
             for (int item = from; item < to; item++) {
                 int zi = item / blocks;
                 int r0 = (item - zi * blocks) * ATTENTION_ROWS;
@@ -452,40 +455,66 @@ final class CpuKernels {
                     SCORES.set(sc);
                 }
                 MemorySegment scores = MemorySegment.ofArray(sc);
-                long qRow = meta[5 + 3];
-                long kRow = meta[9 + 3];
-                long vRow = meta[13 + 3];
-                long oRow = meta[17 + 3];
                 long q0 = FlashAttention.at(meta, 0, zi, r0);
                 long k0 = FlashAttention.at(meta, 1, zi, 0);
                 long v0 = FlashAttention.at(meta, 2, zi, 0);
                 long o0 = FlashAttention.at(meta, 3, zi, r0);
                 // scores = q k^T
                 Gemm.multiply(new Matrix(qs, q0, qRow, 1), new Matrix(ks, k0, kRow, 1), rows, s, d, scores, 0, s, null, 0, 0);
-                int b = zi / heads;
-                int h = zi - b * heads;
-                for (int i = 0; i < rows; i++) {
-                    long off = (long) i * s;
-                    int qi = r0 + i;
-                    Elementwise.scale(scores, off, s, scale);
-                    if (ms != null) {
-                        long mrow = (long) b * a[6] + (long) h * a[7] + (long) qi * a[8];
-                        for (int j = 0; j < s; j++) {
-                            scores.setAtIndex(F, off + j, scores.getAtIndex(F, off + j) + ms.getAtIndex(F, mrow + (long) j * a[9]));
-                        }
-                    }
-                    if (causal) {
-                        for (int j = qi + 1; j < s; j++) {
-                            scores.setAtIndex(F, off + j, Float.NEGATIVE_INFINITY);
-                        }
-                    }
-                    ls.setAtIndex(F, (long) zi * t + qi, Elementwise.softmaxRow(scores, off, s));
-                }
+                attentionRows(a, scale, ms, ls, scores, 0, zi, r0, rows);
                 // o = p v
                 Gemm.multiply(new Matrix(scores, 0, s, 1), new Matrix(vs, v0, 1, vRow), rows, d, s, os, o0, oRow, null, 0, 0);
             }
         });
+        // the BLAS library: each head's two products on all the library's threads, the softmax rows
+        // of every head in parallel between them (the heads' products are too small to split)
+        Runnable blas = !Blas.usable() || !qs.isNative() || !ks.isNative() || !vs.isNative() || !os.isNative() ? null : () -> {
+            MemorySegment scores = Blas.scratch(0, (long) z * t * s);
+            for (int zi = 0; zi < z; zi++) {
+                Blas.sgemm(new Matrix(qs, FlashAttention.at(meta, 0, zi, 0), qRow, 1), new Matrix(ks, FlashAttention.at(meta, 1, zi, 0), kRow, 1), t, s, d, scores, (long) zi * t * s, s,
+                        0f);
+            }
+            Cpu.parallelFor(z * t, Math.max(1, 4096 / Math.max(1, s)), (from, to) -> {
+                for (int row = from; row < to; row++) {
+                    attentionRows(a, scale, ms, ls, scores, (long) row * s, row / t, row % t, 1);
+                }
+            });
+            for (int zi = 0; zi < z; zi++) {
+                Blas.sgemm(new Matrix(scores, (long) zi * t * s, s, 1), new Matrix(vs, FlashAttention.at(meta, 2, zi, 0), 1, vRow), t, d, s, os, FlashAttention.at(meta, 3, zi, 0), oRow,
+                        0f);
+            }
+        };
+        Race.run("attention " + z + "x" + t + "x" + s + "x" + d + (a[4] != 0 ? " causal" : "") + (ms != null ? " mask" : ""), kernel, blas, null);
         return true;
+    }
+
+    /**
+     * Scale, mask and causal limit, then softmax in place, of {@code rows} rows of attention scores
+     * (query rows {@code r0 ..} of head {@code zi}, the first at {@code off} of {@code scores}, {@code
+     * s} apart), saving each row's log-sum-exp.
+     */
+    private static void attentionRows(int[] a, float scale, MemorySegment ms, MemorySegment ls, MemorySegment scores, long off0, int zi, int r0, int rows) {
+        int t = a[1], s = a[2], heads = a[5];
+        boolean causal = a[4] != 0;
+        int b = zi / heads;
+        int h = zi - b * heads;
+        for (int i = 0; i < rows; i++) {
+            long off = off0 + (long) i * s;
+            int qi = r0 + i;
+            Elementwise.scale(scores, off, s, scale);
+            if (ms != null) {
+                long mrow = (long) b * a[6] + (long) h * a[7] + (long) qi * a[8];
+                for (int j = 0; j < s; j++) {
+                    scores.setAtIndex(F, off + j, scores.getAtIndex(F, off + j) + ms.getAtIndex(F, mrow + (long) j * a[9]));
+                }
+            }
+            if (causal) {
+                for (int j = qi + 1; j < s; j++) {
+                    scores.setAtIndex(F, off + j, Float.NEGATIVE_INFINITY);
+                }
+            }
+            ls.setAtIndex(F, (long) zi * t + qi, Elementwise.softmaxRow(scores, off, s));
+        }
     }
 
     /**
