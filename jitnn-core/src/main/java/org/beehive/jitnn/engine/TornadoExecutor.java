@@ -201,9 +201,11 @@ final class TornadoExecutor {
         StringBuilder ids = new StringBuilder();
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
-            if (!s.persistent && !produced.contains(s) && ++s.inputUses >= 2 && (long) s.numel * 4 >= PROMOTE_BYTES) {
+            if (!s.persistent && !produced.contains(s) && s.lease == null && ++s.inputUses >= 2 && (long) s.numel * 4 >= PROMOTE_BYTES) {
                 // a large host input read again (a dataset, a constant table): keep it on the device
-                // instead of copying it in on every execution
+                // instead of copying it in on every execution. Not an array of the host pool (an
+                // intermediate of the CPU backend, an output detached from its plan): the pool takes
+                // it back while a plan would still hold it
                 Engine.ensureHost(s);
                 s.persistent = true;
                 s.internal = false;

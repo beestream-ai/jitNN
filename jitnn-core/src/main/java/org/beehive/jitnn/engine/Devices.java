@@ -96,6 +96,63 @@ final class Devices {
         }
     }
 
+    /**
+     * The OpenCL device on the host CPU ({@code <driver>:<device>}) that runs the operators the CPU
+     * backend has no kernel for, or null: {@code -Djitnn.cpu.opencl=auto} (the default) takes the first
+     * OpenCL device of type CPU (PoCL, the Intel CPU runtime) when a TornadoVM runtime is present and
+     * the JVM's signal chaining library is preloaded, {@code off} none, anything else is a device spec.
+     *
+     * <p>The CPU OpenCL drivers install signal handlers of their own, which take signals the JVM
+     * raises on purpose (safepoint polls, implicit null checks): the process dies of a SIGSEGV
+     * without an error report, at a random point. {@code LD_PRELOAD=$JAVA_HOME/lib/libjsig.so} keeps
+     * the JVM's handlers first; without it {@code auto} leaves the device alone and says so.
+     */
+    static String hostOpenCl() {
+        return HostOpenCl.SPEC;
+    }
+
+    private static final class HostOpenCl {
+        static final String SPEC = find();
+
+        private static String find() {
+            String p = System.getProperty("jitnn.cpu.opencl", "auto").trim();
+            if (p.equals("off")) {
+                return null;
+            }
+            if (!p.equals("auto")) {
+                return p;
+            }
+            String found = null;
+            try {
+                Class.forName("uk.ac.manchester.tornado.runtime.TornadoCoreRuntime", false, Devices.class.getClassLoader());
+                uk.ac.manchester.tornado.api.TornadoRuntime runtime = uk.ac.manchester.tornado.api.runtime.TornadoRuntimeProvider.getTornadoRuntime();
+                for (int b = 0; b < runtime.getNumBackends() && found == null; b++) {
+                    uk.ac.manchester.tornado.api.TornadoBackend backend = runtime.getBackend(b);
+                    for (int d = 0; d < backend.getNumDevices(); d++) {
+                        TornadoDevice device = backend.getDevice(d);
+                        if (device.getTornadoVMBackend() == TornadoVMBackendType.OPENCL && device.getDeviceType() == uk.ac.manchester.tornado.api.enums.TornadoDeviceType.CPU) {
+                            found = b + ":" + d;
+                            break;
+                        }
+                    }
+                }
+            } catch (Throwable e) {
+                // no TornadoVM runtime, or none of its drivers started
+            }
+            if (found != null && !signalChaining()) {
+                System.err.println("[jitnn] the CPU backend leaves OpenCL device " + found + " alone: its driver's signal handlers crash the JVM unless "
+                        + "LD_PRELOAD=$JAVA_HOME/lib/libjsig.so is set; operators without a CPU kernel run their reference");
+                return null;
+            }
+            return found;
+        }
+
+        private static boolean signalChaining() {
+            String preload = System.getenv("LD_PRELOAD");
+            return preload != null && preload.contains("libjsig");
+        }
+    }
+
     static void apply(TornadoExecutionPlan plan) {
         String spec = CURRENT.get();
         if (spec.isEmpty()) {

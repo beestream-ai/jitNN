@@ -187,11 +187,20 @@ public final class Engine {
 
     /**
      * The CPU backend's counters so far, per operator name: {@code [calls, nanoseconds, calls that
-     * ran the reference implementation]}; the times only with {@code -Djitnn.cpu.stats=true}, which
-     * also prints the table at exit.
+     * ran the reference implementation, calls that ran on the host's OpenCL device]}; the times only
+     * with {@code -Djitnn.cpu.stats=true}, which also prints the table at exit.
      */
     public static java.util.Map<String, long[]> cpuStats() {
         return CpuExecutor.stats();
+    }
+
+    /**
+     * The OpenCL device on the host CPU ({@code <driver>:<device>}) where the CPU backend runs the
+     * operators it has no kernel for, or null when there is none (no TornadoVM runtime, no OpenCL CPU
+     * driver, {@code -Djitnn.cpu.opencl=off}); those operators then run their reference.
+     */
+    public static String cpuOpenClDevice() {
+        return Devices.hostOpenCl();
     }
 
     /**

@@ -42,6 +42,36 @@ default boolean cpu(Node node) {
 - **Fallback.** Every one of the ~120 operators works on day one through `reference`. The
   executor counts fallbacks per operator name. `-Djitnn.cpu.stats=true` prints them at exit, so
   missing kernels are visible.
+- **OpenCL on the host CPU.** When TornadoVM can see an OpenCL device of type CPU (PoCL, the
+  Intel CPU runtime), operators without a CPU kernel run there instead of their reference, with
+  the kernels jitNN uses on GPUs, when that is faster. Each operator and shape runs its reference
+  twice (the first warms the JIT) and on the device three times (the first compiles), timed with
+  the copies, and keeps the faster place: the rotary embedding of a small LLaMA was slower on the device than its
+  reference, the U-Net operators much faster. Consecutive operators that chose the device form
+  one TornadoVM plan. Its inputs are copied in and the outputs a later node reads come back to
+  host arrays, so the two sides never share memory. An operator the device fails to compile runs
+  its reference from then on.
+  `-Djitnn.cpu.opencl` picks the device or turns this off; the counters show calls per operator
+  that ran there.
+  The CPU drivers install signal handlers that take the signals the JVM raises on purpose
+  (safepoint polls, implicit null checks), so the JVM dies of a SIGSEGV with no error report at a
+  random point. Preloading the JVM's signal chaining library,
+  `LD_PRELOAD=$JAVA_HOME/lib/libjsig.so`, fixes it for PoCL and for the Intel CPU runtime
+  (`POCL_SIGFPE_HANDLER=0` alone does not). Without it the device is left alone, with a warning.
+  PoCL starts one worker thread per logical CPU, and those keep competing with the backend's
+  threads after a plan returns: the GEMMs of a LLaMA step ran 10% slower. Give PoCL the backend's
+  thread count, `POCL_MAX_PTHREAD_COUNT` (PoCL 3) or `POCL_CPU_MAX_CU_COUNT` (later versions).
+  On the x86 machine, PoCL 3.0 with 32 threads (ms per training step, mean of three medians of 10
+  steps, the same session):
+
+  | Workload | reference | timed choice | on the device |
+  |---|---|---|---|
+  | U-Net b32 | 653 | 155 | transposed conv, upsampling and its backward, large concat and narrow, max-pool backward |
+  | LLaMA b4 s256 | 1248 | 1134 | rotary embedding |
+
+  MobileNetV2, the VAE and the MLP have no operator without a CPU kernel and do not change.
+  Running whole models on the OpenCL device instead is no alternative: GPU-shaped kernels on PoCL
+  ran ResNet-50 and BERT 4–15x slower than the Vector API kernels (see Measuring).
 - **Code split.** Operators decode their own `iattr` layout (the constants are private to each
   op class). They then call shared primitives in a new package `org.beehive.jitnn.cpu`. Those
   primitives take only segments, offsets and sizes. That package is the only code that imports
@@ -148,6 +178,23 @@ Model level: logits match PyTorch FP32 within the bounds that t1 already reports
   backend.
 - **Same harness.** `t1.py --device cpu` and `InferenceBenchAccelTest` with
   `-Djitnn.backend=cpu` produce the comparable rows.
+- **OpenCL on the CPU, whole models.** The TORNADO backend on PoCL 3.0 (the x86 machine, FP32,
+  median ms; training in ms per step) against the Vector API kernels in the same session:
+
+  | Workload | PoCL | Vector API |
+  |---|---|---|
+  | ResNet-50 b1 | 302 | 21 |
+  | BERT b1 s128 | 447 | 41 |
+  | ResNet-50 b32 | 1186 | 261 |
+  | BERT b32 s128 | 2888 | 419 |
+  | ResNet-18 training b64 | 1338 | 350 |
+  | ResNet-50 (CIFAR) training b32 | 2644 | 508 |
+  | BERT training b8 s128 | 7221 | 747 |
+  | GPT-2 training b8 s256 | 15350 | 1409 |
+
+  PoCL passed 452 of the 490 device tests; the rest need FP16, which its CPU driver lacks. Without
+  `libjsig` (see Operator dispatch), the Intel CPU runtime 2026.2 crashed the JVM on the first kernel
+  launch, in TornadoVM's own tests too.
 - **Per-phase checks.** Each phase reports:
   - GEMM GFLOP/s against machine peak;
   - per-op time against REFERENCE;

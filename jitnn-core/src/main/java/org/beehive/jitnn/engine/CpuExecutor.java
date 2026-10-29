@@ -33,7 +33,7 @@ final class CpuExecutor {
     static final boolean STATS = Boolean.getBoolean("jitnn.cpu.stats");
     /** With {@code jitnn.cpu.stats}: one row per operator and attributes (shapes), not per operator. */
     private static final boolean BY_SHAPE = Boolean.getBoolean("jitnn.cpu.stats.shapes");
-    /** Per operator name: calls, nanoseconds (with {@link #STATS}), calls that ran the reference. */
+    /** Per operator name: calls, nanoseconds (with {@link #STATS}), calls that ran the reference, calls that ran on the host's OpenCL device. */
     private static final Map<String, LongAdder[]> BY_OP = new ConcurrentHashMap<>();
 
     static {
@@ -129,48 +129,49 @@ final class CpuExecutor {
             }
         }
         List<TornadoNativeArray> pooled = new java.util.ArrayList<>();
-        for (int i = 0; i < nodes.size(); i++) {
-            Node n = nodes.get(i);
-            long start = STATS ? System.nanoTime() : 0;
-            for (Tensor t : n.inputs) {
-                Engine.ensureHost(t.storage());
-            }
-            pooled.clear();
-            for (Tensor t : n.outputs) {
-                Storage s = t.storage();
-                if (s.array == null && s.heap == null && !s.persistent) {
-                    // a pooled or reused array holds old contents: CPU kernels write every element;
-                    // the reference gets zeros
-                    if (!steal(previous, slotOf, s)) {
-                        TornadoNativeArray a = HostPool.take(s.dtype, s.numel);
-                        s.array = a;
-                        s.lease = HostPool.lease(s, a);
+        for (int i = 0; i < nodes.size();) {
+            int end = i + 1;
+            Choice choice = choice(nodes.get(i));
+            if (choice != null && choice.onDevice()) {
+                // operators without a CPU kernel, run together on the host's OpenCL device (one at a
+                // time while they are being timed)
+                while (!choice.measuring() && end < nodes.size()) {
+                    Choice next = choice(nodes.get(end));
+                    if (next == null || !next.onDevice() || next.measuring()) {
+                        break;
                     }
-                    pooled.add(s.array);
+                    end++;
+                }
+                long nanos = openCl(nodes.subList(i, end), nodes, end, wantedSet);
+                if (nanos >= 0) {
+                    choice.deviceRan(nanos);
                 } else {
-                    s.allocate();
+                    for (int j = i; j < end; j++) {
+                        Node n = nodes.get(j);
+                        if (end - i > 1 && openCl(List.of(n), nodes, j + 1, wantedSet) >= 0) {
+                            continue;
+                        }
+                        // the device cannot compile it (no FP16 on the device, say): the reference runs it from now on
+                        choice(n).failed();
+                        detach(n);
+                        host(n, previous, slotOf, pooled);
+                    }
                 }
-                s.hostWritten();
-            }
-            if (STATS) {
-                long now = System.nanoTime();
-                count("(outputs)", now - start, false);
-                start = now;
-            }
-            boolean kernel = n.op.cpu(n);
-            if (!kernel) {
-                for (TornadoNativeArray a : pooled) {
-                    zero(a.getSegment());
-                }
-                n.op.reference(n);
-            }
-            count(BY_SHAPE ? n.op.name() + java.util.Arrays.toString(n.iattr) : n.op.name(), STATS ? System.nanoTime() - start : 0, !kernel);
-            n.executed = true;
-            if (releases[i] != null) {
-                for (Storage s : releases[i]) {
-                    recycle(s);
+            } else {
+                long start = choice != null ? System.nanoTime() : 0;
+                host(nodes.get(i), previous, slotOf, pooled);
+                if (choice != null) {
+                    choice.referenceRan(System.nanoTime() - start);
                 }
             }
+            for (int j = i; j < end; j++) {
+                if (releases[j] != null) {
+                    for (Storage s : releases[j]) {
+                        recycle(s);
+                    }
+                }
+            }
+            i = end;
         }
         if (REUSE) {
             Previous now = new Previous(slots.size());
@@ -182,6 +183,191 @@ final class CpuExecutor {
                 }
             }
             PREVIOUS.get().put(structure, now);
+        }
+    }
+
+    /** Runs {@code n} on the host: its CPU kernel, else its reference. */
+    private static void host(Node n, Previous previous, IdentityHashMap<Storage, Integer> slotOf, List<TornadoNativeArray> pooled) {
+        long start = STATS ? System.nanoTime() : 0;
+        for (Tensor t : n.inputs) {
+            Engine.ensureHost(t.storage());
+        }
+        pooled.clear();
+        for (Tensor t : n.outputs) {
+            Storage s = t.storage();
+            if (s.array == null && s.heap == null && !s.persistent) {
+                // a pooled or reused array holds old contents: CPU kernels write every element;
+                // the reference gets zeros
+                if (!steal(previous, slotOf, s)) {
+                    TornadoNativeArray a = HostPool.take(s.dtype, s.numel);
+                    s.array = a;
+                    s.lease = HostPool.lease(s, a);
+                }
+                pooled.add(s.array);
+            } else {
+                s.allocate();
+            }
+            s.hostWritten();
+        }
+        if (STATS) {
+            long now = System.nanoTime();
+            count("(outputs)", now - start, false);
+            start = now;
+        }
+        boolean kernel = n.op.cpu(n);
+        if (!kernel) {
+            for (TornadoNativeArray a : pooled) {
+                zero(a.getSegment());
+            }
+            n.op.reference(n);
+        }
+        count(key(n), STATS ? System.nanoTime() - start : 0, !kernel);
+        n.executed = true;
+    }
+
+    private static String key(Node n) {
+        return BY_SHAPE ? n.op.name() + java.util.Arrays.toString(n.iattr) : n.op.name();
+    }
+
+    /** Operator classes that override {@link Op#cpu}. */
+    private static final ClassValue<Boolean> HAS_KERNEL = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            try {
+                return type.getMethod("cpu", Node.class).getDeclaringClass() != Op.class;
+            } catch (NoSuchMethodException e) {
+                return false;
+            }
+        }
+    };
+
+    /** Per operator and attributes: where an operator without a CPU kernel runs. */
+    private static final Map<String, Choice> CHOICES = new ConcurrentHashMap<>();
+
+    /** Where {@code n} runs when its operator has no CPU kernel and the host has an OpenCL device; null otherwise. */
+    private static Choice choice(Node n) {
+        if (HAS_KERNEL.get(n.op.getClass()) || Devices.hostOpenCl() == null) {
+            return null;
+        }
+        return CHOICES.computeIfAbsent(n.op.name() + java.util.Arrays.toString(n.iattr), Choice::new);
+    }
+
+    /**
+     * Where an operator without a CPU kernel runs: its reference runs twice (the first warms the JIT)
+     * and the host's OpenCL device three times (the first compiles), timed, and the faster place keeps
+     * it; inputs copied in and outputs copied back count against the device. {@code -Djitnn.cpu.opencl.choose=always}
+     * sends it to the device without timing. An operator the device fails to compile stays with its
+     * reference.
+     */
+    private static final class Choice {
+        private static final int MEASURING = 0;
+        private static final int DEVICE = 1;
+        private static final int REFERENCE = 2;
+
+        private final String key;
+        private long reference = Long.MAX_VALUE;
+        private long device = Long.MAX_VALUE;
+        private int referenceRuns;
+        private int deviceRuns;
+        private volatile int decided = MEASURING;
+
+        Choice(String key) {
+            this.key = key;
+        }
+
+        private static boolean always() {
+            return "always".equals(System.getProperty("jitnn.cpu.opencl.choose"));
+        }
+
+        synchronized boolean onDevice() {
+            if (always()) {
+                return decided != REFERENCE;
+            }
+            return decided == DEVICE || (decided == MEASURING && referenceRuns >= 2);
+        }
+
+        boolean measuring() {
+            return decided == MEASURING && !always();
+        }
+
+        synchronized void referenceRan(long nanos) {
+            if (decided == MEASURING && ++referenceRuns == 2) {
+                reference = nanos;
+            }
+        }
+
+        synchronized void deviceRan(long nanos) {
+            if (decided != MEASURING || always()) {
+                return;
+            }
+            if (++deviceRuns > 1) {
+                device = Math.min(device, nanos);
+            }
+            if (deviceRuns == 3) {
+                decided = device < reference ? DEVICE : REFERENCE;
+                if (Boolean.getBoolean("jitnn.verbose")) {
+                    System.err.printf("[jitnn] %s runs %s: %.3f ms on the host's OpenCL device, %.3f ms as reference%n", key, decided == DEVICE ? "on the OpenCL device" : "its reference",
+                            device / 1e6, reference / 1e6);
+                }
+            }
+        }
+
+        void failed() {
+            decided = REFERENCE;
+        }
+    }
+
+    /**
+     * Runs {@code segment} (the nodes before {@code nodes[end]}) as one TornadoVM plan on the host's
+     * OpenCL device; the outputs a later node reads, the sync requested or user code holds come back
+     * to host arrays. Returns the nanoseconds it took, or -1, with nothing written, when the device
+     * failed to compile it.
+     */
+    private static long openCl(List<Node> segment, List<Node> nodes, int end, Set<Storage> wantedSet) {
+        long start = System.nanoTime();
+        Set<Storage> later = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (int j = end; j < nodes.size(); j++) {
+            for (Tensor t : nodes.get(j).inputs) {
+                later.add(t.storage());
+            }
+        }
+        List<Tensor> back = new java.util.ArrayList<>();
+        for (Node n : segment) {
+            for (Tensor t : n.outputs) {
+                Storage s = t.storage();
+                if (later.contains(s) || wantedSet.contains(s) || !s.internal) {
+                    back.add(t);
+                }
+            }
+        }
+        String saved = Devices.current();
+        Devices.set(Devices.hostOpenCl());
+        try {
+            TornadoExecutor.run(segment, back.toArray(new Tensor[0]));
+        } catch (RuntimeException e) {
+            if (Boolean.getBoolean("jitnn.verbose")) {
+                System.err.printf("[jitnn] the host's OpenCL device did not run %s: %s%n", segment.stream().map(n -> n.op.name()).toList(), e.getMessage());
+            }
+            return -1;
+        } finally {
+            Devices.set(saved);
+        }
+        long nanos = System.nanoTime() - start;
+        for (Node n : segment) {
+            n.executed = true;
+            countOpenCl(key(n), STATS ? nanos / segment.size() : 0);
+        }
+        return nanos;
+    }
+
+    /** Detaches the outputs of a node whose OpenCL plan failed from that plan's arrays. */
+    private static void detach(Node n) {
+        for (Tensor t : n.outputs) {
+            Storage s = t.storage();
+            if (!s.persistent && s.lease == null) {
+                s.array = null;
+                s.boundTrace = null;
+            }
         }
     }
 
@@ -224,12 +410,23 @@ final class CpuExecutor {
     }
 
     private static void count(String name, long nanos, boolean reference) {
-        LongAdder[] c = BY_OP.computeIfAbsent(name, k -> new LongAdder[] { new LongAdder(), new LongAdder(), new LongAdder() });
+        LongAdder[] c = counters(name);
         c[0].increment();
         c[1].add(nanos);
         if (reference) {
             c[2].increment();
         }
+    }
+
+    private static void countOpenCl(String name, long nanos) {
+        LongAdder[] c = counters(name);
+        c[0].increment();
+        c[1].add(nanos);
+        c[3].increment();
+    }
+
+    private static LongAdder[] counters(String name) {
+        return BY_OP.computeIfAbsent(name, k -> new LongAdder[] { new LongAdder(), new LongAdder(), new LongAdder(), new LongAdder() });
     }
 
     /** Zeroes {@code s} in parallel chunks. */
@@ -255,10 +452,13 @@ final class CpuExecutor {
         s.stale = true;
     }
 
-    /** Per operator name: {@code [calls, nanoseconds (0 without jitnn.cpu.stats), reference fallbacks]} so far. */
+    /**
+     * Per operator name: {@code [calls, nanoseconds (0 without jitnn.cpu.stats), reference fallbacks,
+     * calls on the host's OpenCL device]} so far.
+     */
     static Map<String, long[]> stats() {
         Map<String, long[]> out = new TreeMap<>();
-        BY_OP.forEach((k, v) -> out.put(k, new long[] { v[0].sum(), v[1].sum(), v[2].sum() }));
+        BY_OP.forEach((k, v) -> out.put(k, new long[] { v[0].sum(), v[1].sum(), v[2].sum(), v[3].sum() }));
         return out;
     }
 
@@ -284,7 +484,7 @@ final class CpuExecutor {
         s.entrySet().stream().sorted((x, y) -> Long.compare(y.getValue()[1], x.getValue()[1])).forEach(e -> {
             long[] v = e.getValue();
             b.append(String.format(java.util.Locale.ROOT, "  %-28s %8d calls %12.3f ms %5.1f%%%s%n", e.getKey(), v[0], v[1] / 1e6, 100.0 * v[1] / all,
-                    v[2] > 0 ? "  reference: " + v[2] : ""));
+                    (v[2] > 0 ? "  reference: " + v[2] : "") + (v[3] > 0 ? "  OpenCL: " + v[3] : "")));
         });
         b.append(String.format(java.util.Locale.ROOT, "  total %.3f ms%n", total / 1e6));
         long[] gemm = org.beehive.jitnn.cpu.Gemm.drainTimes();
