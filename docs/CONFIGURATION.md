@@ -28,6 +28,7 @@ Sizes are in bytes.
 | `jitnn.promoteInputBytes` | `16777216` (16 MiB) | a host input at least this large that a later execution reads again (a dataset, a constant table) becomes persistent device storage instead of being copied in on every execution |
 | `jitnn.concurrency` | `1` | concurrent executions: threads are spread over this many slots, each with its own compiled plans and device buffers (weights included), so up to this many threads run plans on the device at once; plans on different devices (data-parallel ranks) always run at the same time. The plan cache holds `jitnn.plan.cache` plans per slot |
 | `jitnn.cudaGraph` | `true` | on CUDA, capture each plan as a CUDA graph and replay it |
+| `jitnn.dynamicShapes` | `true` | ask TornadoVM to share kernels across array sizes (`withDynamicShapes()`), so a new batch or sequence size reuses the kernels compiled for earlier sizes |
 | `jitnn.graph.maxTasks` | `40` | tasks per TornadoVM task graph; longer traces become a chain of graphs (a graph holds at most 256 tasks and 8 KiB of bytecode) |
 | `jitnn.hostPool.bytes` | `268435456` (256 MiB) | host arrays kept for reuse: outputs that outlive their plan's next run are copied into one, and it returns when the output is released (`Tensor.release`) or collected |
 | `jitnn.reuseBuffers` | `true` | reuse dead backward-pass and inference buffers inside a compiled step |

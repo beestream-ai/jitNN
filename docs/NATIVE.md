@@ -44,7 +44,7 @@ library tasks compiled into plans.
 
 ## Requirements
 
-- **TornadoVM:** develop, 7.3.2-dev or later, built with the CUDA or Metal backend
+- **TornadoVM:** develop, 8.0.1-dev or later, built with the CUDA or Metal backend
   (`make jdk22plus BACKEND=cuda`). Its SDK includes the library modules, and its
   `tornado-argfile` adds them. On Blackwell GPUs (RTX 50 series) TornadoVM must load the CUDA 13
   libraries before older ones (beehive-lab/TornadoVM#1280): cuBLAS 12.0, found first on many

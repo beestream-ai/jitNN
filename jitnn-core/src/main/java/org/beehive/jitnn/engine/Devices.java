@@ -38,7 +38,7 @@ final class Devices {
             String spec = CURRENT.get();
             TornadoDevice d;
             if (spec.isEmpty()) {
-                d = TornadoExecutionPlan.DEFAULT_DEVICE;
+                d = TornadoExecutionPlan.getDefaultDevice();
             } else {
                 String[] parts = spec.split(":");
                 d = TornadoExecutionPlan.getDevice(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
@@ -55,7 +55,7 @@ final class Devices {
             String spec = CURRENT.get();
             TornadoDevice d;
             if (spec.isEmpty()) {
-                d = TornadoExecutionPlan.DEFAULT_DEVICE;
+                d = TornadoExecutionPlan.getDefaultDevice();
             } else {
                 String[] parts = spec.split(":");
                 d = TornadoExecutionPlan.getDevice(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
@@ -72,7 +72,7 @@ final class Devices {
             String spec = CURRENT.get();
             TornadoDevice d;
             if (spec.isEmpty()) {
-                d = TornadoExecutionPlan.DEFAULT_DEVICE;
+                d = TornadoExecutionPlan.getDefaultDevice();
             } else {
                 String[] parts = spec.split(":");
                 d = TornadoExecutionPlan.getDevice(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));

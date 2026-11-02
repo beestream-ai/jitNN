@@ -61,6 +61,11 @@ final class TornadoExecutor {
     private static final String EXACT_REUSE = System.getProperty("jitnn.reuseBuffers.exact", "auto");
     /** On CUDA, capture each plan as a CUDA graph and replay it (default on). */
     private static final boolean CUDA_GRAPH = Boolean.parseBoolean(System.getProperty("jitnn.cudaGraph", "true"));
+    /**
+     * Ask TornadoVM to share kernels across array sizes (default on): a new batch or sequence size
+     * then reuses the kernels compiled for earlier sizes instead of compiling every one again.
+     */
+    private static final boolean DYNAMIC_SHAPES = Boolean.parseBoolean(System.getProperty("jitnn.dynamicShapes", "true"));
     private static long lastKernelNanos;
     private static long hostNanos;
     private static long executeNanos;
@@ -653,6 +658,9 @@ final class TornadoExecutor {
             plan.withProfiler(uk.ac.manchester.tornado.api.enums.ProfilerMode.SILENT);
         }
         Devices.apply(plan);
+        if (DYNAMIC_SHAPES) {
+            plan.withDynamicShapes();
+        }
         if (CUDA_GRAPH && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA) {
             plan.withCUDAGraph();
         }

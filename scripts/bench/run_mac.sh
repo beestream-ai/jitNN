@@ -5,7 +5,7 @@
 #   scripts/bench/run_mac.sh <device> <out dir>
 # <device> is the Metal device as jitNN's tests name it (backend:device, see `tornado --devices`).
 # Needs:
-#   - TORNADOVM_HOME set to a Metal build of TornadoVM develop, 7.3.2-dev or newer;
+#   - TORNADOVM_HOME set to a Metal build of TornadoVM develop, 8.0.1-dev or newer;
 #   - `brew install mlx` for the native run;
 #   - a Python (PYTHON=..., default python3) with torch, onnx, onnxscript and onnxruntime.
 # Options through the environment: MODELS (default resnet50,bert), DEVICE_MEMORY (default 24GB),

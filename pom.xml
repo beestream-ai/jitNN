@@ -33,10 +33,11 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>22</maven.compiler.release>
-        <!-- jitNN needs TornadoVM develop (7.2.1-dev): the on-demand
-             TornadoExecutionPlan.transferToDevice(Object...) moves parameters between plans, and the
-             library tasks (TaskGraph.libraryTask) call cuBLAS, cuDNN, cuFFT, cuSPARSE and MLX. -->
-        <tornadovm.version>7.3.2-jdk22plus-dev</tornadovm.version>
+        <!-- jitNN needs TornadoVM develop (8.0.1-dev): the on-demand
+             TornadoExecutionPlan.transferToDevice(Object...) moves parameters between plans, the
+             library tasks (TaskGraph.libraryTask) call cuBLAS, cuDNN, cuFFT, cuSPARSE and MLX, and
+             withDynamicShapes() shares kernels across array sizes. -->
+        <tornadovm.version>8.0.1-jdk22plus-dev</tornadovm.version>
         <junit.version>5.10.1</junit.version>
         <!-- Device for accelerator tests, as <driver>:<device> listed by the tornado devices command. -->
         <jitnn.test.device>0:0</jitnn.test.device>

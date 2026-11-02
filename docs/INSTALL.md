@@ -5,7 +5,7 @@
 | What | Version | Notes |
 |---|---|---|
 | JDK | 22 or newer | jitNN compiles with `--release 22`; tested on Temurin 25.0.3 and JDK 25.0.2 |
-| TornadoVM | `develop`, 7.3.2-jdk22plus-dev or newer | needs the on-demand `TornadoExecutionPlan.transferToDevice(Object...)` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), which every `develop` build installs; earlier versions lack the library tasks |
+| TornadoVM | `develop`, 8.0.1-jdk22plus-dev or newer | needs the on-demand `TornadoExecutionPlan.transferToDevice(Object...)`, `withDynamicShapes()` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), which every `develop` build installs; earlier versions lack the library tasks |
 | A device | CUDA, OpenCL or Metal | optional: the reference backend runs on any CPU |
 | CUDA toolkit | 12 or 13; 13 for Blackwell GPUs (RTX 50 series) | optional: only for the CUDA backend; vendor libraries on Blackwell need a TornadoVM that loads the CUDA 13 libraries first (beehive-lab/TornadoVM#1280) |
 | cuDNN, MLX | cuDNN 9; MLX from `brew install mlx` | optional: only for `-Djitnn.native` (see [NATIVE.md](NATIVE.md)); cuBLAS, cuFFT and cuSPARSE come with the CUDA toolkit |

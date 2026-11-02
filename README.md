@@ -89,7 +89,7 @@ The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERAT
 
 ## Quick start
 
-You need JDK 22+ and a TornadoVM SDK built from `develop` (7.3.2-dev or newer), installed in your
+You need JDK 22+ and a TornadoVM SDK built from `develop` (8.0.1-dev or newer), installed in your
 local Maven repository. The full guide is in [docs/INSTALL.md](docs/INSTALL.md).
 
 ```bash
