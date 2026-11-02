@@ -8,7 +8,7 @@ Sizes are in bytes.
 | Property | Default | Meaning |
 |---|---|---|
 | `jitnn.backend` | `tornado` when a TornadoVM runtime is present, else `cpu` when the JVM has `--add-modules jdk.incubator.vector`, else `reference` | where operators run: `tornado` (a TornadoVM device), `cpu` (the host, multithreaded, with the Java Vector API; operators without a CPU kernel run their reference implementation) or `reference` (the host, scalar, one operator at a time) |
-| `jitnn.cpu.threads` | the physical cores this process may use, at most one socket's | threads the `cpu` backend's parallel loops use, the calling thread included; on a two-socket machine one socket's cores ran ResNet-50 and BERT faster than both |
+| `jitnn.cpu.threads` | the physical cores this process may use, at most one socket's; on Apple silicon the performance cores | threads the `cpu` backend's parallel loops use, the calling thread included; on a two-socket machine one socket's cores ran ResNet-50 and BERT faster than both |
 | `jitnn.cpu.spinMicros` | `200` (`0` on macOS) | how long idle `cpu` backend threads (and a caller waiting for them) spin before they sleep; on Apple silicon spinning made the backend slower (ResNet-50 b1 29%, BERT b1 with Accelerate 16% on an M4 Pro) |
 | `jitnn.cpu.poolBytes` | `2147483648` (2 GiB) | host arrays the `cpu` backend keeps for reuse (activations, intermediates), unless `jitnn.hostPool.bytes` is set |
 | `jitnn.cpu.gemm.kc`, `jitnn.cpu.gemm.mcPanels`, `jitnn.cpu.gemm.nc`, `jitnn.cpu.gemm.tileMacs` | `256`, `16`, `256`, `1048576` | the `cpu` backend's GEMM blocking: depth per block, rows of A per tile (in panels of 6), columns of B per tile, and the multiply-adds a parallel tile holds at least |

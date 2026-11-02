@@ -147,7 +147,8 @@ default boolean cpu(Node node) {
 - **Pool.** One process-wide pool of `jitnn.cpu.threads` platform threads. The default is the
   physical core count, capped at one socket's cores: hyper-threads do not help FMA-bound GEMM,
   and on a two-socket Xeon one socket's 32 cores ran ResNet-50 and BERT 10–40% faster than all
-  64. Idle threads spin for `jitnn.cpu.spinMicros` before sleeping (200 µs; none on macOS, where spinning made ResNet-50 b1 29% slower on the Vector API kernels and BERT b1 16% slower with Accelerate on an M4 Pro).
+  64. On Apple silicon it is the performance cores only: on an M4 Pro 8 threads ran ResNet-50
+  3–19% faster than all 12 cores, BERT the same within noise. Idle threads spin for `jitnn.cpu.spinMicros` before sleeping (200 µs; none on macOS, where spinning made ResNet-50 b1 29% slower on the Vector API kernels and BERT b1 16% slower with Accelerate on an M4 Pro).
 - **Parallel-for.** `Cpu.parallelFor(n, grain, body)` uses static contiguous chunks. There is no
   work stealing, so per-call overhead stays near the cost of one wake-up and one barrier.
 - **Grain.** Each op picks the grain from its work estimate. Below about 32 K FLOPs it runs on

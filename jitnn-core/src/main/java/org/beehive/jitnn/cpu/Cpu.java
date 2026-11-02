@@ -12,7 +12,8 @@ import jdk.incubator.vector.FloatVector;
 /**
  * The CPU backend's threads. One process-wide pool of {@code jitnn.cpu.threads} threads (default:
  * the physical cores this process may use, at most one socket's: hyper-threads do not speed up
- * FMA-bound kernels, and on two sockets one socket's cores ran ResNet-50 and BERT faster than both) runs
+ * FMA-bound kernels, and on two sockets one socket's cores ran ResNet-50 and BERT faster than both;
+ * on Apple silicon the performance cores only) runs
  * {@link #parallelFor} in static contiguous chunks, the calling thread taking the first one. A call
  * made while another thread holds the pool, or from inside a parallel loop, runs on the calling
  * thread alone rather than oversubscribing the cores. Idle pool threads, and a caller waiting for
@@ -196,7 +197,8 @@ public final class Cpu {
 
     /**
      * Physical cores among the processors this process may use (the available processors divided by
-     * the hardware threads per core), at most the cores of one socket; the available processors when
+     * the hardware threads per core), at most the cores of one socket, or the performance cores on
+     * Apple silicon; the available processors when
      * the topology is unknown (Linux sysfs, macOS sysctl).
      */
     static int defaultThreads() {
@@ -233,7 +235,9 @@ public final class Cpu {
             if (System.getProperty("os.name", "").startsWith("Mac")) {
                 int logical = sysctl("hw.logicalcpu");
                 int physical = sysctl("hw.physicalcpu");
-                return new int[] { physical > 0 && logical > 0 ? Math.max(1, logical / physical) : 1, physical };
+                // only the performance cores on Apple silicon: on an M4 Pro 8 threads ran ResNet-50 3-19% faster than all 12 cores
+                int performance = sysctl("hw.perflevel0.physicalcpu");
+                return new int[] { physical > 0 && logical > 0 ? Math.max(1, logical / physical) : 1, performance > 0 ? performance : physical };
             }
         } catch (Exception e) {
             // unknown topology: one thread per core
@@ -241,10 +245,15 @@ public final class Cpu {
         return new int[] { 1, 0 };
     }
 
+    /** A numeric sysctl value, 0 when the name is unknown (perflevel names exist only on Apple silicon). */
     private static int sysctl(String name) throws Exception {
         Process p = new ProcessBuilder("sysctl", "-n", name).redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes()).trim();
         p.waitFor();
-        return Integer.parseInt(out);
+        try {
+            return Integer.parseInt(out);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 }
