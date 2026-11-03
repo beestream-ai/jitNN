@@ -75,6 +75,8 @@ public final class Workloads {
             Tensor l = loss.get();
             l.backward();
             opt.step();
+            // as a training loop does (and PyTorch's zero_grad): each step starts from fresh gradients
+            opt.zeroGrad();
         };
     }
 
