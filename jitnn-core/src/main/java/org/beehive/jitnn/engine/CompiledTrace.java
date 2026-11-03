@@ -39,6 +39,14 @@ final class CompiledTrace {
     java.util.Set<Object> deviceArrays;
     /** TornadoExecutor's execution count at this plan's latest execution (idle eviction). */
     long lastUsed;
+    /**
+     * Per input slot, the intermediate slot whose value the plan copies into it on the device at the
+     * end of each execution, for the next one to read (-1: the input comes from the host); null when
+     * the plan was compiled without carried values.
+     */
+    int[] carry;
+    /** Per input slot, the intermediate slot of the previous execution it was seen to read (-1: none); null when none was seen. */
+    int[] seenCarry;
 
     /** "graph.task" keys of the profiler log and the operator each task belongs to (profiling only). */
     java.util.Map<String, String> taskLabels;

@@ -19,6 +19,7 @@ import uk.ac.manchester.tornado.api.TornadoExecutionPlan;
 import uk.ac.manchester.tornado.api.TornadoExecutionResult;
 import uk.ac.manchester.tornado.api.enums.DataTransferMode;
 import uk.ac.manchester.tornado.api.exceptions.TornadoExecutionPlanException;
+import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
 
 /**
@@ -66,6 +67,13 @@ final class TornadoExecutor {
      * then reuses the kernels compiled for earlier sizes instead of compiling every one again.
      */
     private static final boolean DYNAMIC_SHAPES = Boolean.parseBoolean(System.getProperty("jitnn.dynamicShapes", "true"));
+    /**
+     * Keep values a plan hands to its own next execution on the device (default on): an input that
+     * is an output of the plan's previous execution (a gradient accumulated over steps) is copied
+     * across on the device at the end of each execution, instead of being fetched to the host and
+     * uploaded again. The plan is compiled once more when such an input is first seen.
+     */
+    private static final boolean CARRY = Boolean.parseBoolean(System.getProperty("jitnn.plan.carry", "true"));
     private static long lastKernelNanos;
     private static long hostNanos;
     private static long executeNanos;
@@ -294,13 +302,29 @@ final class TornadoExecutor {
             if (DEBUG_KEYS) {
                 System.err.println("[jitnn] key " + k);
             }
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread);
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
             ct.structure = structure;
             BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
             compiles++;
         } else {
             replays++;
+        }
+        CompiledTrace replaced = null;
+        if (ct.seenCarry != null && ct.carry == null) {
+            // inputs of this plan were outputs of its previous execution (gradients accumulated over
+            // steps): compile it once more to copy them across on the device; the old plan, which
+            // still holds them, is closed once the new one has read them
+            replaced = ct;
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, replaced.seenCarry.clone());
+            if (VERBOSE) {
+                System.err.printf("[jitnn] %s replaces %s: %d input(s) carried on the device from the previous execution%n", ct.name, replaced.name,
+                        Arrays.stream(ct.carry).filter(j -> j >= 0).count());
+            }
+            ct.structure = structure;
+            BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
+            CACHE.put(k, ct);
+            compiles++;
         }
         ct.lastUsed = ++executionsTotal;
         lastIntermediateBytes = ct.intermediateBytes;
@@ -321,7 +345,12 @@ final class TornadoExecutor {
             if (VERBOSE) {
                 System.err.printf("[jitnn] out of device memory in %s: closed every cached plan and recompiled%n", ct.name);
             }
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread);
+            if (replaced != null) {
+                // no longer in the cache: closed here (its carried values were read before the failure)
+                close(replaced);
+                replaced = null;
+            }
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
             ct.structure = structure;
             BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
@@ -340,12 +369,15 @@ final class TornadoExecutor {
             String tag = Native.keyTag();
             structure = Devices.key() + "|" + slotTag + tag + structure.substring(Devices.key().length() + 1 + slotTag.length() + nativeTag.length());
             k = structure + "|P" + ids;
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread);
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
             ct.structure = structure;
             BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
             compiles++;
             execute(ct, slots);
+        }
+        if (replaced != null && !replaced.closed) {
+            close(replaced);
         }
         for (Node n : nodes) {
             n.executed = true;
@@ -460,7 +492,7 @@ final class TornadoExecutor {
     }
 
     private static CompiledTrace compile(String key, List<Node> nodes, List<Storage> slots, IdentityHashMap<Storage, Integer> slotOf, int[] kinds, boolean[] written, boolean[] recyclable,
-            int[] lastUse, Set<Storage> unread) {
+            int[] lastUse, Set<Storage> unread, int[] carry) {
         long t0 = System.nanoTime();
         String name = "jitnn" + GRAPHS.incrementAndGet();
         Object[] arrays = new Object[slots.size()];
@@ -521,9 +553,26 @@ final class TornadoExecutor {
             e.beginNode(n);
             n.op.emit(e, n);
         }
+        // Carried values: after the last node, each carried intermediate is copied into the input
+        // buffer the next execution reads, which is then uploaded from the host only when needed.
+        Set<Object> carried = Collections.newSetFromMap(new IdentityHashMap<>());
+        if (carry != null) {
+            for (int i = 0; i < carry.length; i++) {
+                int j = carry[i];
+                boolean ok = j >= 0 && kinds[i] == CompiledTrace.INPUT && kinds[j] == CompiledTrace.INTERMEDIATE && !recyclable[j] && !unread.contains(slots.get(j))
+                        && arrays[i] instanceof FloatArray && arrays[j] instanceof FloatArray && slots.get(i).numel == slots.get(j).numel;
+                if (ok) {
+                    e.carry((FloatArray) arrays[j], (FloatArray) arrays[i], slots.get(i).numel);
+                    carried.add(arrays[i]);
+                } else {
+                    carry[i] = -1;
+                }
+            }
+        }
 
-        // Kind of each array the graph touches: inputs are uploaded every execution, persistent
-        // storages and constants once; everything is kept on the device for later reads.
+        // Kind of each array the graph touches: inputs are uploaded every execution (carried ones
+        // once, then on demand), persistent storages and constants once; everything is kept on the
+        // device for later reads.
         IdentityHashMap<Object, Integer> arrayKind = new IdentityHashMap<>();
         for (Object c : e.constants) {
             arrayKind.put(c, CompiledTrace.PERSISTENT);
@@ -573,7 +622,9 @@ final class TornadoExecutor {
                     if (o == null) {
                         owner.put(a, gname);
                         Integer k = arrayKind.get(a);
-                        if (k != null && k == CompiledTrace.INPUT) {
+                        if (k != null && k == CompiledTrace.INPUT && carried.contains(a)) {
+                            once.add(a);
+                        } else if (k != null && k == CompiledTrace.INPUT) {
                             inputs.add(a);
                         } else if (k != null && k == CompiledTrace.PERSISTENT) {
                             once.add(a);
@@ -631,6 +682,7 @@ final class TornadoExecutor {
         ct.deviceArrays = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         ct.deviceArrays.addAll(owner.keySet());
         ct.recyclable = recyclable;
+        ct.carry = carry;
         ct.libraries = e.libraries;
         for (Emitter.Spec spec : e.tasks) {
             if (spec.grid() == null) {
@@ -771,10 +823,23 @@ final class TornadoExecutor {
             }
         }
         // Inputs first: an input may be an intermediate of this plan's previous execution, which
-        // must be fetched before its slot is rebound below.
+        // must be fetched before its slot is rebound below (unless the plan carries it on the device).
         for (int i = 0; i < slots.size(); i++) {
             if (ct.kinds[i] == CompiledTrace.INPUT) {
                 Storage s = slots.get(i);
+                int from = CARRY ? previousOutput(ct, s) : -1;
+                boolean carried = ct.carry != null && ct.carry[i] >= 0;
+                if (carried && from == ct.carry[i]) {
+                    // the end of the previous execution copied it into this input's device buffer
+                    continue;
+                }
+                if (from >= 0 && ct.carry == null) {
+                    if (ct.seenCarry == null) {
+                        ct.seenCarry = new int[slots.size()];
+                        Arrays.fill(ct.seenCarry, -1);
+                    }
+                    ct.seenCarry[i] = from;
+                }
                 Engine.ensureHost(s);
                 transfers[4]++;
                 transfers[5] += s.numel;
@@ -783,6 +848,10 @@ final class TornadoExecutor {
                     Storage.copyHeap(s.heap, (TornadoNativeArray) ct.arrays[i], s.numel);
                 } else {
                     copy((TornadoNativeArray) s.array, (TornadoNativeArray) ct.arrays[i]);
+                }
+                if (carried && ct.executions > 0) {
+                    // a carried input is uploaded on the first execution only: another value is sent now
+                    ct.plan.transferToDevice(ct.arrays[i]);
                 }
             }
         }
@@ -946,6 +1015,22 @@ final class TornadoExecutor {
         } finally {
             LOCK.unlock();
         }
+    }
+
+    /**
+     * The intermediate slot of {@code ct} that holds {@code s} from the plan's previous execution
+     * (its buffer still has the value on the device), or -1.
+     */
+    private static int previousOutput(CompiledTrace ct, Storage s) {
+        if (s.boundTrace != ct || s.stale || s.boundExec != ct.executions) {
+            return -1;
+        }
+        for (int j = 0; j < ct.bound.length; j++) {
+            if (ct.bound[j] == s && ct.kinds[j] == CompiledTrace.INTERMEDIATE && (ct.recyclable == null || !ct.recyclable[j])) {
+                return j;
+            }
+        }
+        return -1;
     }
 
     private static int indexOf(CompiledTrace ct, Storage s) {

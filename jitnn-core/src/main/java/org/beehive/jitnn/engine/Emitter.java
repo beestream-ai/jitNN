@@ -229,6 +229,13 @@ public final class Emitter {
         tasks.add(new Spec("t" + tasks.size(), grid, adder, node));
     }
 
+    /** Copies {@code src} into {@code dst} on the device, as a task of the last node emitted (a value the plan carries to its next execution). */
+    void carry(FloatArray src, FloatArray dst, int n) {
+        use(src);
+        use(dst);
+        task(grid1D(n), (g, id) -> g.task(id, org.beehive.jitnn.ops.Assign::copy, context(), src, dst, n));
+    }
+
     /** The vendor-library functions this plan's library tasks call ("cudnn.conv", see {@link Native}). */
     final java.util.Set<String> libraries = new java.util.TreeSet<>();
 
