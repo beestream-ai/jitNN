@@ -98,9 +98,14 @@ class HalfTrainingAccelTest {
         for (Case c : cases()) {
             List<Float> full = train(c, false, 12);
             List<Float> half = train(c, true, 12);
+            // Differences are relative to the loss, but at least to 5% of the first loss: a model that
+            // has nearly memorised its batch (ResNet-18 reaches 1e-3 in a few steps) has a loss of about
+            // exp(-margin), whose relative error is the absolute error of the logits, a few percent with
+            // FP16 activations (PyTorch's autocast drifts 3-9% from FP32 on the same run)
+            double floor = 0.05 * Math.abs(full.get(0));
             double worst = 0;
             for (int s = 0; s < full.size(); s++) {
-                worst = Math.max(worst, Math.abs(full.get(s) - half.get(s)) / Math.max(Math.abs(full.get(s)), 1e-3));
+                worst = Math.max(worst, Math.abs(full.get(s) - half.get(s)) / Math.max(Math.abs(full.get(s)), floor));
             }
             System.out.printf("[half] %s: FP32 losses %s%n[half] %s: FP16 losses %s (largest relative difference %.2e)%n", c.name(), full, c.name(), half, worst);
             assertTrue(worst < 0.02, c.name() + ": FP16 training strays from FP32 by " + worst);
