@@ -27,8 +27,9 @@ import org.beehive.jitnn.onnx.OnnxModel.TensorData;
  * }</pre>
  *
  * Floating-point weights of any precision are held in FP32; with {@link #load(Path, boolean)} in
- * half precision the matrix products take FP16 operands (jitNN's autocast) and linear weights are
- * stored in FP16. Convolutions stay FP32. Integer tensors become INT32
+ * half precision activations stay FP16 between operators ({@code Autocast.enableHalf}), linear
+ * weights are stored in FP16, and outputs are handed out in FP32. {@code -Djitnn.onnx.halfActivations=false}
+ * keeps FP32 activations with FP16 products only (jitNN's autocast). Integer tensors become INT32
  * on the device. Booleans are FP32 0 / 1.
  */
 public final class OnnxSession implements AutoCloseable {
@@ -37,6 +38,11 @@ public final class OnnxSession implements AutoCloseable {
     private final Map<String, Value> constants = new HashMap<>();
     private final List<Node> nodes;
     private final boolean half;
+    /**
+     * Half precision keeps activations in FP16 ({@code -Djitnn.onnx.halfActivations}, default true):
+     * BERT-base on an A10 ran 1.5-2.0x faster than with FP16 products alone.
+     */
+    private static final boolean HALF_ACTIVATIONS = !"false".equals(System.getProperty("jitnn.onnx.halfActivations"));
 
     private OnnxSession(OnnxModel model, boolean half) {
         this.model = model;
@@ -76,8 +82,8 @@ public final class OnnxSession implements AutoCloseable {
     }
 
     /**
-     * With {@code halfPrecision}, the matrix products (linear layers, attention) run on FP16
-     * operands with FP32 accumulation, and the linear layers' weights are stored in FP16.
+     * With {@code halfPrecision}, activations stay FP16 between operators (products accumulate in
+     * FP32) and the linear layers' weights are stored in FP16; outputs are FP32.
      */
     public static OnnxSession load(Path file, boolean halfPrecision) throws IOException {
         return of(OnnxModel.load(file), halfPrecision);
@@ -364,7 +370,7 @@ public final class OnnxSession implements AutoCloseable {
         Map<String, Tensor> result = new LinkedHashMap<>();
         // intermediates are internal (their buffers are reused, and jitNN's inference fusions apply), as in Grad.inference
         try (Grad.Scope ignored = Grad.disabled(); AutoCloseable internal = org.beehive.jitnn.engine.Storage.internalScope();
-                Grad.Scope cast = half ? Autocast.enable(DType.F16) : null) {
+                Grad.Scope cast = !half ? null : HALF_ACTIVATIONS ? Autocast.enableHalf() : Autocast.enable(DType.F16)) {
             for (Node n : nodes) {
                 if (n.opType().equals("Constant")) {
                     continue;
@@ -398,6 +404,9 @@ public final class OnnxSession implements AutoCloseable {
                 Tensor t = v.tensor(v.type != OnnxModel.INT64 && v.type != OnnxModel.INT32);
                 boolean quantised = v.type == OnnxModel.INT8 || v.type == OnnxModel.UINT8 || v.type == OnnxModel.INT16 || v.type == OnnxModel.UINT16 || v.type == OnnxModel.INT32;
                 // quantised values are carried as FP32 integers; integer outputs are handed out as INT32
+                if (t.dtype() == DType.F16) {
+                    t = t.to(DType.F32);
+                }
                 result.put(vi.name(), quantised && t.dtype() == DType.F32 ? t.to(DType.I32) : t);
             }
         } catch (RuntimeException e) {

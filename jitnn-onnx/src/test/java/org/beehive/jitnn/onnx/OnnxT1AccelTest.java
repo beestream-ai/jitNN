@@ -119,9 +119,18 @@ class OnnxT1AccelTest {
             String err = "no ONNX Runtime output";
             Path ref = work.resolve(name + ".ort.f32");
             double rel = -1;
+            float[] want = null;
+            String against = "ONNX Runtime";
             if (Files.exists(ref)) {
-                float[] want = read(ref);
-                assertTrue(want.length == first.length, name + ": " + first.length + " outputs, ONNX Runtime has " + want.length);
+                want = read(ref);
+            } else if (fp16) {
+                // no ONNX Runtime output: the same file run in FP32 is the reference
+                Engine.reset();
+                want = OnnxSession.load(work.resolve(f), false).run(Map.of(input, x)).get(output).toFloatArray();
+                against = "the FP32 session";
+            }
+            if (want != null) {
+                assertTrue(want.length == first.length, name + ": " + first.length + " outputs, " + against + " has " + want.length);
                 double scale = 0;
                 double worst = 0;
                 for (int i = 0; i < want.length; i++) {
@@ -129,7 +138,7 @@ class OnnxT1AccelTest {
                     worst = Math.max(worst, Math.abs(want[i] - first[i]));
                 }
                 rel = worst / Math.max(scale, 1e-30);
-                err = String.format("max err vs ONNX Runtime %.1e", rel);
+                err = String.format("max err vs %s %.1e", against, rel);
             }
             System.out.printf("[t1-onnx] jitnn %-24s median %8.3f ms  p10 %8.3f  p90 %8.3f  (load %.0f ms, first call %.0f ms)  %s%n", name, ms[RUNS / 2], ms[RUNS / 10],
                     ms[RUNS * 9 / 10], loadMs, compile, err);
