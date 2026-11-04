@@ -31,7 +31,7 @@ final class Cuda {
     private static final int OP_T = 1;
 
     /** FP32 tensor cores (TF32) for cuBLAS products with {@code -Djitnn.native.tf32=true}; off by default (FP32 results). */
-    private static final boolean TF32 = Boolean.getBoolean("jitnn.native.tf32");
+    static final boolean TF32 = Boolean.getBoolean("jitnn.native.tf32");
 
     /** C [m, n] = op(A) op(B), row-major. */
     static void sgemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, int m, int n, int k, int ta, int tb) {

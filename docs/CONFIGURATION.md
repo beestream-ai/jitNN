@@ -101,7 +101,7 @@ See [NATIVE.md](NATIVE.md) for what each library takes and the fallback to jitNN
 
 | Property | Default | Meaning |
 |---|---|---|
-| `jitnn.native` | `off` | vendor libraries in place of jitNN kernels: `auto` uses every one available on the device, or a list of `cublas`, `cudnn`, `cufft`, `cusparse`, `cutlass`, `mlx`; anything missing falls back to jitNN kernels |
+| `jitnn.native` | `off` | vendor libraries in place of jitNN kernels: `auto` uses every one available on the device, or a list of `cublas`, `cudnn`, `cufft`, `cusparse`, `cutlass`, `mlx`; anything missing falls back to jitNN kernels. Under `auto`, FP32 convolutions use cuDNN only with `jitnn.native.tf32=true` (jitNN's kernels are faster in strict FP32); naming `cudnn` keeps it for them |
 | `jitnn.halfAttention` | `auto` | attention in FP16 inference (`Autocast.enableHalf`): `auto` uses cuDNN's fused attention, else CUTLASS's batched FP16 GEMMs, when `jitnn.native` makes them available, else the FP16 FlashAttention kernel; `cudnn`, `cutlass` or `flash` forces one |
 | `jitnn.withNative` | `false` | `true` is `jitnn.native=auto`; the `--with-native` option of jitNN's tools sets it |
 | `jitnn.native.approximateGelu` | `true` | with the bias epilogue, exact GELU after an FP16 linear layer runs as cuBLASLt's tanh-approximated GELU (differences of at most about 5e-4, below FP16's rounding); `false` keeps the exact GELU as a separate kernel |

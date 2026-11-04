@@ -35,6 +35,8 @@ public final class Native {
     }
 
     private static final Set<Lib> WANTED = parse();
+    /** Whether the libraries were requested as a whole ({@code auto}) rather than by name. */
+    private static final boolean AUTO = java.util.List.of("auto", "on", "true", "all").contains(mode());
 
     static {
         // MLX calls commit without waiting for the GPU unless -Dtornado.mlx.async=false: waiting after
@@ -62,8 +64,12 @@ public final class Native {
     private Native() {
     }
 
+    private static String mode() {
+        return System.getProperty("jitnn.native", Boolean.getBoolean("jitnn.withNative") ? "auto" : "off").trim().toLowerCase(Locale.ROOT);
+    }
+
     private static Set<Lib> parse() {
-        String mode = System.getProperty("jitnn.native", Boolean.getBoolean("jitnn.withNative") ? "auto" : "off").trim().toLowerCase(Locale.ROOT);
+        String mode = mode();
         Set<Lib> libs = EnumSet.noneOf(Lib.class);
         switch (mode) {
             case "", "off", "false", "none" -> {
@@ -76,6 +82,11 @@ public final class Native {
             }
         }
         return libs;
+    }
+
+    /** True when the libraries were requested as a whole ({@code auto}), not by name. */
+    public static boolean auto() {
+        return AUTO;
     }
 
     /** True when any library is requested (the option is on). */

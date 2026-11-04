@@ -278,8 +278,18 @@ public final class Libs {
         return true;
     }
 
+    /**
+     * Whether FP32 convolutions (forward and backward) may go to cuDNN: always when cuDNN is named in
+     * {@code -Djitnn.native}, but under {@code auto} only with TF32 on ({@code -Djitnn.native.tf32=true}).
+     * In strict FP32 jitNN's convolution kernels beat cuDNN's (ResNet-50 on an A10: 174 vs 240 ms at
+     * batch 128, 52 vs 69 ms per training step).
+     */
+    private static boolean cudnnFp32Conv() {
+        return Cuda.TF32 || !Native.auto();
+    }
+
     private static boolean convBackward(int n, int cin, int cout, int oh, int ow, int r, int dil, int groups) {
-        return Cuda.CONV_BACKWARD && groups == 1 && dil == 1 && 2L * n * cout * oh * ow * cin * r * r >= CONV_MIN_FLOPS && Native.use("conv", Lib.CUDNN)
+        return Cuda.CONV_BACKWARD && groups == 1 && dil == 1 && 2L * n * cout * oh * ow * cin * r * r >= CONV_MIN_FLOPS && cudnnFp32Conv() && Native.use("conv", Lib.CUDNN)
                 && Native.use("convBackward", Lib.CUDNN);
     }
 
@@ -359,7 +369,7 @@ public final class Libs {
             e.task(Emitter.grid1D(ny), (g, id) -> g.task(id, LibraryGlueKernels::fromChannelsLast, e.context(), yl, out, b, cout, ohw, ny, epilogue));
             return true;
         }
-        if (flops < CONV_MIN_FLOPS || !Native.use("conv", Lib.CUDNN)) {
+        if (flops < CONV_MIN_FLOPS || !cudnnFp32Conv() || !Native.use("conv", Lib.CUDNN)) {
             return false;
         }
         Cuda.conv2d(e, x, w, out, n, cin, h, wd, cout, r, pad, stride);
@@ -452,7 +462,7 @@ public final class Libs {
 
     /** Whether cuDNN takes channels-last convolutions (FP16 when {@code half}) on the current device. */
     private static boolean cudnnChannelsLast(boolean half) {
-        if (CUDNN_CHANNELS_LAST.equals("off") || !half && !CUDNN_CHANNELS_LAST.equals("all")) {
+        if (CUDNN_CHANNELS_LAST.equals("off") || !half && (!CUDNN_CHANNELS_LAST.equals("all") || !cudnnFp32Conv())) {
             return false;
         }
         return Native.use(half ? "convNhwcHalf" : "convNhwc", Lib.CUDNN);
