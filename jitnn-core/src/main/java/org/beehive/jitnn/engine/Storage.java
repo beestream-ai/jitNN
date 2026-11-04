@@ -61,6 +61,9 @@ public final class Storage {
 
     /** A persistent storage whose model was closed: a compiled plan may hand its buffer to another storage. */
     boolean released;
+    /** The executor's numbering of the trace being run (see TornadoExecutor's plan memory). */
+    int memoStamp;
+    int memoLocal;
     /** A persistent storage some compiled plan binds (its array is that plan's buffer). */
     boolean planBound;
     /** A non-persistent storage whose tensor was released ({@link #drop}): its contents are gone. */

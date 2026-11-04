@@ -114,6 +114,7 @@ class InferenceBenchAccelTest {
         }
         double[] ms = new double[RUNS];
         long[] before = Engine.trafficStats();
+        long[] plans = Engine.planStats();
         for (int i = 0; i < RUNS; i++) {
             long t0 = System.nanoTime();
             call.get();
@@ -127,6 +128,9 @@ class InferenceBenchAccelTest {
         if (cpuStats) {
             System.out.print(Engine.cpuReport());
         }
+        long[] plansAfter = Engine.planStats();
+        System.out.printf("[t1] plans %-28s %d compiled, %d replayed (%d remembered) in %d calls%n", name, plansAfter[0] - plans[0], plansAfter[1] - plans[1], plansAfter[3] - plans[3],
+                RUNS);
         // per call: kernel launches, library calls, and the bytes the operators read and write at least
         System.out.printf("[traffic] %-28s %6.0f kernels %4.0f library calls %10.1f MB%n", name, (after[1] - before[1]) / (double) RUNS, (after[2] - before[2]) / (double) RUNS,
                 (after[3] - before[3]) / 1e6 / RUNS);

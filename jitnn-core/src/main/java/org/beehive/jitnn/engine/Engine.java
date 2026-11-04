@@ -237,9 +237,13 @@ public final class Engine {
         TornadoExecutor.fetch(s);
     }
 
-    /** Plans compiled, replayed and reused for released storages on this JVM so far: {@code [compiles, replays, reuses]}. */
+    /**
+     * Plans compiled, replayed and reused for released storages on this JVM so far, and the replays
+     * that skipped the rewrite (a trace remembered, {@code jitnn.plan.memo}):
+     * {@code [compiles, replays, reuses, remembered]}.
+     */
     public static long[] planStats() {
-        return TornadoExecutor.isLoaded() ? TornadoExecutor.stats() : new long[3];
+        return TornadoExecutor.isLoaded() ? TornadoExecutor.stats() : new long[4];
     }
 
     /**

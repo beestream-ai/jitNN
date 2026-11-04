@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Inference fusion (ops.Fusion) against the unfused host reference: convolution + BatchNorm
  * (+ ReLU) folded into one convolution, residual add + ReLU, linear + GELU; the folded weights
- * follow BatchNorm statistics that training changes; a fused-away intermediate cannot be read.
+ * follow BatchNorm statistics that training changes, also when the plan is remembered; a
+ * fused-away intermediate cannot be read.
  */
 class FusionAccelTest {
 
@@ -66,6 +67,15 @@ class FusionAccelTest {
         Supplier<Tensor> infer = () -> Grad.inference(() -> net.forward(Tensor.of(xs, 2, 4, 9, 7)));
         close(on(Backend.REFERENCE, infer), on(Backend.TORNADO, infer), 1e-5, 1e-5, "fused inference");
         close(on(Backend.REFERENCE, infer), on(Backend.TORNADO, infer), 1e-5, 1e-5, "fused inference, replayed");
+        // the trace is remembered once its plan is settled (the folded weights cached): later calls
+        // replay the plan without rewriting the trace
+        long remembered = Engine.planStats()[3];
+        for (int i = 0; i < 4 && Engine.planStats()[3] == remembered; i++) {
+            close(on(Backend.REFERENCE, infer), on(Backend.TORNADO, infer), 1e-5, 1e-5, "fused inference, settling");
+        }
+        remembered = Engine.planStats()[3];
+        close(on(Backend.REFERENCE, infer), on(Backend.TORNADO, infer), 1e-5, 1e-5, "fused inference, remembered");
+        assertEquals(remembered + 1, Engine.planStats()[3], "a remembered replay");
         // training changes the statistics: the folded weights must follow
         net.train(true);
         Engine.with(Backend.TORNADO, () -> net.forward(Tensor.uniform(20, -3, 3, 2, 4, 9, 7)).sum().item());
