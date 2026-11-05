@@ -488,30 +488,65 @@ public final class Tensor implements AutoCloseable {
             }
             return out;
         }
-        if (storage.dtype() == DType.F16) {
-            uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray h = (uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray) storage.host();
-            // the raw FP16 bits in one copy, converted without a HalfFloat object per element
-            short[] bits = h.toShortArray();
+        if (storage.dtype() == DType.F16 || storage.dtype() == DType.BF16 || storage.dtype() == DType.F32) {
             float[] out = new float[numel()];
-            for (int i = 0; i < out.length; i++) {
-                out[i] = Float.float16ToFloat(bits[i]);
-            }
+            fill(out);
             return out;
         }
-        if (storage.dtype() == DType.BF16) {
-            uk.ac.manchester.tornado.api.types.arrays.ShortArray b = (uk.ac.manchester.tornado.api.types.arrays.ShortArray) storage.host();
-            float[] out = new float[numel()];
-            for (int i = 0; i < out.length; i++) {
-                out[i] = Float.intBitsToFloat(((int) b.get(i)) << 16);
+        throw new IllegalStateException("cannot read " + storage.dtype() + " as floats");
+    }
+
+    /**
+     * Copies an F32, F16 or BF16 tensor into {@code dst} (length {@link #numel()}) without allocating:
+     * for BERT's [32, 128, 768] output, a fresh float[] costs more than the copy itself.
+     */
+    public float[] toFloatArray(float[] dst) {
+        Engine.sync(this);
+        if (dst.length != numel()) {
+            throw new IllegalArgumentException("expected " + numel() + " floats, got " + dst.length);
+        }
+        if (storage.dtype() != DType.F16 && storage.dtype() != DType.BF16 && storage.dtype() != DType.F32) {
+            throw new IllegalStateException("cannot read " + storage.dtype() + " into a float[]");
+        }
+        fill(dst);
+        return dst;
+    }
+
+    /** Elements above which FP16/BF16 conversion is split across the common pool. */
+    private static final int PARALLEL_CONVERT = 1 << 20;
+
+    private void fill(float[] out) {
+        if (storage.dtype() == DType.F32) {
+            // one bulk copy: an element at a time through FloatArray.get took 2.5 ms for BERT's
+            // [32, 128, 768] output
+            FloatArray a = (FloatArray) storage.host();
+            java.lang.foreign.MemorySegment.copy(a.getSegment(), java.lang.foreign.ValueLayout.JAVA_FLOAT, 0, out, 0, out.length);
+            return;
+        }
+        // straight from the segment: HalfFloatArray.toShortArray makes a HalfFloat per element, and
+        // a temporary short[] costs another allocation
+        java.lang.foreign.MemorySegment seg = storage.dtype() == DType.F16 ? ((uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray) storage.host()).getSegment()
+                : ((uk.ac.manchester.tornado.api.types.arrays.ShortArray) storage.host()).getSegment();
+        boolean bf16 = storage.dtype() == DType.BF16;
+        if (out.length < PARALLEL_CONVERT) {
+            convert(seg, bf16, out, 0, out.length);
+            return;
+        }
+        int chunks = Math.min(Runtime.getRuntime().availableProcessors(), 8);
+        int chunk = (out.length + chunks - 1) / chunks;
+        java.util.stream.IntStream.range(0, chunks).parallel().forEach(c -> convert(seg, bf16, out, c * chunk, Math.min(out.length, (c + 1) * chunk)));
+    }
+
+    private static void convert(java.lang.foreign.MemorySegment seg, boolean bf16, float[] out, int from, int to) {
+        if (bf16) {
+            for (int i = from; i < to; i++) {
+                out[i] = Float.intBitsToFloat(seg.getAtIndex(java.lang.foreign.ValueLayout.JAVA_SHORT, i) << 16);
             }
-            return out;
+        } else {
+            for (int i = from; i < to; i++) {
+                out[i] = Float.float16ToFloat(seg.getAtIndex(java.lang.foreign.ValueLayout.JAVA_SHORT, i));
+            }
         }
-        FloatArray a = (FloatArray) storage.host();
-        float[] out = new float[numel()];
-        for (int i = 0; i < out.length; i++) {
-            out[i] = a.get(i);
-        }
-        return out;
     }
 
     public int[] toIntArray() {
@@ -521,9 +556,7 @@ public final class Tensor implements AutoCloseable {
         }
         IntArray a = (IntArray) storage.host();
         int[] out = new int[numel()];
-        for (int i = 0; i < out.length; i++) {
-            out[i] = a.get(i);
-        }
+        java.lang.foreign.MemorySegment.copy(a.getSegment(), java.lang.foreign.ValueLayout.JAVA_INT, 0, out, 0, out.length);
         return out;
     }
 
@@ -534,9 +567,7 @@ public final class Tensor implements AutoCloseable {
         }
         Engine.sync();
         FloatArray a = (FloatArray) storage.host();
-        for (int i = 0; i < values.length; i++) {
-            a.set(i, values[i]);
-        }
+        java.lang.foreign.MemorySegment.copy(values, 0, a.getSegment(), java.lang.foreign.ValueLayout.JAVA_FLOAT, 0, values.length);
         storage.hostWritten();
     }
 

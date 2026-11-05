@@ -219,4 +219,25 @@ class HalfInferenceAccelTest {
                 Tensor.uniform(7, -1, 1, 48)).gelu(), Tensor.ones(48), Tensor.zeros(48), 1e-5f);
         close(run(Backend.REFERENCE, false, model), run(Backend.REFERENCE, true, model), 1e-2, 1e-2, "reference half vs FP32");
     }
+
+    @Test
+    void readBackIntoCallerArray() {
+        // past the size where FP16 and BF16 conversion goes parallel, with values both formats hold exactly
+        int n = (1 << 21) + 7;
+        float[] values = new float[n];
+        for (int i = 0; i < n; i++) {
+            values[i] = (i % 256) * 0.5f - 64;
+        }
+        Tensor x = Tensor.of(values, n);
+        float[] dst = new float[n];
+        for (DType dtype : new DType[] { DType.F32, DType.F16, DType.BF16 }) {
+            Tensor y = dtype == DType.F32 ? x.add(Tensor.zeros(n)) : x.to(dtype);
+            assertEquals(dtype, y.dtype());
+            java.util.Arrays.fill(dst, Float.NaN);
+            org.junit.jupiter.api.Assertions.assertSame(dst, y.toFloatArray(dst));
+            org.junit.jupiter.api.Assertions.assertArrayEquals(values, dst, dtype + " into a caller array");
+            org.junit.jupiter.api.Assertions.assertArrayEquals(values, y.toFloatArray(), dtype + " into a new array");
+        }
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> x.toFloatArray(new float[n - 1]));
+    }
 }
