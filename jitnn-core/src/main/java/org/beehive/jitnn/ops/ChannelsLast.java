@@ -23,7 +23,8 @@ import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
  * write are stored [N, H, W, C]: the convolution reads and writes them directly, the element-wise
  * operators and pooling do not care, and a layout conversion runs only where an operator needs NCHW
  * (convolutions on jitNN's kernels, other reshapes and reductions, outputs). Without the pass, every library convolution transposes
- * its input and output. {@code -Djitnn.channelsLast=false} turns it off.
+ * its input and output. Convolutions recorded for training (an output that requires a gradient) keep NCHW.
+ * {@code -Djitnn.channelsLast=false} turns it off.
  */
 public final class ChannelsLast {
 
@@ -59,7 +60,9 @@ public final class ChannelsLast {
 
     /** Whether a library takes this convolution channels-last on the current device. */
     private static boolean eligible(Node n) {
-        if (n.op != Conv2d.OP) {
+        // not in training: its batch norms and backward pass read NCHW, so every convolution would be
+        // converted to NHWC and back (ResNet-50 CIFAR training on an A10: 39.5 against 34.8 ms per step)
+        if (n.op != Conv2d.OP || n.out(0).requiresGrad()) {
             return false;
         }
         int[] a = n.iattr;
