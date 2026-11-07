@@ -193,6 +193,9 @@ class InferenceBenchAccelTest {
      * converting it to a float[]; medians of {@code RUNS} calls.
      */
     private static void split(String name, Supplier<Tensor> forward) {
+        if (!name.contains(System.getProperty("jitnn.bench.only", ""))) {
+            return;
+        }
         int n = RUNS;
         double[][] t = new double[6][n];
         for (int i = 0; i < WARMUP + n; i++) {
@@ -211,6 +214,9 @@ class InferenceBenchAccelTest {
             long t3 = System.nanoTime();
             y.toFloatArray();
             long t4 = System.nanoTime();
+            // released, as in time(): a dropped output that is still held keeps a copy of its own when
+            // the plan runs again
+            y.release();
             if (i >= WARMUP) {
                 t[0][i - WARMUP] = (t1 - t0) / 1e6;
                 t[1][i - WARMUP] = (t2 - t1) / 1e6;

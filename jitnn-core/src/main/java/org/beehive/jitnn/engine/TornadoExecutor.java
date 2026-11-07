@@ -1106,11 +1106,14 @@ final class TornadoExecutor {
                 Engine.ensureHost(s);
                 transfers[4]++;
                 transfers[5] += s.numel;
+                TornadoNativeArray to = (TornadoNativeArray) ct.arrays[i];
                 if (s.array == null && s.heap != null) {
                     // a shared Java array (Tensor.wrap): one copy, straight into the plan's buffer
-                    Storage.copyHeap(s.heap, (TornadoNativeArray) ct.arrays[i], s.numel);
-                } else {
-                    copy((TornadoNativeArray) s.array, (TornadoNativeArray) ct.arrays[i]);
+                    MemorySegment heap = s.heap instanceof float[] f ? MemorySegment.ofArray(f) : MemorySegment.ofArray((int[]) s.heap);
+                    stage(heap, to.getSegment(), (long) s.numel * 4);
+                } else if (s.array != to) {
+                    TornadoNativeArray own = (TornadoNativeArray) s.array;
+                    stage(own.getSegment(), to.getSegment(), Math.min(own.getNumBytesOfSegment(), to.getNumBytesOfSegment()));
                 }
                 if (carried && ct.executions > 0) {
                     // a carried input is uploaded on the first execution only: another value is sent now
@@ -1303,6 +1306,29 @@ final class TornadoExecutor {
             }
         }
         return 0;
+    }
+
+    /** Inputs from this size are copied into a plan's buffer by several threads. */
+    private static final long PARALLEL_COPY_BYTES = Long.getLong("jitnn.parallelCopyBytes", 32L << 20);
+    private static final int COPY_THREADS = Math.min(8, Runtime.getRuntime().availableProcessors());
+
+    /**
+     * Copies an input into a plan's buffer. One thread copied ResNet-50's [128, 3, 224, 224] FP32
+     * image (77 MB) in 6.3 ms, 8% of the call; large inputs are split across the common pool.
+     */
+    private static void stage(MemorySegment from, MemorySegment to, long bytes) {
+        if (bytes < PARALLEL_COPY_BYTES || COPY_THREADS < 2) {
+            MemorySegment.copy(from, 0, to, 0, bytes);
+            return;
+        }
+        long chunk = ((bytes + COPY_THREADS - 1) / COPY_THREADS + 63) & ~63L;
+        java.util.stream.IntStream.range(0, COPY_THREADS).parallel().forEach(c -> {
+            long start = c * chunk;
+            long end = Math.min(bytes, start + chunk);
+            if (start < end) {
+                MemorySegment.copy(from, start, to, start, end - start);
+            }
+        });
     }
 
     static void copy(TornadoNativeArray from, TornadoNativeArray to) {
