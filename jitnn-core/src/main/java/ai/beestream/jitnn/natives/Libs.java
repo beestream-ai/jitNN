@@ -314,7 +314,8 @@ public final class Libs {
      * batch 128, 52 vs 69 ms per training step).
      */
     private static boolean cudnnFp32Conv() {
-        return Cuda.TF32 || !Native.auto();
+        // the option, not Cuda.TF32: loading Cuda needs TornadoVM's CUDA libraries, absent on the CPU backend
+        return JitnnConfig.current().get(JitnnConfig.NATIVE_TF32) || !Native.auto();
     }
 
     private static boolean convBackward(int n, int cin, int cout, int oh, int ow, int r, int dil, int groups) {
