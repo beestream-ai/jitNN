@@ -216,6 +216,11 @@
                     <!-- Check HTML and references; members without comments are allowed. -->
                     <doclint>all,-missing</doclint>
                     <skippedModules>jitnn-bench</skippedModules>
+                    <!-- the CPU backend uses the Vector API -->
+                    <additionalOptions>
+                        <additionalOption>--add-modules</additionalOption>
+                        <additionalOption>jdk.incubator.vector</additionalOption>
+                    </additionalOptions>
                     <groups>
                         <group>
                             <title>Core: tensors and autograd; operators and kernels</title>

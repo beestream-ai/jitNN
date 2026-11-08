@@ -172,6 +172,7 @@ on an RTX 5070 Ti. Training, per-kernel, fusion, autotuning and multi-GPU result
 
 INSTALL
 USAGE
+EXAMPLES
 CONFIGURATION
 ```
 
@@ -181,6 +182,7 @@ CONFIGURATION
 
 OPERATORS
 NATIVE
+CPU_BACKEND
 api
 ```
 
