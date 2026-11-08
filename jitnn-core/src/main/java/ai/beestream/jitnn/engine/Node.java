@@ -10,14 +10,23 @@ import ai.beestream.jitnn.Tensor;
  */
 public final class Node {
 
+    /** The operator applied. */
     public final Op op;
+    /** The operator's inputs. */
     public final Tensor[] inputs;
+    /** The operator's outputs. */
     public final Tensor[] outputs;
+    /** The integer attributes of this application (shapes, axes, flags); never null. */
     public final int[] iattr;
+    /** The float attributes of this application (scales, constants); never null. */
     public final float[] fattr;
     final boolean traced;
     boolean executed;
 
+    /**
+     * An application of {@code op}; a null attribute array becomes an empty one. Untraced nodes (views)
+     * never run, they exist for autograd. Operators create nodes through {@link Tensor#record}.
+     */
     public Node(Op op, Tensor[] inputs, Tensor[] outputs, int[] iattr, float[] fattr, boolean traced) {
         this.op = op;
         this.inputs = inputs;
@@ -27,14 +36,17 @@ public final class Node {
         this.traced = traced;
     }
 
+    /** Whether the node has run (always true for an untraced node). */
     public boolean isExecuted() {
         return executed || !traced;
     }
 
+    /** Input {@code i}. */
     public Tensor in(int i) {
         return inputs[i];
     }
 
+    /** Output {@code i}. */
     public Tensor out(int i) {
         return outputs[i];
     }

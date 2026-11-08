@@ -10,6 +10,7 @@ public final class AvgPool1d extends Module {
     private final int stride;
     private final int padding;
 
+    /** Pools windows of {@code kernel} with the given stride and padding. */
     public AvgPool1d(int kernel, int stride, int padding) {
         this.kernel = kernel;
         this.stride = stride;

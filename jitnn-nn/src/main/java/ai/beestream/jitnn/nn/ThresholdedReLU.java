@@ -7,6 +7,7 @@ public final class ThresholdedReLU extends Module {
 
     private final float theta;
 
+    /** ThresholdedReLU with threshold {@code theta}. */
     public ThresholdedReLU(float theta) {
         this.theta = theta;
     }

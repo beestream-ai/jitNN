@@ -21,6 +21,7 @@ public final class Proto {
     private final int end;
     private int tag;
 
+    /** A reader over the message in {@code buf}, from its position to its limit. */
     public Proto(ByteBuffer buf) {
         this.buf = buf.duplicate().order(ByteOrder.LITTLE_ENDIAN);
         this.end = this.buf.limit();
@@ -42,14 +43,17 @@ public final class Proto {
         return true;
     }
 
+    /** The field number of the current field. */
     public int field() {
         return tag >>> 3;
     }
 
+    /** The wire type of the current field (0 varint, 1 fixed64, 2 length-delimited, 5 fixed32). */
     public int wire() {
         return tag & 7;
     }
 
+    /** Reads a varint. */
     public long varint() {
         long result = 0;
         int shift = 0;
@@ -66,18 +70,22 @@ public final class Proto {
         }
     }
 
+    /** Reads a little-endian 64-bit value. */
     public long fixed64() {
         return buf.getLong();
     }
 
+    /** Reads a little-endian 32-bit value. */
     public int fixed32() {
         return buf.getInt();
     }
 
+    /** Reads a 32-bit float. */
     public float float32() {
         return buf.getFloat();
     }
 
+    /** Reads a 64-bit float. */
     public double float64() {
         return buf.getDouble();
     }
@@ -90,6 +98,7 @@ public final class Proto {
         return slice;
     }
 
+    /** The current length-delimited field as a UTF-8 string. */
     public String string() {
         ByteBuffer b = bytes();
         byte[] a = new byte[b.remaining()];
@@ -144,6 +153,7 @@ public final class Proto {
         }
     }
 
+    /** Skips the current field's value. */
     public void skip() {
         switch (wire()) {
             case VARINT -> varint();
@@ -157,15 +167,21 @@ public final class Proto {
         }
     }
 
+    /** Receives int64 values from {@link #longs}. */
     public interface LongSink {
+        /** Receives one value. */
         void accept(long v);
     }
 
+    /** Receives float values from {@link #floats}. */
     public interface FloatSink {
+        /** Receives one value. */
         void accept(float v);
     }
 
+    /** Receives double values from {@link #doubles}. */
     public interface DoubleSink {
+        /** Receives one value. */
         void accept(double v);
     }
 }

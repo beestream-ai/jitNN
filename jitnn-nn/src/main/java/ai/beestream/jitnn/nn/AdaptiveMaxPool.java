@@ -8,6 +8,7 @@ public final class AdaptiveMaxPool extends Module {
 
     private final int[] out;
 
+    /** Pools to the output sizes {@code out}, one per spatial axis. */
     public AdaptiveMaxPool(int... out) {
         this.out = out.clone();
     }

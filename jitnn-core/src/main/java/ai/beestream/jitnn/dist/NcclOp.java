@@ -74,6 +74,7 @@ final class NcclOp implements Op {
         };
     }
 
+    /** Kernel: copies the {@code n} values of {@code src} into {@code flat} from {@code offset} (one buffer for one collective). */
     public static void pack(KernelContext kc, FloatArray src, FloatArray flat, int offset, int n) {
         int i = kc.globalIdx;
         if (i < n) {
@@ -81,6 +82,7 @@ final class NcclOp implements Op {
         }
     }
 
+    /** Kernel: copies {@code n} values of {@code flat} from {@code offset} back into {@code dst}. */
     public static void unpack(KernelContext kc, FloatArray flat, FloatArray dst, int offset, int n) {
         int i = kc.globalIdx;
         if (i < n) {

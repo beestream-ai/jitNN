@@ -15,7 +15,12 @@ public final class Fft {
 
     /** Scaling, torch's {@code norm}: BACKWARD scales the inverse by 1/n, ORTHO both by 1/sqrt(n), FORWARD the forward by 1/n. */
     public enum Norm {
-        BACKWARD, ORTHO, FORWARD
+        /** The inverse transform scaled by 1/n, the forward unscaled (torch's default). */
+        BACKWARD,
+        /** Both transforms scaled by 1/sqrt(n). */
+        ORTHO,
+        /** The forward transform scaled by 1/n, the inverse unscaled. */
+        FORWARD
     }
 
     private Fft() {
@@ -64,6 +69,7 @@ public final class Fft {
         return c2c(x, n, dim, norm, true);
     }
 
+    /** torch.fft.ifft of complex x along the last axis, full length, BACKWARD scaling (1/n). */
     public static Tensor ifft(Tensor x) {
         return ifft(x, -1, -1, Norm.BACKWARD);
     }
@@ -77,6 +83,7 @@ public final class Fft {
         return swapComplex(y, dim);
     }
 
+    /** torch.fft.rfft of real x along the last axis, full length, BACKWARD scaling. */
     public static Tensor rfft(Tensor x) {
         return rfft(x, -1, -1, Norm.BACKWARD);
     }
@@ -93,6 +100,7 @@ public final class Fft {
         return swapReal(y, dim);
     }
 
+    /** torch.fft.irfft along the last axis: a real signal of length 2 (m - 1), BACKWARD scaling (1/n). */
     public static Tensor irfft(Tensor x) {
         return irfft(x, -1, -1, Norm.BACKWARD);
     }

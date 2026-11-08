@@ -3,6 +3,7 @@ package ai.beestream.jitnn.data;
 /** An in-memory labelled dataset of fixed-shape samples (CHW images or flat vectors). */
 public interface Dataset {
 
+    /** The number of samples. */
     int count();
 
     /** The shape of one sample, e.g. {1, 28, 28} or {3, 32, 32}. */
@@ -24,6 +25,7 @@ public interface Dataset {
         y[yAt] = label[0];
     }
 
+    /** The number of values in one sample: the product of {@link #sampleShape()}. */
     default int sampleSize() {
         int n = 1;
         for (int d : sampleShape()) {

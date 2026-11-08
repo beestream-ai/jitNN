@@ -8,6 +8,7 @@ public final class AdaptiveAvgPool extends Module {
 
     private final int[] out;
 
+    /** Pools to the output sizes {@code out}, one per spatial axis. */
     public AdaptiveAvgPool(int... out) {
         this.out = out.clone();
     }

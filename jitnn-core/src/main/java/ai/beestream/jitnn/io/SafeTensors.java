@@ -33,6 +33,7 @@ public final class SafeTensors {
      * listed, but an error to read), the file's name for it, its shape, and where its bytes are.
      */
     public record Entry(DType dtype, String typeName, long[] shape, long offset, long bytes) {
+        /** The number of elements: the product of the shape. */
         public long numel() {
             long n = 1;
             for (long d : shape) {

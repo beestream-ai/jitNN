@@ -17,6 +17,7 @@ public final class Lars extends Optimizer {
     private final float eps;
     private final Tensor[] buf;
 
+    /** LARS with the given momentum, weight decay, trust coefficient {@code eta} and {@code eps}. */
     public Lars(List<Tensor> params, float lr, float momentum, float weightDecay, float eta, float eps) {
         super(params, lr);
         this.momentum = momentum;

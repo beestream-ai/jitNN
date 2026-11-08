@@ -8,6 +8,7 @@ public final class HardTanh extends Module {
     private final float min;
     private final float max;
 
+    /** Clamps to [min, max] (PyTorch's default -1, 1). */
     public HardTanh(float min, float max) {
         this.min = min;
         this.max = max;

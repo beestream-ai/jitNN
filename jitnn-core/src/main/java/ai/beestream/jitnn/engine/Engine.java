@@ -26,9 +26,12 @@ import ai.beestream.jitnn.Tensor;
  */
 public final class Engine {
 
+    /** Where operators run: see the class description. */
     public enum Backend {
+        /** Lazily, through compiled TornadoVM plans on the selected device. */
         TORNADO,
         CPU,
+        /** Eagerly, on the host, with the Java reference implementations. */
         REFERENCE
     }
 
@@ -60,11 +63,11 @@ public final class Engine {
         return b;
     }
 
+    /** This thread's backend. */
     public static Backend backend() {
         return BACKEND.get();
     }
 
-    /** True when this thread's plans run through TornadoVM on a CUDA device. */
     /**
      * Whether a kernel needing {@code bytes} of local memory per work-group fits the device plans run
      * on (Metal allows 32 KB, CUDA 48 KB); true when the device does not report a size.
@@ -74,6 +77,7 @@ public final class Engine {
         return available <= 0 || bytes <= available;
     }
 
+    /** True when this thread's plans run through TornadoVM on a CUDA device. */
     public static boolean onCuda() {
         return backend() == Backend.TORNADO && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA;
     }
@@ -284,6 +288,7 @@ public final class Engine {
         System.setProperty("tornado.cudnn.deterministic", Boolean.toString(on));
     }
 
+    /** Whether deterministic kernels were asked for ({@link #setDeterministic}). */
     public static boolean deterministic() {
         return deterministic;
     }
@@ -344,10 +349,6 @@ public final class Engine {
     }
 
     /**
-     * Cumulative nanoseconds spent in jitNN's executor outside TornadoVM ({@code [0]}, tracing
-     * excluded) and inside {@code TornadoExecutionPlan.execute()} ({@code [1]}).
-     */
-    /**
      * Makes room for at least {@code plans} more compiled plans in the plan cache (per concurrency
      * slot), beyond {@code jitnn.plan.cache}: for callers that cycle through many shapes, as shape
      * buckets do, so their plans are not evicted and compiled again.
@@ -356,6 +357,10 @@ public final class Engine {
         TornadoExecutor.RESERVED.addAndGet(Math.max(0, plans));
     }
 
+    /**
+     * Cumulative nanoseconds spent in jitNN's executor outside TornadoVM ({@code [0]}, tracing
+     * excluded) and inside {@code TornadoExecutionPlan.execute()} ({@code [1]}).
+     */
     public static long[] timeSplit() {
         return TornadoExecutor.isLoaded() ? TornadoExecutor.timeSplit() : new long[2];
     }
@@ -396,11 +401,6 @@ public final class Engine {
     }
 
     /**
-     * Host-device traffic of this JVM's plans so far: [fetches to the host, elements fetched,
-     * re-uploads of persistent storages written by another plan, elements re-uploaded, input
-     * copies, elements copied].
-     */
-    /**
      * Totals over every plan execution so far: {@code [executions, kernel launches, library calls,
      * bytes]}, the bytes being what the operators read and write at least (each input and output
      * tensor once: a lower bound on device-memory traffic that fusion lowers). Differences between
@@ -410,6 +410,11 @@ public final class Engine {
         return TornadoExecutor.isLoaded() ? TornadoExecutor.trafficStats() : new long[4];
     }
 
+    /**
+     * Host-device traffic of this JVM's plans so far: [fetches to the host, elements fetched,
+     * re-uploads of persistent storages written by another plan, elements re-uploaded, input
+     * copies, elements copied].
+     */
     public static long[] transferStats() {
         return TornadoExecutor.isLoaded() ? TornadoExecutor.transferStats() : new long[6];
     }

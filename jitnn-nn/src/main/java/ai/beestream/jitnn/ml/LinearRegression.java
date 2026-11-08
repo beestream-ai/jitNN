@@ -15,11 +15,15 @@ public final class LinearRegression {
     private Tensor coef;
     private Tensor intercept;
 
+    /**
+     * Ridge regression with penalty {@code alpha} (0 for plain least squares), with or without an intercept.
+     */
     public LinearRegression(float alpha, boolean fitIntercept) {
         this.alpha = alpha;
         this.fitIntercept = fitIntercept;
     }
 
+    /** Least squares with an intercept. */
     public LinearRegression() {
         this(0.0f, true);
     }
@@ -53,10 +57,12 @@ public final class LinearRegression {
         return coef;
     }
 
+    /** The fitted intercept (zero without one). */
     public Tensor intercept() {
         return intercept;
     }
 
+    /** Predictions x w + b for samples x [n, features]. */
     public Tensor predict(Tensor x) {
         if (coef.rank() == 1) {
             return x.matmul(coef.unsqueeze(1)).reshape(x.dim(0)).add(intercept);

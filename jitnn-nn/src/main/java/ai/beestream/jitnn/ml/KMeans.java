@@ -21,6 +21,10 @@ public final class KMeans {
     private float inertia;
     private int iterations;
 
+    /**
+     * k-means with {@code k} clusters, at most {@code maxIter} iterations per run, tolerance {@code tol},
+     * {@code nInit} runs, seeding from {@code seed}.
+     */
     public KMeans(int k, int maxIter, float tol, int nInit, long seed) {
         this.k = k;
         this.maxIter = maxIter;
@@ -29,6 +33,7 @@ public final class KMeans {
         this.seed = seed;
     }
 
+    /** k-means with scikit-learn's defaults: 300 iterations, tolerance 1e-4, one run. */
     public KMeans(int k, long seed) {
         this(k, 300, 1e-4f, 1, seed);
     }
@@ -128,6 +133,7 @@ public final class KMeans {
         return Ml.sqDistances(x, centres).neg().argmax(1).toIntArray();
     }
 
+    /** The cluster centres [k, features]. */
     public Tensor centres() {
         return centres;
     }
@@ -137,6 +143,7 @@ public final class KMeans {
         return inertia;
     }
 
+    /** The iterations the kept run took. */
     public int iterations() {
         return iterations;
     }

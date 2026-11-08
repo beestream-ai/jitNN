@@ -71,6 +71,10 @@ public final class Storage {
     /** The pool's claim on {@link #array} when the executor gave this storage an array of its own. */
     HostPool.Lease lease;
 
+    /**
+     * Storage for {@code numel} elements of {@code dtype}, allocated when an operator first writes it.
+     * Persistent storage (weights, optimiser state) stays on the device between plans.
+     */
     public Storage(DType dtype, int numel, boolean persistent) {
         this.dtype = dtype;
         this.numel = numel;
@@ -78,6 +82,7 @@ public final class Storage {
         this.internal = !persistent && INTERNAL.get();
     }
 
+    /** Host storage over {@code array}, one element per array element. */
     public static Storage ofHost(TornadoNativeArray array, DType dtype, boolean persistent) {
         return ofHost(array, dtype, array.getSize(), persistent);
     }
@@ -143,18 +148,22 @@ public final class Storage {
         return hostValid;
     }
 
+    /** The element type. */
     public DType dtype() {
         return dtype;
     }
 
+    /** The number of elements. */
     public int numel() {
         return numel;
     }
 
+    /** Whether the storage stays on the device between plans (weights, optimiser state). */
     public boolean isPersistent() {
         return persistent;
     }
 
+    /** A number unique to this storage. */
     public long id() {
         return id;
     }

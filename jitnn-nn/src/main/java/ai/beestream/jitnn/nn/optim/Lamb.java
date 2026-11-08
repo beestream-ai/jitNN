@@ -18,6 +18,7 @@ public final class Lamb extends Optimizer {
     private final Tensor[] m;
     private final Tensor[] v;
 
+    /** LAMB with the given betas, {@code eps} and decoupled weight decay. */
     public Lamb(List<Tensor> params, float lr, float beta1, float beta2, float eps, float weightDecay) {
         super(params, lr);
         this.beta1 = beta1;

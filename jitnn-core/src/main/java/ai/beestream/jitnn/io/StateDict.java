@@ -40,6 +40,7 @@ public final class StateDict {
     private final Map<String, String> values = new LinkedHashMap<>();
     private final Path file;
 
+    /** An empty dictionary, to fill with {@code put} and save. */
     public StateDict() {
         this(null);
     }
@@ -63,10 +64,12 @@ public final class StateDict {
         return this;
     }
 
+    /** Adds an integer value (stored as its decimal string). */
     public StateDict put(String name, long value) {
         return put(name, Long.toString(value));
     }
 
+    /** Adds a float value (stored as its decimal string). */
     public StateDict put(String name, float value) {
         return put(name, Float.toString(value));
     }
@@ -119,6 +122,7 @@ public final class StateDict {
         return values.keySet();
     }
 
+    /** Whether the dictionary holds a tensor named {@code name}. */
     public boolean hasTensor(String name) {
         return live.containsKey(name) || stored.containsKey(name);
     }
@@ -132,14 +136,17 @@ public final class StateDict {
         return v;
     }
 
+    /** The value {@code name} as a long; throws when it is missing. */
     public long longValue(String name) {
         return Long.parseLong(value(name));
     }
 
+    /** The value {@code name} as an int; throws when it is missing. */
     public int intValue(String name) {
         return Integer.parseInt(value(name));
     }
 
+    /** The value {@code name} as a float; throws when it is missing. */
     public float floatValue(String name) {
         return Float.parseFloat(value(name));
     }

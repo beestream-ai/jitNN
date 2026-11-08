@@ -29,6 +29,7 @@ public final class Vocabulary {
         }
     }
 
+    /** The vocabulary of the words in {@code sentences} seen at least {@code minCount} times. */
     public static Vocabulary build(List<String[]> sentences, int minCount) {
         Map<String, Long> freq = new HashMap<>();
         for (String[] s : sentences) {
@@ -39,6 +40,7 @@ public final class Vocabulary {
         return new Vocabulary(freq, minCount);
     }
 
+    /** The number of words. */
     public int size() {
         return words.size();
     }
@@ -48,10 +50,12 @@ public final class Vocabulary {
         return ids.getOrDefault(word, -1);
     }
 
+    /** The word with id {@code id}. */
     public String word(int id) {
         return words.get(id);
     }
 
+    /** Each word's count, indexed by id. */
     public long[] counts() {
         return counts.clone();
     }

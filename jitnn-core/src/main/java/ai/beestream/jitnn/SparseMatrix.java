@@ -87,14 +87,17 @@ public final class SparseMatrix {
         return new SparseMatrix(rows, cols, rowIndex.clone(), colIndex.clone());
     }
 
+    /** The number of rows. */
     public int rows() {
         return rows;
     }
 
+    /** The number of columns. */
     public int cols() {
         return cols;
     }
 
+    /** The number of stored entries. */
     public int nnz() {
         return nnz;
     }

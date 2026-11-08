@@ -12,8 +12,12 @@ import ai.beestream.jitnn.nn.Module;
  */
 public final class Word2Vec extends Module {
 
+    /** Which word predicts which. */
     public enum Mode {
-        SKIP_GRAM, CBOW
+        /** The centre word predicts each context word. */
+        SKIP_GRAM,
+        /** The mean of the context predicts the centre word. */
+        CBOW
     }
 
     private final Tensor input;
@@ -21,6 +25,10 @@ public final class Word2Vec extends Module {
     private final Mode mode;
     private final int dim;
 
+    /**
+     * word2vec over {@code vocab} words with vectors of {@code dim}, trained as {@code mode} says,
+     * initialised from {@code seed}.
+     */
     public Word2Vec(int vocab, int dim, Mode mode, long seed) {
         this.mode = mode;
         this.dim = dim;
@@ -59,6 +67,7 @@ public final class Word2Vec extends Module {
         return input.toFloatArray();
     }
 
+    /** The vector size. */
     public int dim() {
         return dim;
     }

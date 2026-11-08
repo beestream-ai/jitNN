@@ -26,6 +26,7 @@ import ai.beestream.jitnn.engine.Engine.Backend;
  */
 public final class JitnnEngine extends Engine {
 
+    /** The engine's name in DJL: {@code Engine.getEngine("jitNN")}. */
     public static final String ENGINE_NAME = "jitNN";
     static final int RANK = 0;
 
@@ -49,6 +50,7 @@ public final class JitnnEngine extends Engine {
         }
     }
 
+    /** The engine, created on first use. */
     public static JitnnEngine getInstance() {
         if (instance == null) {
             synchronized (JitnnEngine.class) {

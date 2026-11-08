@@ -10,20 +10,24 @@ public final class LayerNorm extends Module {
     private final Tensor bias;
     private final float eps;
 
+    /** LayerNorm over {@code features} values, with eps 1e-5 and a bias. */
     public LayerNorm(int features) {
         this(features, 1e-5f, true);
     }
 
+    /** LayerNorm over {@code features} values with the given eps, with or without a bias. */
     public LayerNorm(int features, float eps, boolean bias) {
         this.weight = parameter(Tensor.ones(features));
         this.bias = bias ? parameter(Tensor.zeros(features)) : null;
         this.eps = eps;
     }
 
+    /** The scale [features]. */
     public Tensor weight() {
         return weight;
     }
 
+    /** The shift [features], or null without one. */
     public Tensor bias() {
         return bias;
     }

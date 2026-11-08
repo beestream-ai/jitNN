@@ -26,6 +26,10 @@ public final class MobileNetV2 {
     /** t (expansion), c (channels), n (repeats), s (first stride), as in the paper's table 2. */
     private static final int[][] SETTINGS = { { 1, 16, 1, 1 }, { 6, 24, 2, 2 }, { 6, 32, 3, 2 }, { 6, 64, 4, 2 }, { 6, 96, 3, 1 }, { 6, 160, 3, 2 }, { 6, 320, 1, 1 } };
 
+    /**
+     * MobileNetV2 over images of {@code inChannels} channels with {@code classes} outputs and dropout
+     * {@code dropout} before the classifier, initialised from {@code seed}.
+     */
     public static Sequential mobilenetV2(int inChannels, int classes, boolean small, float dropout, long seed) {
         Seeds seeds = new Seeds(seed);
         List<Module> layers = new ArrayList<>();

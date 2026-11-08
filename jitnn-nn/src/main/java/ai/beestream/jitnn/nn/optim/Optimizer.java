@@ -8,11 +8,14 @@ import ai.beestream.jitnn.io.StateDict;
 /** Updates parameters in place from their gradients. */
 public abstract class Optimizer {
 
+    /** The parameters this optimiser updates. */
     protected final List<Tensor> params;
+    /** The learning rate. */
     protected float lr;
     /** Steps taken (the bias corrections of the adaptive methods use it). */
     protected int t;
 
+    /** An optimiser over {@code params} with learning rate {@code lr}. */
     protected Optimizer(List<Tensor> params, float lr) {
         this.params = List.copyOf(params);
         this.lr = lr;
@@ -79,12 +82,14 @@ public abstract class Optimizer {
     void rewindStep() {
     }
 
+    /** Clears the gradients of every parameter. */
     public void zeroGrad() {
         for (Tensor p : params) {
             p.zeroGrad();
         }
     }
 
+    /** The current learning rate. */
     public float learningRate() {
         return lr;
     }
@@ -103,6 +108,7 @@ public abstract class Optimizer {
     protected void saveScalars(StateDict d) {
     }
 
+    /** Restores what {@link #saveScalars} saved. */
     protected void loadScalars(StateDict d) {
     }
 

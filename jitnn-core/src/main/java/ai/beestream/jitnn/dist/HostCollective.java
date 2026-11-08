@@ -18,6 +18,7 @@ public final class HostCollective implements Collective {
     private final float[][] staged;
     private volatile float[] result;
 
+    /** Collectives among {@code worldSize} ranks of this process. */
     public HostCollective(int worldSize) {
         if (worldSize < 1) {
             throw new IllegalArgumentException("world size " + worldSize);

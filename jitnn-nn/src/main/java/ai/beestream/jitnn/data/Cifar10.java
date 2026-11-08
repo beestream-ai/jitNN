@@ -12,12 +12,16 @@ import java.nio.file.Path;
  */
 public final class Cifar10 implements Dataset {
 
+    /** Values per image: 3 channels of 32 x 32. */
     public static final int PIXELS = 3 * 32 * 32;
     private static final float[] MEAN = { 0.4914f, 0.4822f, 0.4465f };
     private static final float[] STD = { 0.2470f, 0.2435f, 0.2616f };
 
+    /** The images [count, 3, 32, 32], row-major. */
     public final float[] images;
+    /** The class of each image. */
     public final int[] labels;
+    /** The number of images. */
     public final int count;
 
     private Cifar10(float[] images, int[] labels) {
@@ -52,6 +56,7 @@ public final class Cifar10 implements Dataset {
         return new Cifar10(images, labels);
     }
 
+    /** Whether {@code dir}, or its cifar-10-batches-bin subdirectory, holds the CIFAR-10 binary files. */
     public static boolean isPresent(Path dir) {
         return dir != null && (Files.exists(dir.resolve("cifar-10-batches-bin/test_batch.bin")) || Files.exists(dir.resolve("test_batch.bin")));
     }

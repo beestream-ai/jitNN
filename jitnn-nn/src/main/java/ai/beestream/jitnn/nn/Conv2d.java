@@ -17,10 +17,18 @@ public final class Conv2d extends Module {
     private final int dilation;
     private final int groups;
 
+    /**
+     * A convolution from {@code in} to {@code out} channels with a {@code kernel} x {@code kernel} kernel
+     * and a bias, no dilation, one group.
+     */
     public Conv2d(int in, int out, int kernel, int stride, int padding, long seed) {
         this(in, out, kernel, stride, padding, 1, 1, true, seed);
     }
 
+    /**
+     * A convolution from {@code in} to {@code out} channels in {@code groups} groups (both divisible by it),
+     * initialised from {@code seed}.
+     */
     public Conv2d(int in, int out, int kernel, int stride, int padding, int dilation, int groups, boolean bias, long seed) {
         this.stride = stride;
         this.padding = padding;
@@ -31,10 +39,12 @@ public final class Conv2d extends Module {
         this.bias = bias ? parameter(Tensor.uniform(seed + 0x9E3779B97F4A7C15L, -bound, bound, out)) : null;
     }
 
+    /** The weight [out, in/groups, kernel, kernel]. */
     public Tensor weight() {
         return weight;
     }
 
+    /** The bias [out], or null without one. */
     public Tensor bias() {
         return bias;
     }

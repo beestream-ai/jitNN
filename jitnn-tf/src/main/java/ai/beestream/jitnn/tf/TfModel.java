@@ -60,10 +60,12 @@ public final class TfModel implements AutoCloseable {
         return new TfModel(OnnxSession.of(frozen(path), halfPrecision));
     }
 
+    /** The model's input names, as {@code run} takes them. */
     public List<String> inputNames() {
         return session.inputNames();
     }
 
+    /** The model's output names. */
     public List<String> outputNames() {
         return session.outputNames();
     }

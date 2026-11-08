@@ -16,6 +16,7 @@ public final class Conv1d extends Module {
     private final int dilation;
     private final int groups;
 
+    /** A 1-D convolution from {@code in} to {@code out} channels, initialised from {@code seed}. */
     public Conv1d(int in, int out, int kernel, int stride, int padding, int dilation, boolean bias, long seed) {
         this(in, out, kernel, stride, padding, dilation, 1, bias, seed);
     }
@@ -34,6 +35,7 @@ public final class Conv1d extends Module {
         this.bias = bias ? parameter(Tensor.uniform(seed + 0x9E3779B97F4A7C15L, -bound, bound, out)) : null;
     }
 
+    /** The weight [out, in, kernel]. */
     public Tensor weight() {
         return weight;
     }

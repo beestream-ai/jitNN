@@ -11,6 +11,10 @@ public final class Pad extends Module {
     private final F.PadMode mode;
     private final float value;
 
+    /**
+     * Pads spatial axis k with {@code before[k]} and {@code after[k]} elements; {@code value} fills in
+     * constant mode.
+     */
     public Pad(int[] before, int[] after, F.PadMode mode, float value) {
         this.before = before.clone();
         this.after = after.clone();

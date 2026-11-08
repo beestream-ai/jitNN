@@ -204,7 +204,7 @@ public final class Elementwise {
     }
 
     /**
-     * e^x in vector lanes, within 3e-7 relative of {@code Math.exp}: x = n ln 2 + r with |r| <= ln 2 / 2,
+     * e^x in vector lanes, within 3e-7 relative of {@code Math.exp}: x = n ln 2 + r with {@code |r| <= ln 2 / 2},
      * a degree-6 polynomial for e^r, 2^n built in the exponent bits; 0 below -87.3, infinity above
      * 88.7, NaN for NaN. About twice as fast as the Vector API's EXP on Apple silicon.
      */

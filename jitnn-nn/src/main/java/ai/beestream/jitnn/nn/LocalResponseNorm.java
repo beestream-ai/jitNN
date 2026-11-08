@@ -11,6 +11,7 @@ public final class LocalResponseNorm extends Module {
     private final float beta;
     private final float k;
 
+    /** Normalisation over {@code size} neighbouring channels: x / (k + alpha / size * sum x^2)^beta. */
     public LocalResponseNorm(int size, float alpha, float beta, float k) {
         this.size = size;
         this.alpha = alpha;

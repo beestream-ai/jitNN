@@ -23,9 +23,20 @@ public final class Native {
 
     /** The libraries jitNN can call. */
     public enum Lib {
-        CUBLAS(TornadoVMBackendType.CUDA), CUDNN(TornadoVMBackendType.CUDA), CUFFT(TornadoVMBackendType.CUDA), CUSPARSE(TornadoVMBackendType.CUDA), CUTLASS(
-                TornadoVMBackendType.CUDA), NCCL(TornadoVMBackendType.CUDA), MLX(
-                TornadoVMBackendType.METAL);
+        /** NVIDIA cuBLAS (CUDA): matrix products. */
+        CUBLAS(TornadoVMBackendType.CUDA),
+        /** NVIDIA cuDNN (CUDA): convolutions, softmax and attention. */
+        CUDNN(TornadoVMBackendType.CUDA),
+        /** NVIDIA cuFFT (CUDA): Fourier transforms. */
+        CUFFT(TornadoVMBackendType.CUDA),
+        /** NVIDIA cuSPARSE (CUDA): sparse products. */
+        CUSPARSE(TornadoVMBackendType.CUDA),
+        /** NVIDIA CUTLASS (CUDA): matrix products. */
+        CUTLASS(TornadoVMBackendType.CUDA),
+        /** NVIDIA NCCL (CUDA): collectives across GPUs. */
+        NCCL(TornadoVMBackendType.CUDA),
+        /** Apple MLX (Metal): matrix products, convolutions, normalisation, softmax and attention. */
+        MLX(TornadoVMBackendType.METAL);
 
         final TornadoVMBackendType backend;
 

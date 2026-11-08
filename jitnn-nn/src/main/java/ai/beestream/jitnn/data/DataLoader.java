@@ -60,6 +60,7 @@ public final class DataLoader implements AutoCloseable {
         }) : null;
     }
 
+    /** A builder for a loader of {@code data} in batches of {@code batchSize}. */
     public static Builder builder(Dataset data, int batchSize) {
         return new Builder(data, batchSize);
     }
@@ -153,6 +154,7 @@ public final class DataLoader implements AutoCloseable {
         }
     }
 
+    /** Options of a {@link DataLoader}: shuffling, worker threads, prefetching. */
     public static final class Builder {
         private final Dataset data;
         private final int batch;
@@ -202,6 +204,7 @@ public final class DataLoader implements AutoCloseable {
             return this;
         }
 
+        /** The loader with these options. */
         public DataLoader build() {
             return new DataLoader(this);
         }

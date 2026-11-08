@@ -65,6 +65,7 @@ public final class HfCheckpoint {
         }
     }
 
+    /** The directory the checkpoint was read from. */
     public Path directory() {
         return dir;
     }

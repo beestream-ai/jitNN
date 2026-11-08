@@ -20,14 +20,20 @@ public final class Adam extends Optimizer {
     private final Tensor[] v;
     private final Tensor[] vmax;
 
+    /** Adam with PyTorch's defaults: betas 0.9 and 0.999, eps 1e-8, no weight decay. */
     public Adam(List<Tensor> params, float lr) {
         this(params, lr, 0.9f, 0.999f, 1e-8f, 0, false);
     }
 
+    /** Adam with the given hyper-parameters; {@code decoupled} makes the weight decay AdamW's. */
     public Adam(List<Tensor> params, float lr, float beta1, float beta2, float eps, float weightDecay, boolean decoupled) {
         this(params, lr, beta1, beta2, eps, weightDecay, decoupled, false);
     }
 
+    /**
+     * Adam with the given hyper-parameters; {@code decoupled} makes the weight decay AdamW's,
+     * {@code amsgrad} uses AMSGrad's maximum of the second moment.
+     */
     public Adam(List<Tensor> params, float lr, float beta1, float beta2, float eps, float weightDecay, boolean decoupled, boolean amsgrad) {
         super(params, lr);
         this.beta1 = beta1;
@@ -48,6 +54,7 @@ public final class Adam extends Optimizer {
         }
     }
 
+    /** AdamW: Adam with decoupled weight decay, PyTorch's default betas and eps. */
     public static Adam adamW(List<Tensor> params, float lr, float weightDecay) {
         return new Adam(params, lr, 0.9f, 0.999f, 1e-8f, weightDecay, true);
     }

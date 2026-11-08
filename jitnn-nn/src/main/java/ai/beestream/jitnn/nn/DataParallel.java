@@ -15,6 +15,7 @@ public final class DataParallel {
     private final Collective collective;
     private final int rank;
 
+    /** Wraps rank {@code rank}'s replica {@code model}; ranks synchronise through {@code collective}. */
     public DataParallel(Module model, int rank, Collective collective) {
         this.model = model;
         this.rank = rank;
@@ -136,14 +137,17 @@ public final class DataParallel {
         }
     }
 
+    /** The wrapped replica. */
     public Module module() {
         return model;
     }
 
+    /** This replica's rank. */
     public int rank() {
         return rank;
     }
 
+    /** The number of ranks. */
     public int worldSize() {
         return collective.worldSize();
     }

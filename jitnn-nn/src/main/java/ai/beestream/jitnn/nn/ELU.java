@@ -7,6 +7,7 @@ public final class ELU extends Module {
 
     private final float alpha;
 
+    /** ELU with the given {@code alpha}. */
     public ELU(float alpha) {
         this.alpha = alpha;
     }

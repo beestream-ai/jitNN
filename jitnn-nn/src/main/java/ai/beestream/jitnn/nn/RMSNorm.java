@@ -9,11 +9,13 @@ public final class RMSNorm extends Module {
     private final Tensor weight;
     private final float eps;
 
+    /** RMSNorm over {@code features} values with the given eps. */
     public RMSNorm(int features, float eps) {
         this.weight = parameter(Tensor.ones(features));
         this.eps = eps;
     }
 
+    /** The scale [features]. */
     public Tensor weight() {
         return weight;
     }

@@ -8,10 +8,14 @@ public final class PReLU extends Module {
 
     private final Tensor weight;
 
+    /**
+     * PReLU with {@code parameters} slopes (1 shared, or one per channel), each {@code init} at the start.
+     */
     public PReLU(int parameters, float init) {
         this.weight = parameter(Tensor.full(init, parameters));
     }
 
+    /** The slopes [parameters]. */
     public Tensor weight() {
         return weight;
     }

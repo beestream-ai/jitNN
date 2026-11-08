@@ -20,16 +20,25 @@ public final class GRU extends Module {
     private final int directions;
     private final Tensor[][] weights;
 
+    /**
+     * {@code layers} unidirectional GRU layers from {@code input} to {@code hidden} features, initialised
+     * from {@code seed}.
+     */
     public GRU(int input, int hidden, int layers, long seed) {
         this(input, hidden, layers, false, seed);
     }
 
+    /**
+     * {@code layers} GRU layers from {@code input} to {@code hidden} features, optionally bidirectional,
+     * initialised from {@code seed}.
+     */
     public GRU(int input, int hidden, int layers, boolean bidirectional, long seed) {
         this.hidden = hidden;
         this.directions = bidirectional ? 2 : 1;
         this.weights = Recurrence.init(this, input, hidden, layers, directions, 3, seed);
     }
 
+    /** The hidden size per direction. */
     public int hidden() {
         return hidden;
     }

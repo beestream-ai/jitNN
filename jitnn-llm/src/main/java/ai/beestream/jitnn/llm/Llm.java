@@ -87,6 +87,7 @@ public final class Llm implements AutoCloseable {
         return model;
     }
 
+    /** The model's architecture, size and quantisation, as jitllm reports them. */
     public ModelInfo info() {
         return model.info();
     }

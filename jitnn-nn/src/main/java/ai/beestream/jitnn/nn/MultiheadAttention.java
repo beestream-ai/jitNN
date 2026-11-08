@@ -15,6 +15,10 @@ public final class MultiheadAttention extends Module {
     private final Linear out;
     private final int heads;
 
+    /**
+     * Attention over {@code dim} features in {@code heads} heads ({@code dim} divisible by it), with or
+     * without projection biases, initialised from {@code seed}.
+     */
     public MultiheadAttention(int dim, int heads, boolean bias, long seed) {
         if (dim % heads != 0) {
             throw new IllegalArgumentException(dim + " features do not split into " + heads + " heads");
@@ -24,10 +28,12 @@ public final class MultiheadAttention extends Module {
         this.out = child(new Linear(dim, dim, bias, seed + 1));
     }
 
+    /** The fused q/k/v input projection [3 dim, dim]. */
     public Linear qkv() {
         return qkv;
     }
 
+    /** The output projection [dim, dim]. */
     public Linear outProjection() {
         return out;
     }
@@ -37,6 +43,10 @@ public final class MultiheadAttention extends Module {
         return forward(x, null, false);
     }
 
+    /**
+     * Attention over x [B, T, D] with an optional additive {@code mask} (null for none) and optional causal
+     * masking.
+     */
     public Tensor forward(Tensor x, Tensor mask, boolean causal) {
         return F.multiHeadAttention(x, qkv.weight(), qkv.bias(), out.weight(), out.bias(), heads, mask, causal);
     }

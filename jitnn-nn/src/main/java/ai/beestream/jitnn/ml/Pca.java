@@ -16,10 +16,12 @@ public final class Pca {
     private float[] variance;
     private float[] ratio;
 
+    /** PCA keeping {@code components} components. */
     public Pca(int components) {
         this.components = components;
     }
 
+    /** Fits samples x [n, features]. */
     public Pca fit(Tensor x) {
         Ml.check(x, "PCA");
         int n = x.dim(0);
@@ -56,10 +58,12 @@ public final class Pca {
         return basis;
     }
 
+    /** The variance explained by each component. */
     public float[] explainedVariance() {
         return variance.clone();
     }
 
+    /** The fraction of the total variance explained by each component. */
     public float[] explainedVarianceRatio() {
         return ratio.clone();
     }

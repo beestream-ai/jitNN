@@ -5,11 +5,19 @@ import java.util.SplittableRandom;
 /** A synthetic classification set: {@code classes} Gaussian clusters in {@code dims} dimensions. */
 public final class Blobs {
 
+    /** The samples [count, dims], row-major. */
     public final float[] x;
+    /** The cluster of each sample. */
     public final int[] y;
+    /** The number of samples. */
     public final int count;
+    /** The number of dimensions. */
     public final int dims;
 
+    /**
+     * {@code count} samples around {@code classes} centres drawn uniformly in [-2, 2)^dims, with Gaussian
+     * noise of standard deviation {@code spread}, from {@code seed}.
+     */
     public Blobs(int count, int dims, int classes, float spread, long seed) {
         SplittableRandom r = new SplittableRandom(seed);
         float[][] centres = new float[classes][dims];
@@ -31,6 +39,7 @@ public final class Blobs {
         }
     }
 
+    /** Copies batch {@code b} of {@code size} samples into {@code xb} and {@code yb}. */
     public void batch(int b, int size, float[] xb, int[] yb) {
         System.arraycopy(x, b * size * dims, xb, 0, size * dims);
         System.arraycopy(y, b * size, yb, 0, size);

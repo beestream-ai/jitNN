@@ -19,6 +19,7 @@ public final class NAdam extends Optimizer {
     private final Tensor[] m;
     private final Tensor[] v;
 
+    /** NAdam with the given betas, {@code eps}, L2 weight decay and momentum decay psi. */
     public NAdam(List<Tensor> params, float lr, float beta1, float beta2, float eps, float weightDecay, float momentumDecay) {
         super(params, lr);
         this.beta1 = beta1;

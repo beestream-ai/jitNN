@@ -34,10 +34,17 @@ public final class GradScaler {
     private boolean unscaled;
     private Optimizer last;
 
+    /**
+     * A scaler with PyTorch's defaults: initial scale 65536, growth 2 after 2000 clean steps, backoff 0.5.
+     */
     public GradScaler() {
         this(65536.0f, 2.0f, 0.5f, 2000);
     }
 
+    /**
+     * A scaler starting at {@code initScale} that multiplies the scale by {@code growthFactor} after
+     * {@code growthInterval} steps without overflow and by {@code backoffFactor} after an overflow.
+     */
     public GradScaler(float initScale, float growthFactor, float backoffFactor, int growthInterval) {
         this.scale = initScale;
         this.growthFactor = growthFactor;
@@ -45,6 +52,7 @@ public final class GradScaler {
         this.growthInterval = growthInterval;
     }
 
+    /** The current loss scale. */
     public float scale() {
         return scale;
     }
@@ -99,6 +107,7 @@ public final class GradScaler {
         return new StateDict().put("scale", scale).put("cleanSteps", cleanSteps);
     }
 
+    /** Restores the scale and step count saved by {@link #stateDict()}. */
     public void loadStateDict(StateDict d) {
         scale = d.floatValue("scale");
         cleanSteps = d.intValue("cleanSteps");

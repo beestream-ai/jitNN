@@ -77,6 +77,9 @@ public final class OnnxSession implements AutoCloseable {
         nodes = Boolean.parseBoolean(System.getProperty("jitnn.onnx.rewrite", "true")) ? Rewrites.apply(lowered, constants, outs, half) : lowered;
     }
 
+    /**
+     * Loads an ONNX file and prepares it to run in FP32; external data files next to it are memory-mapped.
+     */
     public static OnnxSession load(Path file) throws IOException {
         return load(file, false);
     }
@@ -89,7 +92,6 @@ public final class OnnxSession implements AutoCloseable {
         return of(OnnxModel.load(file), halfPrecision);
     }
 
-    /** A session over a model built in memory (see {@link OnnxModel#of}). */
     /** Buckets for every session ({@code -Djitnn.onnx.buckets=1,2,4,8,...}, see {@link #withBuckets}), or none. */
     private static final int[] DEFAULT_BUCKETS = parseBuckets(System.getProperty("jitnn.onnx.buckets", ""));
 
@@ -100,21 +102,28 @@ public final class OnnxSession implements AutoCloseable {
         return java.util.Arrays.stream(s.split(",")).map(String::trim).filter(x -> !x.isEmpty()).mapToInt(Integer::parseInt).toArray();
     }
 
+    /**
+     * A session over a model built in memory (see {@link OnnxModel#of}); {@code halfPrecision} as in
+     * {@link #load(Path, boolean)}.
+     */
     public static OnnxSession of(OnnxModel model, boolean halfPrecision) {
         OnnxSession session = new OnnxSession(model, halfPrecision);
         return DEFAULT_BUCKETS != null ? session.withBuckets(DEFAULT_BUCKETS) : session;
     }
 
+    /** The model this session runs. */
     public OnnxModel model() {
         return model;
     }
 
+    /** The names of the graph's inputs, in graph order. */
     public List<String> inputNames() {
         List<String> names = new ArrayList<>();
         model.graph().inputs().forEach(v -> names.add(v.name()));
         return names;
     }
 
+    /** The names of the graph's outputs, in graph order. */
     public List<String> outputNames() {
         List<String> names = new ArrayList<>();
         model.graph().outputs().forEach(v -> names.add(v.name()));

@@ -16,6 +16,7 @@ public final class RReLU extends Module {
     private final float upper;
     private final SplittableRandom seeds;
 
+    /** RReLU with slopes in [lower, upper), drawn from a stream seeded by {@code seed}. */
     public RReLU(float lower, float upper, long seed) {
         this.lower = lower;
         this.upper = upper;

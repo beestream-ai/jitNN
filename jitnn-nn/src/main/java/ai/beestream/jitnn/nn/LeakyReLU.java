@@ -7,10 +7,12 @@ public final class LeakyReLU extends Module {
 
     private final float slope;
 
+    /** LeakyReLU with slope 0.01. */
     public LeakyReLU() {
         this(0.01f);
     }
 
+    /** LeakyReLU with the given negative slope. */
     public LeakyReLU(float slope) {
         this.slope = slope;
     }

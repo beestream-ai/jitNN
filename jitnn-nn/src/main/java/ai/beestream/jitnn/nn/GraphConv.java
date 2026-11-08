@@ -14,6 +14,10 @@ public final class GraphConv extends Module {
     private final Tensor bias;
     private SparseMatrix.Valued graph;
 
+    /**
+     * Graph convolution from {@code in} to {@code out} features: a linear map without bias initialised from
+     * {@code seed}, and a bias of zeros.
+     */
     public GraphConv(int in, int out, long seed) {
         this.lin = child(new Linear(in, out, false, seed));
         this.bias = parameter(Tensor.zeros(out));
@@ -25,6 +29,10 @@ public final class GraphConv extends Module {
         return this;
     }
 
+    /**
+     * Applies the layer to node features x [nodes, in] over the graph's normalised adjacency (see
+     * {@link SparseMatrix#gcn}).
+     */
     public Tensor forward(Tensor x, SparseMatrix.Valued adjacency) {
         return adjacency.mm(lin.forward(x)).add(bias);
     }

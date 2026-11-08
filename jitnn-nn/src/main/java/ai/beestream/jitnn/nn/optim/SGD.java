@@ -13,10 +13,15 @@ public final class SGD extends Optimizer {
     private final boolean nesterov;
     private final Tensor[] buffers;
 
+    /** Plain SGD: no momentum, no weight decay. */
     public SGD(List<Tensor> params, float lr) {
         this(params, lr, 0, 0, false);
     }
 
+    /**
+     * SGD with the given momentum (0 for none), L2 weight decay, and Nesterov momentum when {@code nesterov}
+     * is set.
+     */
     public SGD(List<Tensor> params, float lr, float momentum, float weightDecay, boolean nesterov) {
         super(params, lr);
         this.momentum = momentum;

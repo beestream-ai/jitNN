@@ -337,18 +337,34 @@ public final class F {
         return where(inside, cols, Tensor.scalar(-3.4028235e38f));
     }
 
+    /**
+     * Max pooling of x [N, C, L] over windows of {@code kernel} with the given stride and padding (padding
+     * never wins), PyTorch's max_pool1d.
+     */
     public static Tensor maxPool1d(Tensor x, int kernel, int stride, int padding) {
         return poolNd(x, kernel, stride, padding, true);
     }
 
+    /**
+     * Average pooling of x [N, C, L], PyTorch's avg_pool1d; padding counts in the divisor, as PyTorch's
+     * default.
+     */
     public static Tensor avgPool1d(Tensor x, int kernel, int stride, int padding) {
         return poolNd(x, kernel, stride, padding, false);
     }
 
+    /**
+     * Max pooling of x [N, C, D, H, W] over cubic windows of {@code kernel} (padding never wins), PyTorch's
+     * max_pool3d.
+     */
     public static Tensor maxPool3d(Tensor x, int kernel, int stride, int padding) {
         return poolNd(x, kernel, stride, padding, true);
     }
 
+    /**
+     * Average pooling of x [N, C, D, H, W] over cubic windows, PyTorch's avg_pool3d; padding counts in the
+     * divisor.
+     */
     public static Tensor avgPool3d(Tensor x, int kernel, int stride, int padding) {
         return poolNd(x, kernel, stride, padding, false);
     }
@@ -365,7 +381,12 @@ public final class F {
 
     /** How {@link #pad} fills: a constant, the reflection without the edge, or the edge replicated. */
     public enum PadMode {
-        CONSTANT, REFLECT, REPLICATE
+        /** Fills with a constant value. */
+        CONSTANT,
+        /** Mirrors the input about its edge, without repeating the edge element. */
+        REFLECT,
+        /** Repeats the edge element. */
+        REPLICATE
     }
 
     /**
@@ -376,10 +397,18 @@ public final class F {
         return ai.beestream.jitnn.ops.Spatial.pad(x, before, after, mode.ordinal(), value);
     }
 
+    /**
+     * Max pooling of x [N, C, H, W] over square windows of {@code kernel} with the given stride and padding,
+     * PyTorch's max_pool2d.
+     */
     public static Tensor maxPool2d(Tensor x, int kernel, int stride, int padding) {
         return Pool2d.max(x, kernel, stride, padding);
     }
 
+    /**
+     * Average pooling of x [N, C, H, W] over square windows, PyTorch's avg_pool2d; padding counts in the
+     * divisor, as PyTorch's default.
+     */
     public static Tensor avgPool2d(Tensor x, int kernel, int stride, int padding) {
         return Pool2d.avg(x, kernel, stride, padding);
     }
@@ -587,7 +616,12 @@ public final class F {
 
     /** How a loss reduces its per-element values. */
     public enum Reduction {
-        NONE, MEAN, SUM
+        /** The per-element losses, unreduced. */
+        NONE,
+        /** The mean of the per-element losses. */
+        MEAN,
+        /** The sum of the per-element losses. */
+        SUM
     }
 
     private static Tensor reduce(Tensor l, Reduction r) {
@@ -603,6 +637,10 @@ public final class F {
         return mseLoss(input, target, Reduction.MEAN);
     }
 
+    /**
+     * Squared error between {@code input} and {@code target} (same shape), reduced as {@code reduction}
+     * says.
+     */
     public static Tensor mseLoss(Tensor input, Tensor target, Reduction reduction) {
         return reduce(input.sub(target).square(), reduction);
     }
@@ -615,6 +653,7 @@ public final class F {
         return binaryCrossEntropy(p, target, Reduction.MEAN);
     }
 
+    /** {@link #binaryCrossEntropy(Tensor, Tensor)} reduced as {@code reduction} says. */
     public static Tensor binaryCrossEntropy(Tensor p, Tensor target, Reduction reduction) {
         return reduce(Binary.apply(Binary.Kind.BCE, p, target), reduction);
     }
@@ -624,6 +663,7 @@ public final class F {
         return binaryCrossEntropyWithLogits(logits, target, Reduction.MEAN);
     }
 
+    /** {@link #binaryCrossEntropyWithLogits(Tensor, Tensor)} reduced as {@code reduction} says. */
     public static Tensor binaryCrossEntropyWithLogits(Tensor logits, Tensor target, Reduction reduction) {
         return reduce(Binary.apply(Binary.Kind.BCE_LOGITS, logits, target), reduction);
     }
@@ -934,7 +974,12 @@ public final class F {
 
     /** How {@link #embeddingBag} and {@link #segmentReduce} combine the rows of a bag. */
     public enum BagMode {
-        SUM, MEAN, MAX
+        /** The sum of the rows. */
+        SUM,
+        /** The mean of the rows. */
+        MEAN,
+        /** The element-wise maximum of the rows. */
+        MAX
     }
 
     /**
@@ -1052,6 +1097,7 @@ public final class F {
         return ai.beestream.jitnn.ops.Spatial.fold(cols, outputSize, kernel, stride, pad, dil);
     }
 
+    /** Normalises images x [N, C, H, W] per channel: (x - mean[c]) / std[c], as torchvision's Normalize. */
     public static Tensor normalizeImage(Tensor x, float[] mean, float[] std) {
         int c = x.dim(1);
         if (mean.length != c || std.length != c) {

@@ -11,6 +11,7 @@ import java.nio.file.Path;
  */
 public final class TextCorpus {
 
+    /** The vocabulary size: one token per byte value. */
     public static final int VOCAB = 256;
 
     private final int[] tokens;
@@ -21,6 +22,7 @@ public final class TextCorpus {
         this.split = tokens.length * 9 / 10;
     }
 
+    /** The bytes of {@code file} as a corpus. */
     public static TextCorpus load(Path file) throws IOException {
         byte[] bytes = Files.readAllBytes(file);
         int[] tokens = new int[bytes.length];
@@ -30,6 +32,7 @@ public final class TextCorpus {
         return new TextCorpus(tokens);
     }
 
+    /** The number of tokens. */
     public int length() {
         return tokens.length;
     }
@@ -61,6 +64,7 @@ public final class TextCorpus {
         System.arraycopy(tokens, start + 1, targets, at, seq);
     }
 
+    /** Token {@code i}. */
     public int token(int i) {
         return tokens[i];
     }

@@ -28,6 +28,11 @@ public final class GradientBoosting {
     private int[] classes;
     private int outputs;
 
+    /**
+     * Boosting for classification or regression: {@code rounds} trees of depth at most {@code maxDepth},
+     * shrunk by {@code learningRate}, with at least {@code minSamplesLeaf} samples per leaf, L2 penalty
+     * {@code lambda} on the leaf values, and features in at most {@code maxBins} bins.
+     */
     public GradientBoosting(boolean classification, int rounds, float learningRate, int maxDepth, int minSamplesLeaf, float lambda, int maxBins) {
         this.classification = classification;
         this.rounds = rounds;
@@ -38,10 +43,12 @@ public final class GradientBoosting {
         this.maxBins = maxBins;
     }
 
+    /** Boosting with scikit-learn's defaults for the rest: 20 samples per leaf, no L2 penalty, 255 bins. */
     public GradientBoosting(boolean classification, int rounds, float learningRate, int maxDepth) {
         this(classification, rounds, learningRate, maxDepth, 20, 0.0f, 255);
     }
 
+    /** Fits a classifier to samples x [n, features] and labels y. */
     public GradientBoosting fit(Tensor x, int[] y) {
         if (!classification) {
             throw new IllegalStateException("integer labels are for classification");
@@ -136,6 +143,7 @@ public final class GradientBoosting {
         return decisionFunction(x).reshape(x.dim(0));
     }
 
+    /** Class probabilities [n, classes] for samples x. */
     public Tensor predictProba(Tensor x) {
         Tensor z = decisionFunction(x);
         if (outputs == 1) {
@@ -145,6 +153,7 @@ public final class GradientBoosting {
         return z.softmax();
     }
 
+    /** The most probable label of each sample. */
     public int[] predict(Tensor x) {
         return Ml.decode(predictProba(x).argmax(1).toIntArray(), classes);
     }

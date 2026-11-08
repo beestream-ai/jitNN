@@ -45,6 +45,11 @@ public final class Llama extends Module {
         return this;
     }
 
+    /**
+     * A decoder over {@code vocab} tokens with {@code layers} blocks of {@code dim} features in
+     * {@code heads} heads, a feed-forward of {@code hidden} features and rotary base {@code ropeBase}, initialised
+     * from {@code seed}.
+     */
     public Llama(int vocab, int dim, int heads, int layers, int hidden, float ropeBase, long seed) {
         this(vocab, dim, heads, heads, layers, hidden, ropeBase, 1e-5f, false, false, seed);
     }

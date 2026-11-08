@@ -20,22 +20,35 @@ import java.util.Map;
  */
 public final class OnnxModel {
 
-    /** ONNX TensorProto.DataType values. */
+    // ONNX TensorProto.DataType values.
+
+    /** ONNX data type: 32-bit float. */
     public static final int FLOAT = 1;
+    /** ONNX data type: 8-bit unsigned integer. */
     public static final int UINT8 = 2;
+    /** ONNX data type: 8-bit signed integer. */
     public static final int INT8 = 3;
+    /** ONNX data type: 16-bit unsigned integer. */
     public static final int UINT16 = 4;
+    /** ONNX data type: 16-bit signed integer. */
     public static final int INT16 = 5;
+    /** ONNX data type: 32-bit signed integer. */
     public static final int INT32 = 6;
+    /** ONNX data type: 64-bit signed integer. */
     public static final int INT64 = 7;
+    /** ONNX data type: boolean, one byte. */
     public static final int BOOL = 9;
+    /** ONNX data type: IEEE 16-bit float. */
     public static final int FLOAT16 = 10;
+    /** ONNX data type: 64-bit float. */
     public static final int DOUBLE = 11;
+    /** ONNX data type: bfloat16. */
     public static final int BFLOAT16 = 16;
 
     /** A tensor stored in the model: dims, element type and its data as little-endian bytes. */
     public record TensorData(String name, long[] dims, int dataType, ByteBuffer raw) {
 
+        /** The number of elements: the product of the dims. */
         public int numel() {
             long n = 1;
             for (long d : dims) {
@@ -93,27 +106,33 @@ public final class OnnxModel {
     public record Attribute(String name, int type, float f, long i, String s, TensorData t, float[] floats, long[] ints, Graph g) {
     }
 
+    /** A node of the graph: an operator application, with the names of its input and output values. */
     public record Node(String name, String opType, String domain, List<String> inputs, List<String> outputs, Map<String, Attribute> attributes) {
 
+        /** Attribute {@code key}, or null when the node does not set it. */
         public Attribute attr(String key) {
             return attributes.get(key);
         }
 
+        /** Integer attribute {@code key}, or {@code fallback} when the node does not set it. */
         public long attrInt(String key, long fallback) {
             Attribute a = attributes.get(key);
             return a == null ? fallback : a.i();
         }
 
+        /** Float attribute {@code key}, or {@code fallback} when the node does not set it. */
         public float attrFloat(String key, float fallback) {
             Attribute a = attributes.get(key);
             return a == null ? fallback : a.f();
         }
 
+        /** Integer-list attribute {@code key}, or {@code fallback} when the node does not set it. */
         public long[] attrInts(String key, long[] fallback) {
             Attribute a = attributes.get(key);
             return a == null ? fallback : a.ints();
         }
 
+        /** String attribute {@code key}, or {@code fallback} when the node does not set it. */
         public String attrString(String key, String fallback) {
             Attribute a = attributes.get(key);
             return a == null ? fallback : a.s();
@@ -131,11 +150,16 @@ public final class OnnxModel {
      */
     public record ValueInfo(String name, int elemType, long[] dims, String[] dimNames) {
 
+        /** A value without names for its symbolic dimensions. */
         public ValueInfo(String name, int elemType, long[] dims) {
             this(name, elemType, dims, null);
         }
     }
 
+    /**
+     * A graph: its nodes in topological order, the initializers (weights and constants) by name, and its
+     * inputs and outputs.
+     */
     public record Graph(String name, List<Node> nodes, Map<String, TensorData> initializers, List<ValueInfo> inputs, List<ValueInfo> outputs) {
     }
 
@@ -152,6 +176,7 @@ public final class OnnxModel {
         return new OnnxModel(graph, opsets);
     }
 
+    /** The model's main graph. */
     public Graph graph() {
         return graph;
     }
@@ -161,6 +186,7 @@ public final class OnnxModel {
         return opsets.getOrDefault(domain, 0L);
     }
 
+    /** Reads an ONNX model file; initializers kept in external data files next to it are memory-mapped. */
     public static OnnxModel load(Path file) throws IOException {
         ByteBuffer bytes = map(file);
         Path dir = file.toAbsolutePath().getParent();

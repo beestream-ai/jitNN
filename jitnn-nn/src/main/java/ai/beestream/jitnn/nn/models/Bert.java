@@ -40,6 +40,10 @@ public final class Bert extends Module {
         return this;
     }
 
+    /**
+     * An encoder over {@code vocab} tokens and up to {@code context} positions, with {@code layers} blocks
+     * of {@code dim} features in {@code heads} heads, initialised from {@code seed}.
+     */
     public Bert(int vocab, int context, int dim, int heads, int layers, long seed) {
         this(vocab, context, dim, heads, layers, 4 * dim, 0, false, seed);
     }

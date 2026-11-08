@@ -25,6 +25,7 @@ public final class Emitter {
     /** Adds one task to the graph under the given task id. */
     @FunctionalInterface
     public interface TaskAdder {
+        /** Adds the task to {@code graph} as {@code taskId}. */
         void add(TaskGraph graph, String taskId);
     }
 
@@ -101,14 +102,17 @@ public final class Emitter {
         return unread.contains(t.storage());
     }
 
+    /** The device array of FP32 tensor {@code t}, to pass to a kernel. */
     public FloatArray f32(Tensor t) {
         return use((FloatArray) arrays.get(t.storage()));
     }
 
+    /** The device array of INT32 tensor {@code t}. */
     public IntArray i32(Tensor t) {
         return use((IntArray) arrays.get(t.storage()));
     }
 
+    /** The device array of FP16 tensor {@code t}. */
     public uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray f16(Tensor t) {
         return use((uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray) arrays.get(t.storage()));
     }
@@ -221,10 +225,15 @@ public final class Emitter {
         return Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA;
     }
 
+    /** A new {@code KernelContext}, the first argument of every kernel. */
     public KernelContext context() {
         return new KernelContext();
     }
 
+    /**
+     * Adds a kernel task launched over {@code grid}; {@code adder} adds it to the graph, with arrays from
+     * this emitter's accessors.
+     */
     public void task(WorkerGrid grid, TaskAdder adder) {
         tasks.add(new Spec("t" + tasks.size(), grid, adder, node));
     }
@@ -311,6 +320,7 @@ public final class Emitter {
         return g;
     }
 
+    /** a / b rounded up, for grid sizes. */
     public static int ceilDiv(int a, int b) {
         return (a + b - 1) / b;
     }

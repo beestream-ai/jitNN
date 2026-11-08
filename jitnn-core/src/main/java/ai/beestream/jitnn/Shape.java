@@ -23,14 +23,17 @@ public final class Shape {
         this.numel = (int) n;
     }
 
+    /** The shape with the given sizes (the array is copied). */
     public static Shape of(int... dims) {
         return new Shape(dims.clone());
     }
 
+    /** The rank-0 shape: a scalar with one element. */
     public static Shape scalar() {
         return new Shape(new int[0]);
     }
 
+    /** The number of axes. */
     public int rank() {
         return dims.length;
     }
@@ -40,10 +43,12 @@ public final class Shape {
         return dims[axis(axis)];
     }
 
+    /** A copy of the sizes. */
     public int[] dims() {
         return dims.clone();
     }
 
+    /** The number of elements: the product of the sizes (1 for a scalar). */
     public int numel() {
         return numel;
     }

@@ -11,6 +11,10 @@ public final class GroupNorm extends Module {
     private final Tensor weight;
     private final Tensor bias;
 
+    /**
+     * GroupNorm of {@code channels} channels in {@code groups} groups, with the given eps, with or without
+     * the per-channel affine.
+     */
     public GroupNorm(int groups, int channels, float eps, boolean affine) {
         this.groups = groups;
         this.eps = eps;

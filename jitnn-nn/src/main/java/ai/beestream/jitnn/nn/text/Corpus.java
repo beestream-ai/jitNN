@@ -18,6 +18,10 @@ public final class Corpus {
     private final double[] cumulative;
     private final SplittableRandom random;
 
+    /**
+     * Examples from {@code sentences} of word ids, negatives drawn by the word counts {@code counts}
+     * (indexed by id), randomness from {@code seed}.
+     */
     public Corpus(List<int[]> sentences, long[] counts, long seed) {
         this.sentences = sentences;
         this.random = new SplittableRandom(seed);
@@ -32,6 +36,7 @@ public final class Corpus {
         }
     }
 
+    /** The sentences, as word ids. */
     public List<int[]> sentences() {
         return sentences;
     }

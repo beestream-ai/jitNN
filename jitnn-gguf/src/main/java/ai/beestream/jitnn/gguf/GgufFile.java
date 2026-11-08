@@ -156,6 +156,7 @@ public final class GgufFile {
 
     // ---------------------------------------------------------------- file
 
+    /** The file this was read from. */
     public Path path() {
         return path;
     }
@@ -182,10 +183,12 @@ public final class GgufFile {
         return metadata;
     }
 
+    /** The metadata keys, in file order. */
     public Set<String> keys() {
         return metadata.keySet();
     }
 
+    /** Whether the metadata has {@code key}. */
     public boolean has(String key) {
         return metadata.containsKey(key);
     }
@@ -200,6 +203,7 @@ public final class GgufFile {
         return metadata.get("general.architecture") instanceof String s ? s : null;
     }
 
+    /** A string value; throws when the key is absent or holds another type. */
     public String string(String key) {
         return required(key, String.class);
     }
@@ -237,14 +241,20 @@ public final class GgufFile {
         return has(key) ? floatValue(key) : fallback;
     }
 
+    /** A boolean value; throws when the key is absent or holds another type. */
     public boolean bool(String key) {
         return required(key, Boolean.class);
     }
 
+    /**
+     * An array of strings (a tokenizer's vocabulary, say); throws when the key is absent or holds another
+     * type.
+     */
     public String[] strings(String key) {
         return required(key, String[].class);
     }
 
+    /** An array of float32 values; throws when the key is absent or holds another type. */
     public float[] floats(String key) {
         return required(key, float[].class);
     }
@@ -277,10 +287,12 @@ public final class GgufFile {
         return tensors;
     }
 
+    /** Whether the file lists a tensor named {@code name}. */
     public boolean hasTensor(String name) {
         return tensors.containsKey(name);
     }
 
+    /** The listing of tensor {@code name}: its type, shape and offset; throws when there is none. */
     public GgufTensorInfo info(String name) {
         GgufTensorInfo t = tensors.get(name);
         if (t == null) {

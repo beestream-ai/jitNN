@@ -16,8 +16,12 @@ import ai.beestream.jitnn.ops.Trees;
  */
 public final class RandomForest {
 
+    /** What the forest predicts. */
     public enum Task {
-        CLASSIFICATION, REGRESSION
+        /** Class labels, by averaged class probabilities. */
+        CLASSIFICATION,
+        /** Real values, by the averaged tree outputs. */
+        REGRESSION
     }
 
     private final Task task;
@@ -45,6 +49,10 @@ public final class RandomForest {
         this.seed = seed;
     }
 
+    /**
+     * A forest of {@code trees} bootstrapped trees of depth at most {@code maxDepth}, one sample per leaf at
+     * least, scikit-learn's default feature subsets, 128 bins.
+     */
     public RandomForest(Task task, int trees, int maxDepth, long seed) {
         this(task, trees, maxDepth, 1, 0, 128, true, seed);
     }
@@ -54,6 +62,7 @@ public final class RandomForest {
         return new RandomForest(task, 1, maxDepth, minSamplesLeaf, Integer.MAX_VALUE, 128, false, 0);
     }
 
+    /** Fits a classifier to samples x [n, features] and labels y. */
     public RandomForest fit(Tensor x, int[] y) {
         if (task != Task.CLASSIFICATION) {
             throw new IllegalStateException("integer labels are for classification");
@@ -104,6 +113,7 @@ public final class RandomForest {
         return Trees.predict(binner.bin(x), packed[0], packed[1], packed[2], packed[3]);
     }
 
+    /** The label with the highest averaged probability, for each sample. */
     public int[] predict(Tensor x) {
         return Ml.decode(predictValues(x).argmax(1).toIntArray(), classes);
     }

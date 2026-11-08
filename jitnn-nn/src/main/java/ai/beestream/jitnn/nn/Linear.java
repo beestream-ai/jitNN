@@ -12,20 +12,27 @@ public final class Linear extends Module {
     private final Tensor weight;
     private final Tensor bias;
 
+    /** A linear layer from {@code in} to {@code out} features with a bias, initialised from {@code seed}. */
     public Linear(int in, int out, long seed) {
         this(in, out, true, seed);
     }
 
+    /**
+     * A linear layer from {@code in} to {@code out} features, with or without a bias, initialised from
+     * {@code seed}.
+     */
     public Linear(int in, int out, boolean bias, long seed) {
         float bound = (float) (1.0 / Math.sqrt(in));
         this.weight = parameter(Tensor.uniform(seed, -bound, bound, out, in));
         this.bias = bias ? parameter(Tensor.uniform(seed + 0x9E3779B97F4A7C15L, -bound, bound, out)) : null;
     }
 
+    /** The weight [out, in]. */
     public Tensor weight() {
         return weight;
     }
 
+    /** The bias [out], or null without one. */
     public Tensor bias() {
         return bias;
     }

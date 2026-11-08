@@ -16,15 +16,18 @@ public final class LinearSvc {
     private Tensor coef;
     private Tensor intercept;
 
+    /** A classifier with penalty {@code c} and at most {@code maxIter} iterations. */
     public LinearSvc(float c, int maxIter) {
         this.c = c;
         this.maxIter = maxIter;
     }
 
+    /** A classifier with scikit-learn's defaults: C 1, 1000 iterations. */
     public LinearSvc() {
         this(1.0f, 1000);
     }
 
+    /** Fits samples x [n, features] and labels y. */
     public LinearSvc fit(Tensor x, int[] y) {
         Ml.check(x, "LinearSvc");
         int n = x.dim(0);
@@ -53,18 +56,22 @@ public final class LinearSvc {
         return this;
     }
 
+    /** The weights: [1, features] for two classes, else [classes, features]. */
     public Tensor coef() {
         return coef;
     }
 
+    /** The intercepts, one per row of {@link #coef()}. */
     public Tensor intercept() {
         return intercept;
     }
 
+    /** The decision values x w^T + b of each sample. */
     public Tensor decisionFunction(Tensor x) {
         return x.matmul(coef, false, true).add(intercept);
     }
 
+    /** The predicted label of each sample. */
     public int[] predict(Tensor x) {
         Tensor z = decisionFunction(x);
         if (classes.length == 2) {

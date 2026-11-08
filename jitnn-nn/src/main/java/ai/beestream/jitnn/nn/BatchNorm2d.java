@@ -17,10 +17,16 @@ public final class BatchNorm2d extends Module {
     private final float momentum;
     private final float eps;
 
+    /**
+     * Batch normalisation over {@code channels} channels with PyTorch's defaults (momentum 0.1, eps 1e-5).
+     */
     public BatchNorm2d(int channels) {
         this(channels, 0.1f, 1e-5f);
     }
 
+    /**
+     * Batch normalisation with the given momentum for the running statistics and eps added to the variance.
+     */
     public BatchNorm2d(int channels, float momentum, float eps) {
         this.weight = parameter(Tensor.ones(channels));
         this.bias = parameter(Tensor.zeros(channels));
@@ -30,10 +36,12 @@ public final class BatchNorm2d extends Module {
         this.eps = eps;
     }
 
+    /** The running mean [channels], updated in training mode. */
     public Tensor runningMean() {
         return runningMean;
     }
 
+    /** The running variance [channels], updated in training mode. */
     public Tensor runningVar() {
         return runningVar;
     }

@@ -16,15 +16,21 @@ public final class LogisticRegression {
     private Tensor coef;
     private Tensor intercept;
 
+    /**
+     * A classifier with inverse regularisation strength {@code c} and at most {@code maxIter} L-BFGS
+     * iterations.
+     */
     public LogisticRegression(float c, int maxIter) {
         this.c = c;
         this.maxIter = maxIter;
     }
 
+    /** A classifier with C 1 and 500 iterations. */
     public LogisticRegression() {
         this(1.0f, 500);
     }
 
+    /** Fits samples x [n, features] and labels y. */
     public LogisticRegression fit(Tensor x, int[] y) {
         Ml.check(x, "LogisticRegression");
         int n = x.dim(0);
@@ -57,10 +63,12 @@ public final class LogisticRegression {
         return coef;
     }
 
+    /** The intercepts, one per row of the weights. */
     public Tensor intercept() {
         return intercept;
     }
 
+    /** The decision values x W^T + b of each sample. */
     public Tensor decisionFunction(Tensor x) {
         return x.matmul(coef, false, true).add(intercept);
     }
@@ -75,6 +83,7 @@ public final class LogisticRegression {
         return z.softmax();
     }
 
+    /** The most probable label of each sample. */
     public int[] predict(Tensor x) {
         return Ml.decode(predictProba(x).argmax(1).toIntArray(), classes);
     }

@@ -16,6 +16,7 @@ public final class AdaMax extends Optimizer {
     private final Tensor[] m;
     private final Tensor[] u;
 
+    /** AdaMax with the given betas, {@code eps} and L2 weight decay. */
     public AdaMax(List<Tensor> params, float lr, float beta1, float beta2, float eps, float weightDecay) {
         super(params, lr);
         this.beta1 = beta1;

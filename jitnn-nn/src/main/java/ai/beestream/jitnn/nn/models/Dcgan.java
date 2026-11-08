@@ -28,6 +28,10 @@ public final class Dcgan {
         private final ConvTranspose2d up2;
         private final int width;
 
+        /**
+         * A generator from latent vectors of {@code latent} values, {@code width} channels in its last
+         * hidden layer, initialised from {@code seed}.
+         */
         public Generator(int latent, int width, long seed) {
             Seeds seeds = new Seeds(seed);
             this.width = width;
@@ -55,6 +59,7 @@ public final class Dcgan {
         private final Linear fc;
         private final int width;
 
+        /** A discriminator with {@code width} channels in its first layer, initialised from {@code seed}. */
         public Discriminator(int width, long seed) {
             Seeds seeds = new Seeds(seed);
             this.width = width;

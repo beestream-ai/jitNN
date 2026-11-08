@@ -12,6 +12,10 @@ public final class Embedding extends Module {
     private final Tensor weight;
     private final int paddingIdx;
 
+    /**
+     * A table of {@code count} vectors of size {@code dim}, standard normal from {@code seed}, every row
+     * trained.
+     */
     public Embedding(int count, int dim, long seed) {
         this(count, dim, -1, seed);
     }
@@ -27,6 +31,7 @@ public final class Embedding extends Module {
         this.paddingIdx = paddingIdx;
     }
 
+    /** The table [count, dim]. */
     public Tensor weight() {
         return weight;
     }

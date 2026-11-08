@@ -19,10 +19,15 @@ public final class GloVe extends Module {
     private final float xMax;
     private final float alpha;
 
+    /** GloVe with the paper's weighting (xMax 100, alpha 3/4). */
     public GloVe(int vocab, int dim, long seed) {
         this(vocab, dim, 100.0f, 0.75f, seed);
     }
 
+    /**
+     * GloVe over {@code vocab} words with vectors of {@code dim} and weighting f(x) = min(1, (x /
+     * xMax)^alpha), initialised from {@code seed}.
+     */
     public GloVe(int vocab, int dim, float xMax, float alpha, long seed) {
         this.dim = dim;
         this.xMax = xMax;
@@ -59,6 +64,7 @@ public final class GloVe extends Module {
         return w.add(wt).toFloatArray();
     }
 
+    /** The vector size. */
     public int dim() {
         return dim;
     }

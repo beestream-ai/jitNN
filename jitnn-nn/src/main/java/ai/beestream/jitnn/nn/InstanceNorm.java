@@ -13,6 +13,10 @@ public final class InstanceNorm extends Module {
     private final Tensor weight;
     private final Tensor bias;
 
+    /**
+     * InstanceNorm of {@code channels} channels with the given eps, with or without a per-channel affine
+     * (weight 1, bias 0 at the start).
+     */
     public InstanceNorm(int channels, float eps, boolean affine) {
         this.eps = eps;
         this.weight = affine ? parameter(Tensor.ones(channels)) : null;

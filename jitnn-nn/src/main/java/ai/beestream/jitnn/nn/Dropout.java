@@ -19,6 +19,10 @@ public final class Dropout extends Module {
     private final int stream = STREAMS.getAndIncrement();
     private final SplittableRandom seeds;
 
+    /**
+     * Dropout that zeroes each element with probability {@code p} and scales the rest by 1 / (1 - p); masks
+     * are seeded from {@code seed}.
+     */
     public Dropout(float p, long seed) {
         this.p = p;
         this.seeds = new SplittableRandom(seed);

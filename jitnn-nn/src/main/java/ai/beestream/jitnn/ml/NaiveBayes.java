@@ -9,8 +9,12 @@ import ai.beestream.jitnn.Tensor;
  */
 public final class NaiveBayes {
 
+    /** Which likelihood the features follow. */
     public enum Kind {
-        GAUSSIAN, MULTINOMIAL
+        /** A normal distribution per class and feature (GaussianNB). */
+        GAUSSIAN,
+        /** A multinomial distribution of counts per class (MultinomialNB). */
+        MULTINOMIAL
     }
 
     private final Kind kind;
@@ -27,6 +31,7 @@ public final class NaiveBayes {
         this.smoothing = smoothing;
     }
 
+    /** Fits samples x [n, features] (counts for the multinomial kind) and labels y. */
     public NaiveBayes fit(Tensor x, int[] y) {
         Ml.check(x, "NaiveBayes");
         classes = Ml.classes(y);
@@ -60,22 +65,27 @@ public final class NaiveBayes {
         return quad.add(norm).mul(-0.5f).add(logPrior);
     }
 
+    /** Class probabilities [n, classes] for samples x. */
     public Tensor predictProba(Tensor x) {
         return jointLogLikelihood(x).softmax();
     }
 
+    /** The most probable label of each sample. */
     public int[] predict(Tensor x) {
         return Ml.decode(jointLogLikelihood(x).argmax(1).toIntArray(), classes);
     }
 
+    /** Gaussian: the per-class feature means [classes, features]. */
     public Tensor theta() {
         return theta;
     }
 
+    /** Gaussian: the per-class feature variances [classes, features], smoothed. */
     public Tensor var() {
         return var;
     }
 
+    /** Multinomial: the per-class log probabilities of the features [classes, features]. */
     public Tensor featureLogProb() {
         return featureLogProb;
     }

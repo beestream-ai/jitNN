@@ -10,6 +10,9 @@ public final class Upsample extends Module {
     private final boolean bilinear;
     private final boolean alignCorners;
 
+    /**
+     * Upsampling by {@code scale}, nearest or bilinear; {@code alignCorners} as in PyTorch (bilinear only).
+     */
     public Upsample(float scale, boolean bilinear, boolean alignCorners) {
         this.scale = scale;
         this.bilinear = bilinear;

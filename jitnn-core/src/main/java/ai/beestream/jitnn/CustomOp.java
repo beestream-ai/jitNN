@@ -54,36 +54,45 @@ public final class CustomOp {
     /** Adds the operator's device tasks for {@code node} to the plan being built. */
     @FunctionalInterface
     public interface Launcher {
+        /** Adds the tasks that compute {@code node} through {@code e}. */
         void emit(Emitter e, Node node);
     }
 
     /** Computes {@code node} on the host: inputs are readable, outputs are allocated. */
     @FunctionalInterface
     public interface Reference {
+        /** Computes the outputs of {@code node} from its inputs, on the host. */
         void run(Node node);
     }
 
     /** Gradients with respect to each input (null where none is needed), given the gradient of the first output. */
     @FunctionalInterface
     public interface Backward {
+        /**
+         * The gradient of each input of {@code node} (null where none is needed), from the gradient
+         * {@code gradOut} of its first output.
+         */
         Tensor[] apply(Node node, Tensor gradOut);
     }
 
     /** The shape of an output, from the inputs and the integer attributes of the call. */
     @FunctionalInterface
     public interface OutputShape {
+        /** The output's shape for these inputs and integer attributes. */
         Shape of(Tensor[] inputs, int[] iattr);
     }
 
     /** The gradient of an element-wise unary operator y = f(x): dL/dx from x, y and dL/dy. */
     @FunctionalInterface
     public interface UnaryGradient {
+        /** dL/dx, from the input x, the output y and dL/dy. */
         Tensor apply(Tensor x, Tensor y, Tensor gradY);
     }
 
     /** The gradients of an element-wise binary operator y = f(a, b): [dL/da, dL/db] from a, b, y and dL/dy. */
     @FunctionalInterface
     public interface BinaryGradient {
+        /** [dL/da, dL/db], from the inputs a and b, the output y and dL/dy. */
         Tensor[] apply(Tensor a, Tensor b, Tensor y, Tensor gradY);
     }
 
@@ -210,6 +219,7 @@ public final class CustomOp {
         return op;
     }
 
+    /** The operator's name, unique among all operators. */
     public String name() {
         return name;
     }
@@ -328,6 +338,10 @@ public final class CustomOp {
             return this;
         }
 
+        /**
+         * The operator, registered under its name. Inputs, at least one output and the device tasks must
+         * have been declared.
+         */
         public CustomOp build() {
             if (inputTypes == null) {
                 throw new IllegalStateException(name + ": declare the inputs");

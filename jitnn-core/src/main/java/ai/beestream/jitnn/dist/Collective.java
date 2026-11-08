@@ -9,8 +9,16 @@ import ai.beestream.jitnn.Tensor;
  */
 public interface Collective {
 
+    /** How a reduction combines the ranks' tensors, element-wise. */
     enum ReduceOp {
-        SUM, AVG, MAX, MIN
+        /** The sum over ranks. */
+        SUM,
+        /** The mean over ranks. */
+        AVG,
+        /** The maximum over ranks. */
+        MAX,
+        /** The minimum over ranks. */
+        MIN
     }
 
     /** The number of ranks, over every process. */

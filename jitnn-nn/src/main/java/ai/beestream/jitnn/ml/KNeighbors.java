@@ -13,6 +13,7 @@ public final class KNeighbors {
     private Tensor targets;
     private int[] classes;
 
+    /** Neighbours by the {@code k} nearest training samples. */
     public KNeighbors(int k) {
         this.k = k;
     }
@@ -47,6 +48,7 @@ public final class KNeighbors {
         return targets.indexSelect(0, idx).reshape(m, k, targets.dim(1)).mean(1, false);
     }
 
+    /** The majority label of each query's neighbours (a classifier's {@code fit} only). */
     public int[] predict(Tensor q) {
         if (classes == null) {
             throw new IllegalStateException("fitted for regression: use predictValues");

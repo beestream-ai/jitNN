@@ -34,6 +34,10 @@ public final class GPT2 extends Module {
         return this;
     }
 
+    /**
+     * A decoder over {@code vocab} tokens and up to {@code context} positions, with {@code layers} blocks of
+     * {@code dim} features in {@code heads} heads, initialised from {@code seed}.
+     */
     public GPT2(int vocab, int context, int dim, int heads, int layers, long seed) {
         Seeds seeds = new Seeds(seed);
         this.tokens = child(new Embedding(Init.uniformStd(seeds.next(), 0.02f, vocab, dim), -1));

@@ -42,6 +42,10 @@ public final class Tensor implements AutoCloseable {
 
     // ---------------------------------------------------------------- creation
 
+    /**
+     * An FP32 tensor with a copy of {@code data} in the shape {@code dims} (a vector of all the values when
+     * no dims are given). {@link #wrap(float[], int...)} shares the array instead.
+     */
     public static Tensor of(float[] data, int... dims) {
         Shape s = dims.length == 0 && data.length != 1 ? Shape.of(data.length) : Shape.of(dims);
         if (s.numel() != data.length) {
@@ -84,6 +88,10 @@ public final class Tensor implements AutoCloseable {
         return new Tensor(s, Storage.ofHeap(data, DType.I32, data.length));
     }
 
+    /**
+     * An INT32 tensor (labels, indices) with a copy of {@code data}; {@link #of(float[], int...)} for int
+     * data.
+     */
     public static Tensor of(int[] data, int... dims) {
         Shape s = dims.length == 0 && data.length != 1 ? Shape.of(data.length) : Shape.of(dims);
         if (s.numel() != data.length) {
@@ -109,10 +117,12 @@ public final class Tensor implements AutoCloseable {
         return a;
     }
 
+    /** A rank-0 FP32 tensor holding {@code value}. */
     public static Tensor scalar(float value) {
         return new Tensor(Shape.scalar(), Storage.ofHost(FloatArray.fromElements(value), DType.F32, false));
     }
 
+    /** An FP32 tensor of the given shape with every element {@code value}. */
     public static Tensor full(float value, int... dims) {
         Shape s = Shape.of(dims);
         FloatArray a = new FloatArray(Math.max(s.numel(), 1));
@@ -153,10 +163,12 @@ public final class Tensor implements AutoCloseable {
         return of(v, n);
     }
 
+    /** An FP32 tensor of zeros. */
     public static Tensor zeros(int... dims) {
         return full(0.0f, dims);
     }
 
+    /** An FP32 tensor of ones. */
     public static Tensor ones(int... dims) {
         return full(1.0f, dims);
     }
@@ -306,6 +318,7 @@ public final class Tensor implements AutoCloseable {
         }
     }
 
+    /** The memory behind this tensor, shared with its views. */
     public Storage storage() {
         return storage;
     }
@@ -338,6 +351,10 @@ public final class Tensor implements AutoCloseable {
         release();
     }
 
+    /**
+     * The operator application that produced this tensor, for autograd; null for a leaf tensor or one that
+     * does not track gradients.
+     */
     public Node gradFn() {
         return gradFn;
     }
@@ -381,28 +398,34 @@ public final class Tensor implements AutoCloseable {
 
     // ---------------------------------------------------------------- metadata
 
+    /** The shape of this tensor. */
     public Shape shape() {
         return shape;
     }
 
+    /** The element type of this tensor. */
     public DType dtype() {
         return storage.dtype();
     }
 
+    /** The number of elements (1 for a scalar). */
     public int numel() {
         return shape.numel();
     }
 
+    /** The number of axes (0 for a scalar). */
     public int rank() {
         return shape.rank();
     }
 
+    /** The size of axis {@code axis}; a negative axis counts from the end. */
     public int dim(int axis) {
         return shape.dim(axis);
     }
 
     // ---------------------------------------------------------------- autograd
 
+    /** Whether gradients are tracked for this tensor. */
     public boolean requiresGrad() {
         return requiresGrad;
     }
@@ -421,6 +444,7 @@ public final class Tensor implements AutoCloseable {
         return grad;
     }
 
+    /** Clears the accumulated gradient of this leaf tensor. */
     public void zeroGrad() {
         grad = null;
     }
@@ -433,6 +457,7 @@ public final class Tensor implements AutoCloseable {
         Autograd.backward(this, null);
     }
 
+    /** Back-propagates from this tensor with {@code gradient} (its shape) as the gradient of the result. */
     public void backward(Tensor gradient) {
         Autograd.backward(this, gradient);
     }
@@ -444,6 +469,9 @@ public final class Tensor implements AutoCloseable {
 
     // ---------------------------------------------------------------- reading
 
+    /**
+     * The value of a single-element tensor, as a float. A sync point: runs every operator recorded so far.
+     */
     public float item() {
         if (numel() != 1) {
             throw new IllegalStateException("item() needs a single element, shape is " + shape);
@@ -452,6 +480,10 @@ public final class Tensor implements AutoCloseable {
         return storage.dtype() == DType.F32 ? ((FloatArray) storage.host()).get(0) : toFloatArray()[0];
     }
 
+    /**
+     * The elements in row-major order, converted to float from any element type (INT32, FP16, BF16, FP8,
+     * GGUF blocks). A sync point: runs every operator recorded so far.
+     */
     public float[] toFloatArray() {
         Engine.sync(this);
         if (storage.dtype() == DType.I32) {
@@ -549,6 +581,9 @@ public final class Tensor implements AutoCloseable {
         }
     }
 
+    /**
+     * The elements of an INT32 tensor in row-major order. A sync point: runs every operator recorded so far.
+     */
     public int[] toIntArray() {
         Engine.sync(this);
         if (storage.dtype() != DType.I32) {
@@ -573,74 +608,92 @@ public final class Tensor implements AutoCloseable {
 
     // ---------------------------------------------------------------- element-wise
 
+    /** this + o, element-wise with broadcasting. */
     public Tensor add(Tensor o) {
         return Binary.apply(Binary.Kind.ADD, this, o);
     }
 
+    /** this - o, element-wise with broadcasting. */
     public Tensor sub(Tensor o) {
         return Binary.apply(Binary.Kind.SUB, this, o);
     }
 
+    /** this * o, element-wise with broadcasting. */
     public Tensor mul(Tensor o) {
         return Binary.apply(Binary.Kind.MUL, this, o);
     }
 
+    /** this / o, element-wise with broadcasting. */
     public Tensor div(Tensor o) {
         return Binary.apply(Binary.Kind.DIV, this, o);
     }
 
+    /** The element-wise maximum of this and o, with broadcasting ({@link #maximumNaN} propagates NaN). */
     public Tensor maximum(Tensor o) {
         return Binary.apply(Binary.Kind.MAX, this, o);
     }
 
+    /** The element-wise minimum of this and o, with broadcasting ({@link #minimumNaN} propagates NaN). */
     public Tensor minimum(Tensor o) {
         return Binary.apply(Binary.Kind.MIN, this, o);
     }
 
+    /** 1 where this > o, else 0, with broadcasting. */
     public Tensor gt(Tensor o) {
         return Binary.apply(Binary.Kind.GT, this, o);
     }
 
+    /** 1 where this &lt; o, else 0, with broadcasting. */
     public Tensor lt(Tensor o) {
         return Binary.apply(Binary.Kind.LT, this, o);
     }
 
+    /** 1 where this >= o, else 0, with broadcasting. */
     public Tensor ge(Tensor o) {
         return Binary.apply(Binary.Kind.GE, this, o);
     }
 
+    /** 1 where this == o, else 0, with broadcasting. */
     public Tensor eq(Tensor o) {
         return Binary.apply(Binary.Kind.EQ, this, o);
     }
 
+    /** this + c. */
     public Tensor add(float c) {
         return Unary.apply(Unary.Kind.AFFINE, this, 1.0f, c);
     }
 
+    /** this * c. */
     public Tensor mul(float c) {
         return Unary.apply(Unary.Kind.AFFINE, this, c, 0.0f);
     }
 
+    /** -this. */
     public Tensor neg() {
         return Unary.apply(Unary.Kind.NEG, this, 0, 0);
     }
 
+    /** e^x, element-wise. */
     public Tensor exp() {
         return Unary.apply(Unary.Kind.EXP, this, 0, 0);
     }
 
+    /** The natural logarithm, element-wise. */
     public Tensor log() {
         return Unary.apply(Unary.Kind.LOG, this, 0, 0);
     }
 
+    /** The square root, element-wise. */
     public Tensor sqrt() {
         return Unary.apply(Unary.Kind.SQRT, this, 0, 0);
     }
 
+    /** |x|, element-wise. */
     public Tensor abs() {
         return Unary.apply(Unary.Kind.ABS, this, 0, 0);
     }
 
+    /** max(x, 0), element-wise. */
     public Tensor relu() {
         return Unary.apply(Unary.Kind.RELU, this, 0, 0);
     }
@@ -650,26 +703,32 @@ public final class Tensor implements AutoCloseable {
         return clamp(0.0f, 6.0f);
     }
 
+    /** x^exponent, element-wise. */
     public Tensor pow(float exponent) {
         return Unary.apply(Unary.Kind.POW_SCALAR, this, exponent, 0);
     }
 
+    /** x clamped to [lo, hi]. */
     public Tensor clamp(float lo, float hi) {
         return Unary.apply(Unary.Kind.CLAMP, this, lo, hi);
     }
 
+    /** 1 / x, element-wise. */
     public Tensor reciprocal() {
         return Unary.apply(Unary.Kind.RECIPROCAL, this, 0, 0);
     }
 
+    /** x^2, element-wise. */
     public Tensor square() {
         return Unary.apply(Unary.Kind.SQUARE, this, 0, 0);
     }
 
+    /** The hyperbolic tangent, element-wise. */
     public Tensor tanh() {
         return Unary.apply(Unary.Kind.TANH, this, 0, 0);
     }
 
+    /** The logistic sigmoid 1 / (1 + exp(-x)), element-wise. */
     public Tensor sigmoid() {
         return Unary.apply(Unary.Kind.SIGMOID, this, 0, 0);
     }
@@ -911,7 +970,6 @@ public final class Tensor implements AutoCloseable {
         return ai.beestream.jitnn.ops.Ordered.scan(this, axis, ai.beestream.jitnn.kernels.ScanKernels.PROD);
     }
 
-    /** Stable sort along {@code axis}: {values, INT32 original indices}; values carry the gradient. */
     /** INT32 coordinates [count, rank] of the non-zero elements (torch.nonzero); reads the count back to the host. */
     public Tensor nonzero() {
         return ai.beestream.jitnn.ops.Compact.nonzero(this);
@@ -922,6 +980,7 @@ public final class Tensor implements AutoCloseable {
         return ai.beestream.jitnn.ops.Compact.maskedSelect(this, mask);
     }
 
+    /** Stable sort along {@code axis}: {values, INT32 original indices}; values carry the gradient. */
     public Tensor[] sort(int axis, boolean descending) {
         return ai.beestream.jitnn.ops.Ordered.sort(this, axis, descending);
     }
@@ -1028,26 +1087,38 @@ public final class Tensor implements AutoCloseable {
 
     // ---------------------------------------------------------------- reductions
 
+    /** The sum of all elements, as a scalar. */
     public Tensor sum() {
         return reshape(numel()).sum(0, false);
     }
 
+    /** The sum along {@code axis}, which is kept with size 1 when {@code keepDim} is set. */
     public Tensor sum(int axis, boolean keepDim) {
         return Reduce.apply(Reduce.Kind.SUM, this, axis, keepDim);
     }
 
+    /** The mean of all elements, as a scalar. */
     public Tensor mean() {
         return reshape(numel()).mean(0, false);
     }
 
+    /** The mean along {@code axis}, which is kept with size 1 when {@code keepDim} is set. */
     public Tensor mean(int axis, boolean keepDim) {
         return Reduce.apply(Reduce.Kind.MEAN, this, axis, keepDim);
     }
 
+    /**
+     * The maximum along {@code axis}, which is kept with size 1 when {@code keepDim} is set; {@link #argmax}
+     * gives its index.
+     */
     public Tensor max(int axis, boolean keepDim) {
         return Reduce.apply(Reduce.Kind.MAX, this, axis, keepDim);
     }
 
+    /**
+     * The minimum along {@code axis}, which is kept with size 1 when {@code keepDim} is set; {@link #argmin}
+     * gives its index.
+     */
     public Tensor min(int axis, boolean keepDim) {
         return Reduce.apply(Reduce.Kind.MIN, this, axis, keepDim);
     }
@@ -1099,7 +1170,6 @@ public final class Tensor implements AutoCloseable {
         return t.shape.equals(target) ? t : t.reshape(target.dims());
     }
 
-    /** Broadcast copy to {@code target} shape. */
     /**
      * This tensor repeated {@code reps[i]} times along each axis (torch.Tensor.repeat, numpy.tile,
      * ONNX Tile); reps longer than the rank adds leading axes.
@@ -1127,6 +1197,7 @@ public final class Tensor implements AutoCloseable {
         return reshape(split).expand(Shape.of(big)).reshape(out);
     }
 
+    /** Broadcast copy to {@code target} shape. */
     public Tensor expand(Shape target) {
         if (shape.equals(target)) {
             return this;
@@ -1141,10 +1212,16 @@ public final class Tensor implements AutoCloseable {
         return Reshape.apply(this, dims);
     }
 
+    /**
+     * The axes reordered: axis i of the result is axis {@code order[i]} of this tensor. A copy, not a view.
+     */
     public Tensor permute(int... order) {
         return Permute.apply(this, order);
     }
 
+    /**
+     * Axes {@code a} and {@code b} swapped (negative axes count from the end); a copy, as {@link #permute}.
+     */
     public Tensor transpose(int a, int b) {
         int[] order = new int[rank()];
         for (int i = 0; i < order.length; i++) {
@@ -1165,14 +1242,17 @@ public final class Tensor implements AutoCloseable {
         return Cast.apply(this, dtype);
     }
 
+    /** This tensor converted to FP16 ({@code to(DType.F16)}). */
     public Tensor half() {
         return Cast.apply(this, DType.F16);
     }
 
+    /** This tensor converted to BF16 ({@code to(DType.BF16)}). */
     public Tensor bfloat16() {
         return Cast.apply(this, DType.BF16);
     }
 
+    /** This tensor converted to FP32 ({@code to(DType.F32)}). */
     public Tensor toFloat() {
         return Cast.apply(this, DType.F32);
     }
@@ -1269,6 +1349,11 @@ public final class Tensor implements AutoCloseable {
 
     // ---------------------------------------------------------------- linear algebra
 
+    /**
+     * The matrix product this b: [M, K] x [K, N] to [M, N], or batched over leading axes, which must match
+     * unless one side is a plain matrix shared by every batch. Half-precision operands accumulate in FP32;
+     * under {@link Autocast} FP32 operands are cast to the autocast type first.
+     */
     public Tensor matmul(Tensor b) {
         return MatMul.apply(Autocast.operand(this), Autocast.operand(b), false, false);
     }

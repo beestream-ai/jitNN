@@ -13,9 +13,13 @@ import java.util.zip.GZIPInputStream;
  */
 public final class Mnist implements Dataset {
 
+    /** The images [count, 28 * 28], row-major. */
     public final float[] images;
+    /** The digit of each image. */
     public final int[] labels;
+    /** The number of images. */
     public final int count;
+    /** Pixels per image. */
     public static final int PIXELS = 28 * 28;
 
     private Mnist(float[] images, int[] labels) {
@@ -37,6 +41,7 @@ public final class Mnist implements Dataset {
         return new Mnist(images, labels);
     }
 
+    /** Whether {@code dir} holds the MNIST training images (plain or gzipped). */
     public static boolean isPresent(Path dir) {
         return dir != null && (Files.exists(dir.resolve("train-images-idx3-ubyte")) || Files.exists(dir.resolve("train-images-idx3-ubyte.gz")));
     }

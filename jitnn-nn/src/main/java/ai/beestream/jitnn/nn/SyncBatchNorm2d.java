@@ -28,10 +28,19 @@ public final class SyncBatchNorm2d extends Module {
     private final Collective collective;
     private final int rank;
 
+    /**
+     * Synchronised batch normalisation for rank {@code rank}, with PyTorch's defaults (momentum 0.1, eps
+     * 1e-5).
+     */
     public SyncBatchNorm2d(int channels, Collective collective, int rank) {
         this(channels, collective, rank, 0.1f, 1e-5f);
     }
 
+    /**
+     * Synchronised batch normalisation for rank {@code rank} of an
+     * {@link ai.beestream.jitnn.dist.NcclCollective}; with a null collective (or one rank) it is plain batch
+     * normalisation.
+     */
     public SyncBatchNorm2d(int channels, Collective collective, int rank, float momentum, float eps) {
         if (collective != null && !(collective instanceof NcclCollective)) {
             throw new IllegalArgumentException("SyncBatchNorm2d needs an NcclCollective (a differentiable all-reduce), got " + collective.getClass().getSimpleName());
@@ -47,10 +56,12 @@ public final class SyncBatchNorm2d extends Module {
         this.eps = eps;
     }
 
+    /** The running mean [channels], updated in training mode. */
     public Tensor runningMean() {
         return runningMean;
     }
 
+    /** The running variance [channels], updated in training mode. */
     public Tensor runningVar() {
         return runningVar;
     }

@@ -15,6 +15,9 @@ public final class AdaGrad extends Optimizer {
     private final Tensor[] sum;
     private final float init;
 
+    /**
+     * AdaGrad with learning-rate decay, L2 weight decay, the accumulator's starting value, and {@code eps}.
+     */
     public AdaGrad(List<Tensor> params, float lr, float lrDecay, float weightDecay, float initialAccumulator, float eps) {
         super(params, lr);
         this.init = initialAccumulator;

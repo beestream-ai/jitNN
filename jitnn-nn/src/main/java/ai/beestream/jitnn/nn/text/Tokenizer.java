@@ -58,10 +58,12 @@ public final class Tokenizer {
      */
     public record Batch(int[] idArray, int[] typeIdArray, int[] attention, int batch, int length) {
 
+        /** The token ids as an INT32 tensor {@code [batch, length]}. */
         public Tensor ids() {
             return Tensor.of(idArray, batch, length);
         }
 
+        /** The token type (segment) ids as an INT32 tensor {@code [batch, length]}. */
         public Tensor typeIds() {
             return Tensor.of(typeIdArray, batch, length);
         }
@@ -678,6 +680,7 @@ public final class Tokenizer {
 
     // ---------------------------------------------------------------- vocabulary
 
+    /** The number of tokens in the vocabulary. */
     public int vocabSize() {
         return tokens.length;
     }
@@ -696,6 +699,7 @@ public final class Tokenizer {
         return -1;
     }
 
+    /** The token with id {@code id}, or null. */
     public String token(int id) {
         return id >= 0 && id < tokens.length ? tokens[id] : null;
     }

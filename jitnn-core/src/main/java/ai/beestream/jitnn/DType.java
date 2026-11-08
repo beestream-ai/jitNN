@@ -9,21 +9,37 @@ package ai.beestream.jitnn;
  * formats, stored as their raw blocks (see {@link ai.beestream.jitnn.ops.Gguf}).
  */
 public enum DType {
+    /** IEEE 32-bit float, the default. */
     F32(4),
+    /** 32-bit signed integer, for labels and indices. */
     I32(4),
+    /** IEEE 16-bit float. */
     F16(2),
+    /** bfloat16: the top 16 bits of an FP32. */
     BF16(2),
+    /** GGUF's 8-bit blocks: per 32 values an FP16 scale and 32 signed bytes (34 bytes). */
     Q8_0(1),
+    /** OCP 8-bit float with 4 exponent and 3 mantissa bits, stored without its scale. */
     FP8_E4M3(1),
+    /** OCP 8-bit float with 5 exponent and 2 mantissa bits, stored without its scale. */
     FP8_E5M2(1),
+    /** GGUF's 4-bit blocks of 32 values with an FP16 scale (18 bytes). */
     Q4_0(1),
+    /** GGUF's 4-bit blocks of 32 values with an FP16 scale and minimum (20 bytes). */
     Q4_1(1),
+    /** GGUF's 4-bit k-quant super-blocks of 256 values (144 bytes). */
     Q4_K(1),
+    /** GGUF's 5-bit k-quant super-blocks of 256 values (176 bytes). */
     Q5_K(1),
+    /** GGUF's 6-bit k-quant super-blocks of 256 values (210 bytes). */
     Q6_K(1),
+    /** GGUF's 5-bit blocks of 32 values with an FP16 scale (22 bytes). */
     Q5_0(1),
+    /** GGUF's 5-bit blocks of 32 values with an FP16 scale and minimum (24 bytes). */
     Q5_1(1),
+    /** GGUF's 2-bit k-quant super-blocks of 256 values (84 bytes). */
     Q2_K(1),
+    /** GGUF's 3-bit k-quant super-blocks of 256 values (110 bytes). */
     Q3_K(1);
 
     private final int bytes;
@@ -32,6 +48,10 @@ public enum DType {
         this.bytes = bytes;
     }
 
+    /**
+     * Bytes per element: 4, 2, or 1 for the 8-bit and block formats (whose blocks {@link #blockBytes}
+     * sizes).
+     */
     public int bytes() {
         return bytes;
     }

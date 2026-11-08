@@ -8,25 +8,45 @@ import ai.beestream.jitnn.DType;
  * listed and read as raw bytes ({@link GgufFile#raw}), but not loaded as tensors.
  */
 public enum GgmlType {
+    /** 32-bit float. */
     F32(0, 1, 4, DType.F32),
+    /** IEEE 16-bit float. */
     F16(1, 1, 2, DType.F16),
+    /** 4-bit blocks of 32 values with an FP16 scale. */
     Q4_0(2, 32, 18, DType.Q4_0),
+    /** 4-bit blocks of 32 values with an FP16 scale and minimum. */
     Q4_1(3, 32, 20, DType.Q4_1),
+    /** 5-bit blocks of 32 values with an FP16 scale. */
     Q5_0(6, 32, 22, DType.Q5_0),
+    /** 5-bit blocks of 32 values with an FP16 scale and minimum. */
     Q5_1(7, 32, 24, DType.Q5_1),
+    /** 8-bit blocks of 32 values with an FP16 scale. */
     Q8_0(8, 32, 34, DType.Q8_0),
+    /** 8-bit blocks of 32 values with a scale and sum; raw bytes only. */
     Q8_1(9, 32, 36, null),
+    /** 2-bit k-quant super-blocks of 256 values. */
     Q2_K(10, 256, 84, DType.Q2_K),
+    /** 3-bit k-quant super-blocks of 256 values. */
     Q3_K(11, 256, 110, DType.Q3_K),
+    /** 4-bit k-quant super-blocks of 256 values. */
     Q4_K(12, 256, 144, DType.Q4_K),
+    /** 5-bit k-quant super-blocks of 256 values. */
     Q5_K(13, 256, 176, DType.Q5_K),
+    /** 6-bit k-quant super-blocks of 256 values. */
     Q6_K(14, 256, 210, DType.Q6_K),
+    /** 8-bit k-quant super-blocks of 256 values (llama.cpp's intermediate type); raw bytes only. */
     Q8_K(15, 256, 292, null),
+    /** 8-bit signed integer; raw bytes only. */
     I8(24, 1, 1, null),
+    /** 16-bit signed integer; raw bytes only. */
     I16(25, 1, 2, null),
+    /** 32-bit signed integer. */
     I32(26, 1, 4, DType.I32),
+    /** 64-bit signed integer; raw bytes only. */
     I64(27, 1, 8, null),
+    /** 64-bit float; raw bytes only. */
     F64(28, 1, 8, null),
+    /** bfloat16. */
     BF16(30, 1, 2, DType.BF16);
 
     private static final GgmlType[] BY_ID = new GgmlType[64];
@@ -54,6 +74,7 @@ public enum GgmlType {
         return id >= 0 && id < BY_ID.length ? BY_ID[id] : null;
     }
 
+    /** ggml's numeric id for this type, as stored in the file. */
     public int id() {
         return id;
     }

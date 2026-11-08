@@ -14,6 +14,7 @@ public abstract class Module {
     private final List<Module> children = new ArrayList<>();
     private boolean training = true;
 
+    /** Applies the module to {@code x}. */
     public abstract Tensor forward(Tensor x);
 
     /** Registers a trainable parameter initialised from {@code init}. */
@@ -56,12 +57,17 @@ public abstract class Module {
         return Collections.unmodifiableList(all);
     }
 
+    /** Clears the gradients of every parameter. */
     public void zeroGrad() {
         for (Tensor p : parameters()) {
             p.zeroGrad();
         }
     }
 
+    /**
+     * Switches this module and its children to training mode ({@code on}) or evaluation mode; returns this
+     * module.
+     */
     public Module train(boolean on) {
         training = on;
         for (Module m : children) {
@@ -70,10 +76,12 @@ public abstract class Module {
         return this;
     }
 
+    /** Whether the module is in training mode (the default). */
     public boolean isTraining() {
         return training;
     }
 
+    /** The number of trainable values: the elements of every parameter. */
     public long parameterCount() {
         long n = 0;
         for (Tensor p : parameters()) {

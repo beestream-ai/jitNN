@@ -17,12 +17,14 @@ public final class Tsne {
     private final float perplexity;
     private final int iterations;
 
+    /** t-SNE into {@code components} dimensions with the given perplexity and number of iterations. */
     public Tsne(int components, float perplexity, int iterations) {
         this.components = components;
         this.perplexity = perplexity;
         this.iterations = iterations;
     }
 
+    /** t-SNE with scikit-learn's defaults: 2 dimensions, perplexity 30, 1000 iterations. */
     public Tsne() {
         this(2, 30.0f, 1000);
     }
@@ -68,6 +70,7 @@ public final class Tsne {
         return joint.div(joint.sum()).maximum(Tensor.scalar(1.1920929e-7f));
     }
 
+    /** The embedding [n, components] of samples x [n, features], starting from their PCA projection. */
     public Tensor fitTransform(Tensor x) {
         Ml.check(x, "t-SNE");
         int n = x.dim(0);

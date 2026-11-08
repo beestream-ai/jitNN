@@ -18,10 +18,18 @@ public final class ConvTranspose2d extends Module {
     private final int dilation;
     private final int groups;
 
+    /**
+     * A transposed convolution from {@code in} to {@code out} channels with a bias, no output padding or
+     * dilation, one group.
+     */
     public ConvTranspose2d(int in, int out, int kernel, int stride, int padding, long seed) {
         this(in, out, kernel, stride, padding, 0, 1, 1, true, seed);
     }
 
+    /**
+     * A transposed convolution from {@code in} to {@code out} channels in {@code groups} groups, initialised
+     * from {@code seed}.
+     */
     public ConvTranspose2d(int in, int out, int kernel, int stride, int padding, int outputPadding, int dilation, int groups, boolean bias, long seed) {
         this.stride = stride;
         this.padding = padding;
@@ -33,10 +41,12 @@ public final class ConvTranspose2d extends Module {
         this.bias = bias ? parameter(Tensor.uniform(seed + 0x9E3779B97F4A7C15L, -bound, bound, out)) : null;
     }
 
+    /** The weight [in, out/groups, kernel, kernel]. */
     public Tensor weight() {
         return weight;
     }
 
+    /** The bias [out], or null without one. */
     public Tensor bias() {
         return bias;
     }

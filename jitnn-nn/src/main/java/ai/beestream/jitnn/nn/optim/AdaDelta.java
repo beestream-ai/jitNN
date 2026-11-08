@@ -15,6 +15,7 @@ public final class AdaDelta extends Optimizer {
     private final Tensor[] square;
     private final Tensor[] delta;
 
+    /** AdaDelta with decay {@code rho}, {@code eps} and L2 weight decay. */
     public AdaDelta(List<Tensor> params, float lr, float rho, float eps, float weightDecay) {
         super(params, lr);
         this.rho = rho;

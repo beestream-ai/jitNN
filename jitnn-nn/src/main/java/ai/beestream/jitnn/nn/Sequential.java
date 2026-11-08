@@ -7,6 +7,7 @@ public final class Sequential extends Module {
 
     private final Module[] layers;
 
+    /** The modules applied in order, each to the previous one's output. */
     public Sequential(Module... layers) {
         this.layers = layers.clone();
         for (Module m : this.layers) {

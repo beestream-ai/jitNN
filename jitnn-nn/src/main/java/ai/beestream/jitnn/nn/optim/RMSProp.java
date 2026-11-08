@@ -18,6 +18,10 @@ public final class RMSProp extends Optimizer {
     private final Tensor[] buffer;
     private final Tensor[] average;
 
+    /**
+     * RMSProp with smoothing {@code alpha}, {@code eps}, L2 weight decay, momentum (0 for none) and, with
+     * {@code centered}, the variance estimated around the mean gradient.
+     */
     public RMSProp(List<Tensor> params, float lr, float alpha, float eps, float weightDecay, float momentum, boolean centered) {
         super(params, lr);
         this.alpha = alpha;

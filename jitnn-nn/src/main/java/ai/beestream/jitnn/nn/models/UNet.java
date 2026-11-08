@@ -18,6 +18,10 @@ public final class UNet extends Module {
     private final Conv2d e1a, e1b, e2a, e2b, ba, bb, d2a, d2b, up1, d1a, d1b, head;
     private final ConvTranspose2d up2;
 
+    /**
+     * A U-Net over images of {@code in} channels, {@code width} channels at the first level (doubling at
+     * each level down), initialised from {@code seed}.
+     */
     public UNet(int in, int width, long seed) {
         Seeds s = new Seeds(seed);
         int w = width;

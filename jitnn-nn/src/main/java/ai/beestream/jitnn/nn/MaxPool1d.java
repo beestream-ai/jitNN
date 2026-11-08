@@ -10,6 +10,7 @@ public final class MaxPool1d extends Module {
     private final int stride;
     private final int padding;
 
+    /** Pools windows of {@code kernel} with the given stride and padding. */
     public MaxPool1d(int kernel, int stride, int padding) {
         this.kernel = kernel;
         this.stride = stride;

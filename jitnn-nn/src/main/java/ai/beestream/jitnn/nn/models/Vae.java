@@ -23,6 +23,10 @@ public final class Vae extends Module {
     private final Linear out;
     private final int latent;
 
+    /**
+     * An autoencoder of {@code in} features through {@code hidden} to a latent of {@code latent} values,
+     * initialised from {@code seed}.
+     */
     public Vae(int in, int hidden, int latent, long seed) {
         Seeds seeds = new Seeds(seed);
         this.latent = latent;
@@ -33,6 +37,7 @@ public final class Vae extends Module {
         this.out = child(new Linear(hidden, in, seeds.next()));
     }
 
+    /** The size of the latent vector. */
     public int latent() {
         return latent;
     }
@@ -46,6 +51,7 @@ public final class Vae extends Module {
         return new Output(decode(z), m, lv);
     }
 
+    /** Decodes latent vectors z [B, latent] to [B, in], each value in (0, 1). */
     public Tensor decode(Tensor z) {
         return out.forward(dec.forwardRelu(z)).sigmoid();
     }

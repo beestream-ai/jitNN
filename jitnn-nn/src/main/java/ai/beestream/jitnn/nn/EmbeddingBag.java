@@ -12,11 +12,16 @@ public final class EmbeddingBag extends Module {
     private final Tensor weight;
     private final F.BagMode mode;
 
+    /**
+     * A table of {@code count} vectors of size {@code dim}, standard normal from {@code seed}, whose bags
+     * combine as {@code mode} says.
+     */
     public EmbeddingBag(int count, int dim, F.BagMode mode, long seed) {
         this.weight = parameter(Tensor.normal(seed, 0.0f, 1.0f, count, dim));
         this.mode = mode;
     }
 
+    /** The table [count, dim]. */
     public Tensor weight() {
         return weight;
     }

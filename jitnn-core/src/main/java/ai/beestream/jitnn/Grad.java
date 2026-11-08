@@ -10,6 +10,7 @@ public final class Grad {
     private Grad() {
     }
 
+    /** Whether operators recorded now on this thread record what autograd needs. */
     public static boolean isEnabled() {
         return ENABLED.get();
     }

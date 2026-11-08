@@ -10,10 +10,14 @@ import ai.beestream.jitnn.io.StateDict;
  */
 public abstract class LRScheduler {
 
+    /** The optimiser whose rate this schedule sets. */
     protected final Optimizer optimizer;
+    /** The optimiser's learning rate when the schedule was created. */
     protected final float baseLr;
+    /** Epochs (or, for warm-up schedules, steps) counted so far. */
     protected int epoch;
 
+    /** A schedule for {@code optimizer}, starting from its current learning rate. */
     protected LRScheduler(Optimizer optimizer) {
         this.optimizer = optimizer;
         this.baseLr = optimizer.learningRate();
@@ -22,6 +26,7 @@ public abstract class LRScheduler {
     /** The learning rate for {@code epoch} (0-based). */
     protected abstract float rate(int epoch);
 
+    /** Advances the count and sets the optimiser's rate for it. */
     public void step() {
         epoch++;
         optimizer.setLearningRate(rate(epoch));
@@ -32,10 +37,12 @@ public abstract class LRScheduler {
         return new StateDict().put("epoch", epoch);
     }
 
+    /** Restores the count saved by {@link #stateDict()}. */
     public void loadStateDict(StateDict d) {
         epoch = d.intValue("epoch");
     }
 
+    /** The optimiser's current learning rate. */
     public float currentRate() {
         return optimizer.learningRate();
     }

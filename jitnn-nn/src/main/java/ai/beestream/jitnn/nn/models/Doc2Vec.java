@@ -11,8 +11,12 @@ import ai.beestream.jitnn.nn.Module;
  */
 public final class Doc2Vec extends Module {
 
+    /** How a document's words are predicted. */
     public enum Mode {
-        PV_DBOW, PV_DM
+        /** From the document vector alone (distributed bag of words). */
+        PV_DBOW,
+        /** From the mean of the document vector and the context words' vectors (distributed memory). */
+        PV_DM
     }
 
     private final Tensor docs;
@@ -21,6 +25,10 @@ public final class Doc2Vec extends Module {
     private final Mode mode;
     private final int dim;
 
+    /**
+     * Paragraph vectors for {@code documents} documents over {@code vocab} words, vectors of {@code dim},
+     * trained as {@code mode} says, initialised from {@code seed}.
+     */
     public Doc2Vec(int vocab, int documents, int dim, Mode mode, long seed) {
         this.mode = mode;
         this.dim = dim;
@@ -57,6 +65,7 @@ public final class Doc2Vec extends Module {
         return docs.toFloatArray();
     }
 
+    /** The vector size. */
     public int dim() {
         return dim;
     }
