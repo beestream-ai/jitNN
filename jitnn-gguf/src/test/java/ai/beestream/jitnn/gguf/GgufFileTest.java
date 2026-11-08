@@ -121,6 +121,38 @@ class GgufFileTest {
         assertThrows(IOException.class, () -> GgufFile.open(truncated));
     }
 
+    /** A GGUF header with one F32 tensor of the given dimension and offset, and optional metadata bytes. */
+    private static byte[] crafted(long dim, long offset, byte[] metadata, int kvCount) {
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(4096).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        b.putInt(0x46554747).putInt(3).putLong(1).putLong(kvCount);
+        b.put(metadata);
+        byte[] name = "w".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        b.putLong(name.length).put(name).putInt(1).putLong(dim).putInt(0).putLong(offset);
+        return java.util.Arrays.copyOf(b.array(), b.position() + 64);
+    }
+
+    @Test
+    void rejectsCraftedSizes(@TempDir Path dir) throws IOException {
+        // a dimension of 2^64 - 1 (negative as a long) and an offset that overflows past the data start
+        Path hugeDim = dir.resolve("dim.gguf");
+        Files.write(hugeDim, crafted(-1L, 0, new byte[0], 0));
+        assertThrows(IOException.class, () -> GgufFile.open(hugeDim));
+        Path hugeOffset = dir.resolve("offset.gguf");
+        Files.write(hugeOffset, crafted(4, Long.MAX_VALUE - 31, new byte[0], 0));
+        assertThrows(IOException.class, () -> GgufFile.open(hugeOffset));
+        // arrays nested 200 deep: rejected instead of overflowing the stack
+        java.nio.ByteBuffer kv = java.nio.ByteBuffer.allocate(4096).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        byte[] key = "deep".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        kv.putLong(key.length).put(key).putInt(9);
+        for (int i = 0; i < 200; i++) {
+            kv.putInt(9).putLong(1);
+        }
+        kv.putInt(4).putLong(0);
+        Path deep = dir.resolve("deep.gguf");
+        Files.write(deep, crafted(4, 0, java.util.Arrays.copyOf(kv.array(), kv.position()), 1));
+        assertThrows(IOException.class, () -> GgufFile.open(deep));
+    }
+
     @Test
     void readOnlyFileIsCopied(@TempDir Path dir) throws IOException {
         Path ro = dir.resolve("ro.gguf");

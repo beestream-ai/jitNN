@@ -148,13 +148,20 @@ public final class GgufFile {
                 }
                 int typeId = (int) t[dims];
                 GgmlType type = GgmlType.fromId(typeId);
-                long offset = dataOffset + t[dims + 1];
+                // u64 values above 2^63 read as negative: no such dimension or offset fits a file
+                if (t[dims + 1] < 0) {
+                    throw new IOException(path + ": tensor " + names.get(i) + " has offset " + Long.toUnsignedString(t[dims + 1]));
+                }
                 long numel = 1;
                 for (long d : shape) {
+                    if (d < 0) {
+                        throw new IOException(path + ": tensor " + names.get(i) + " has dimension " + Long.toUnsignedString(d));
+                    }
                     numel = Math.multiplyExact(numel, d);
                 }
+                long offset = Math.addExact(dataOffset, t[dims + 1]);
                 long bytes = type == null ? -1 : type.byteSize(numel);
-                if (t[dims + 1] % alignment != 0 || bytes >= 0 && offset + bytes > size) {
+                if (t[dims + 1] % alignment != 0 || offset > size || bytes >= 0 && bytes > size - offset) {
                     throw new IOException(path + ": tensor " + names.get(i) + " lies outside the file or is not aligned");
                 }
                 tensors.put(names.get(i), new GgufTensorInfo(names.get(i), shape, typeId, type, offset, bytes));
@@ -162,6 +169,8 @@ public final class GgufFile {
             return new GgufFile(path, version, size, dataOffset, alignment, metadata, tensors);
         } catch (IndexOutOfBoundsException e) {
             throw new IOException(path + ": truncated GGUF file", e);
+        } catch (ArithmeticException e) {
+            throw new IOException(path + ": a tensor size or offset overflows", e);
         }
     }
 
@@ -449,6 +458,9 @@ public final class GgufFile {
         }
 
         /** A uint64 count that must be plausible for the bytes left. */
+        private static final int MAX_DEPTH = 64;
+        private int depth;
+
         long count(String what) throws IOException {
             long n = u64();
             if (n < 0 || n > s.byteSize() - pos) {
@@ -486,6 +498,18 @@ public final class GgufFile {
         }
 
         Object array() throws IOException {
+            // arrays of arrays: a crafted file could nest deep enough to overflow the stack
+            if (++depth > MAX_DEPTH) {
+                throw new IOException(path + ": arrays nested more than " + MAX_DEPTH + " deep");
+            }
+            try {
+                return arrayBody();
+            } finally {
+                depth--;
+            }
+        }
+
+        private Object arrayBody() throws IOException {
             int type = u32();
             long n = count("array length");
             if (n > Integer.MAX_VALUE) {

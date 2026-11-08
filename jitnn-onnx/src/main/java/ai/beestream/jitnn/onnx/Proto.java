@@ -32,21 +32,39 @@ public final class Proto {
     static final int LENGTH = 2;
     static final int FIXED32 = 5;
 
+    /** Messages nested deeper than this are rejected (a crafted file would otherwise overflow the stack). */
+    static final int MAX_DEPTH = 100;
+
     private final ByteBuffer buf;
     private final int end;
+    private final int depth;
     private int tag;
 
     /** A reader over the message in {@code buf}, from its position to its limit. */
     public Proto(ByteBuffer buf) {
         this.buf = buf.duplicate().order(ByteOrder.LITTLE_ENDIAN);
         this.end = this.buf.limit();
+        this.depth = 0;
     }
 
-    private Proto(ByteBuffer buf, int start, int end) {
+    private Proto(ByteBuffer buf, int start, int end, int depth) {
+        if (depth > MAX_DEPTH) {
+            throw new IllegalArgumentException("malformed protobuf: messages nested more than " + MAX_DEPTH + " deep");
+        }
         this.buf = buf.duplicate().order(ByteOrder.LITTLE_ENDIAN);
         this.buf.position(start);
         this.buf.limit(end);
         this.end = end;
+        this.depth = depth;
+    }
+
+    /** The length of the current length-delimited field, checked against the bytes left in this message. */
+    private int length() {
+        long len = varint();
+        if (len < 0 || len > buf.limit() - buf.position()) {
+            throw new IllegalArgumentException("malformed protobuf: a field of " + len + " bytes where " + (buf.limit() - buf.position()) + " are left");
+        }
+        return (int) len;
     }
 
     /** Advances to the next field; false at the end of the message. */
@@ -107,7 +125,7 @@ public final class Proto {
 
     /** The current length-delimited field as a view (no copy). */
     public ByteBuffer bytes() {
-        int len = (int) varint();
+        int len = length();
         ByteBuffer slice = buf.slice(buf.position(), len).order(ByteOrder.LITTLE_ENDIAN);
         buf.position(buf.position() + len);
         return slice;
@@ -123,16 +141,16 @@ public final class Proto {
 
     /** The current length-delimited field as a nested message. */
     public Proto message() {
-        int len = (int) varint();
+        int len = length();
         int start = buf.position();
         buf.position(start + len);
-        return new Proto(buf, start, start + len);
+        return new Proto(buf, start, start + len, depth + 1);
     }
 
     /** Repeated int64 values: one varint, or a packed run. */
     public void longs(LongSink sink) {
         if (wire() == LENGTH) {
-            int len = (int) varint();
+            int len = length();
             int stop = buf.position() + len;
             while (buf.position() < stop) {
                 sink.accept(varint());
@@ -145,7 +163,7 @@ public final class Proto {
     /** Repeated float values: one fixed32, or a packed run. */
     public void floats(FloatSink sink) {
         if (wire() == LENGTH) {
-            int len = (int) varint();
+            int len = length();
             int stop = buf.position() + len;
             while (buf.position() < stop) {
                 sink.accept(buf.getFloat());
@@ -158,7 +176,7 @@ public final class Proto {
     /** Repeated double values: one fixed64, or a packed run. */
     public void doubles(DoubleSink sink) {
         if (wire() == LENGTH) {
-            int len = (int) varint();
+            int len = length();
             int stop = buf.position() + len;
             while (buf.position() < stop) {
                 sink.accept(buf.getDouble());
@@ -174,7 +192,7 @@ public final class Proto {
             case VARINT -> varint();
             case FIXED64 -> buf.position(buf.position() + 8);
             case LENGTH -> {
-                int len = (int) varint();
+                int len = length();
                 buf.position(buf.position() + len);
             }
             case FIXED32 -> buf.position(buf.position() + 4);

@@ -30,6 +30,9 @@ import ai.beestream.jitnn.onnx.Proto;
  */
 final class TfGraph {
 
+    /** The largest constant expanded from repeated values (1 GiB). */
+    static final long MAX_SPLAT_BYTES = 1L << 30;
+
     // DataType
     static final int DT_FLOAT = 1;
     static final int DT_DOUBLE = 2;
@@ -343,12 +346,20 @@ final class TfGraph {
         int w = Tensor.width(dtype);
         long n = 1;
         for (long d : dims) {
-            n *= d;
+            if (d < 0) {
+                throw new IllegalArgumentException("constant with a negative dimension " + d);
+            }
+            n = Math.multiplyExact(n, d);
         }
-        if (content != null && content.remaining() >= n * w) {
+        if (content != null && content.remaining() >= Math.multiplyExact(n, (long) w)) {
             return new Tensor(dtype, dims, content);
         }
-        // typed value fields: fewer values than elements repeat the last one (a splat)
+        // typed value fields: fewer values than elements repeat the last one (a splat); the size
+        // comes from the file, so it is bounded before anything is allocated
+        if (n * w > MAX_SPLAT_BYTES) {
+            throw new IllegalArgumentException("constant of " + n + " elements (" + n * w + " bytes) from " + (dtype == DT_FLOAT ? fv.size() : dtype == DT_DOUBLE ? dv.size() : iv.size())
+                    + " values: larger than " + MAX_SPLAT_BYTES + " bytes");
+        }
         ByteBuffer raw = ByteBuffer.allocate((int) (n * w)).order(ByteOrder.LITTLE_ENDIAN);
         int count = dtype == DT_FLOAT ? fv.size() : dtype == DT_DOUBLE ? dv.size() : iv.size();
         for (int k = 0; k < n; k++) {

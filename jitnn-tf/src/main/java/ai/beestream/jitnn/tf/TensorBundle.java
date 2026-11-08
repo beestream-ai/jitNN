@@ -35,6 +35,9 @@ import ai.beestream.jitnn.onnx.Proto;
  */
 final class TensorBundle {
 
+    /** More data files than this in one checkpoint are rejected (the count comes from file names). */
+    static final int MAX_SHARDS = 1 << 16;
+
     private static final long MAGIC = 0xdb4775248b80fb57L;
 
     private record Entry(int dtype, long[] dims, int shard, long offset, long size) {
@@ -54,7 +57,16 @@ final class TensorBundle {
             for (Path f : (Iterable<Path>) files::iterator) {
                 String n = f.getFileName().toString();
                 if (n.startsWith(base) && n.contains("-of-")) {
-                    shardCount = Math.max(shardCount, Integer.parseInt(n.substring(n.lastIndexOf("-of-") + 4)));
+                    int count;
+                    try {
+                        count = Integer.parseInt(n.substring(n.lastIndexOf("-of-") + 4));
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
+                    if (count < 1 || count > MAX_SHARDS) {
+                        throw new IOException("checkpoint data file " + n + " names " + count + " shards");
+                    }
+                    shardCount = Math.max(shardCount, count);
                 }
             }
         }
@@ -80,9 +92,13 @@ final class TensorBundle {
         if (e == null) {
             throw new IllegalArgumentException("no tensor '" + name + "' in the checkpoint");
         }
-        ByteBuffer shard = shards[e.shard];
-        if (shard == null) {
+        if (e.shard < 0 || e.shard >= shards.length || shards[e.shard] == null) {
             throw new IllegalStateException("checkpoint shard " + e.shard + " of '" + name + "' is missing");
+        }
+        ByteBuffer shard = shards[e.shard];
+        if (e.offset < 0 || e.size < 0 || e.offset > shard.capacity() || e.size > shard.capacity() - e.offset) {
+            throw new IllegalStateException("tensor '" + name + "' (offset " + e.offset + ", " + e.size + " bytes) is outside checkpoint shard " + e.shard
+                    + " (" + shard.capacity() + " bytes)");
         }
         ByteBuffer raw = shard.slice((int) e.offset, (int) e.size).order(ByteOrder.LITTLE_ENDIAN);
         return new TfGraph.Tensor(e.dtype, e.dims, raw);
@@ -106,6 +122,9 @@ final class TensorBundle {
                 return new long[] { result };
             }
             shift += 7;
+            if (shift > 63) {
+                throw new IllegalArgumentException("malformed varint in TensorFlow checkpoint index");
+            }
         }
     }
 
@@ -115,6 +134,9 @@ final class TensorBundle {
 
     private void readTable(ByteBuffer file) throws IOException {
         int len = file.limit();
+        if (len < 48) {
+            throw new IOException("not a TensorFlow checkpoint index: " + len + " bytes");
+        }
         // footer: metaindex handle, index handle (varints, padded to 40 bytes), then the 8-byte magic
         ByteBuffer footer = file.slice(len - 48, 48).order(ByteOrder.LITTLE_ENDIAN);
         if (footer.getLong(40) != MAGIC) {
@@ -139,26 +161,36 @@ final class TensorBundle {
 
     /** The key/value pairs of one uncompressed block (prefix-compressed keys, restart array at the end). */
     private static Map<String, ByteBuffer> block(ByteBuffer file, long offset, long size) throws IOException {
+        // the block and its 5-byte trailer (type, checksum) must lie in the file
+        if (offset < 0 || size < 4 || offset > file.limit() || size > file.limit() - offset - 5) {
+            throw new IOException("malformed checkpoint index: block (offset " + offset + ", " + size + " bytes) outside the file");
+        }
         int type = file.get((int) (offset + size)) & 0xFF;
         if (type != 0) {
             throw new IOException("compressed checkpoint blocks (type " + type + ") are not supported");
         }
         ByteBuffer b = file.slice((int) offset, (int) size).order(ByteOrder.LITTLE_ENDIAN);
         int restarts = b.getInt((int) size - 4);
+        if (restarts < 0 || restarts > ((int) size - 4) / 4) {
+            throw new IOException("malformed checkpoint index: " + restarts + " restart points in a block of " + size + " bytes");
+        }
         int limit = (int) size - 4 - 4 * restarts;
         Map<String, ByteBuffer> out = new LinkedHashMap<>();
         byte[] key = new byte[0];
         b.position(0);
         while (b.position() < limit) {
-            int shared = (int) v(b);
-            int nonShared = (int) v(b);
-            int valueLen = (int) v(b);
-            byte[] k = new byte[shared + nonShared];
-            System.arraycopy(key, 0, k, 0, shared);
-            b.get(k, shared, nonShared);
+            long shared = v(b);
+            long nonShared = v(b);
+            long valueLen = v(b);
+            if (shared < 0 || shared > key.length || nonShared < 0 || valueLen < 0 || nonShared + valueLen > limit - b.position()) {
+                throw new IOException("malformed checkpoint index: an entry outside its block");
+            }
+            byte[] k = new byte[(int) (shared + nonShared)];
+            System.arraycopy(key, 0, k, 0, (int) shared);
+            b.get(k, (int) shared, (int) nonShared);
             key = k;
-            ByteBuffer value = b.slice(b.position(), valueLen).order(ByteOrder.LITTLE_ENDIAN);
-            b.position(b.position() + valueLen);
+            ByteBuffer value = b.slice(b.position(), (int) valueLen).order(ByteOrder.LITTLE_ENDIAN);
+            b.position(b.position() + (int) valueLen);
             out.put(new String(k, StandardCharsets.UTF_8), value);
         }
         return out;

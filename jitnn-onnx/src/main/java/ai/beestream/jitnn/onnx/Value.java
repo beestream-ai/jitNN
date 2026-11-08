@@ -105,11 +105,7 @@ final class Value {
     }
 
     int numel() {
-        long n = 1;
-        for (long d : dims) {
-            n *= d;
-        }
-        return (int) n;
+        return OnnxModel.elements("value", dims);
     }
 
     /** As a jitNN tensor: host integers become an INT32 tensor, or FP32 when {@code asFloat}. */

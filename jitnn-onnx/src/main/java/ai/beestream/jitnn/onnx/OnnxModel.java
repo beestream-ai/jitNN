@@ -63,18 +63,24 @@ public final class OnnxModel {
     /** A tensor stored in the model: dims, element type and its data as little-endian bytes. */
     public record TensorData(String name, long[] dims, int dataType, ByteBuffer raw) {
 
+        /** The element count, checked against the bytes the tensor holds before anything is allocated. */
+        private int checkedNumel() {
+            int n = numel();
+            long need = (long) n * elementBytes(dataType);
+            if (need > raw.remaining()) {
+                throw new IllegalArgumentException("tensor " + name + " declares " + n + " elements (" + need + " bytes) but holds " + raw.remaining() + " bytes");
+            }
+            return n;
+        }
+
         /** The number of elements: the product of the dims. */
         public int numel() {
-            long n = 1;
-            for (long d : dims) {
-                n *= d;
-            }
-            return (int) n;
+            return elements(name, dims);
         }
 
         /** The values as floats (FLOAT, FLOAT16, BFLOAT16, DOUBLE and the integer types). */
         public float[] floats() {
-            int n = numel();
+            int n = checkedNumel();
             float[] out = new float[n];
             ByteBuffer b = raw.duplicate().order(ByteOrder.LITTLE_ENDIAN);
             for (int i = 0; i < n; i++) {
@@ -97,7 +103,7 @@ public final class OnnxModel {
 
         /** The values as longs (INT64, INT32, INT8, UINT8, BOOL, and integral floats). */
         public long[] longs() {
-            int n = numel();
+            int n = checkedNumel();
             long[] out = new long[n];
             ByteBuffer b = raw.duplicate().order(ByteOrder.LITTLE_ENDIAN);
             for (int i = 0; i < n; i++) {
@@ -232,6 +238,31 @@ public final class OnnxModel {
             throw new IOException(file + " has no graph: not an ONNX model");
         }
         return new OnnxModel(g, opsets);
+    }
+
+    /** The product of {@code dims}, rejecting negative dimensions and counts beyond an int. */
+    static int elements(String name, long[] dims) {
+        long n = 1;
+        for (long d : dims) {
+            if (d < 0) {
+                throw new IllegalArgumentException("tensor " + name + " has a negative dimension " + d);
+            }
+            n = d != 0 && n > Integer.MAX_VALUE / d ? Long.MAX_VALUE : n * d;
+            if (n > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("tensor " + name + " has more than " + Integer.MAX_VALUE + " elements");
+            }
+        }
+        return (int) n;
+    }
+
+    /** Bytes per element of an ONNX data type (1 for the byte-sized and unknown types). */
+    static int elementBytes(int dataType) {
+        return switch (dataType) {
+            case FLOAT, INT32 -> 4;
+            case DOUBLE, INT64 -> 8;
+            case FLOAT16, BFLOAT16, INT16, UINT16 -> 2;
+            default -> 1;
+        };
     }
 
     private static ByteBuffer map(Path file) throws IOException {
@@ -416,17 +447,36 @@ public final class OnnxModel {
         }
         long[] d = dims.stream().mapToLong(Long::longValue).toArray();
         if (isExternal) {
-            ByteBuffer file = external.get(ext.get("location"));
+            String location = ext.get("location");
+            if (location == null || location.isEmpty()) {
+                throw new IOException("tensor " + name + " has external data without a location");
+            }
+            ByteBuffer file = external.get(location);
             if (file == null) {
-                Path f = dir.resolve(ext.get("location"));
-                if (!Files.exists(f)) {
+                // external data lives next to the model: no absolute paths, nothing outside its directory
+                Path base = dir.toAbsolutePath().normalize();
+                Path f = base.resolve(location).normalize();
+                if (Path.of(location).isAbsolute() || !f.startsWith(base)) {
+                    throw new IOException("external data " + location + " of tensor " + name + " is outside the model's directory");
+                }
+                if (!Files.isRegularFile(f)) {
                     throw new IOException("external data " + f + " of tensor " + name + " not found");
                 }
                 file = map(f);
-                external.put(ext.get("location"), file);
+                external.put(location, file);
             }
-            long offset = Long.parseLong(ext.getOrDefault("offset", "0"));
-            long length = ext.containsKey("length") ? Long.parseLong(ext.get("length")) : file.capacity() - offset;
+            long offset;
+            long length;
+            try {
+                offset = Long.parseLong(ext.getOrDefault("offset", "0"));
+                length = ext.containsKey("length") ? Long.parseLong(ext.get("length")) : file.capacity() - offset;
+            } catch (NumberFormatException e) {
+                throw new IOException("tensor " + name + " has a malformed external data offset or length", e);
+            }
+            if (offset < 0 || length < 0 || offset > file.capacity() || length > file.capacity() - offset) {
+                throw new IOException("external data of tensor " + name + " (offset " + offset + ", length " + length + ") is outside " + location
+                        + " (" + file.capacity() + " bytes)");
+            }
             raw = file.slice((int) offset, (int) length).order(ByteOrder.LITTLE_ENDIAN);
         } else if (raw == null) {
             raw = typedData(type, floatData, intData, doubleData, int64);
