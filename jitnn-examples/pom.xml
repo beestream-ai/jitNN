@@ -30,7 +30,6 @@
     <description>Runnable example applications: classic DL4J, Deep Netts and DJL examples on jitNN</description>
 
     <properties>
-        <djl.version>0.38.0</djl.version>
         <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
 

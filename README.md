@@ -8,7 +8,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
   <img alt="Java 22+" src="https://img.shields.io/badge/java-22%2B-orange.svg">
-  <img alt="TornadoVM" src="https://img.shields.io/badge/TornadoVM-develop-0B1F33.svg">
+  <img alt="TornadoVM" src="https://img.shields.io/badge/TornadoVM-8.1.0-0B1F33.svg">
 </p>
 
 # jitNN
@@ -95,8 +95,8 @@ TornadoVM device with `-Djitnn.device=<driver>:<device>` (`tornado --devices` li
 
 ## Quick start
 
-You need JDK 22 or newer and a TornadoVM SDK built from `develop`, installed in your local Maven
-repository; [INSTALL.md](docs/INSTALL.md) has the details.
+You need JDK 22 or newer and a TornadoVM 8.1.0 SDK to run on; Maven fetches TornadoVM's API from
+Maven Central. [INSTALL.md](docs/INSTALL.md) has the details.
 
 ```bash
 source <TornadoVM>/setvars.sh                        # JAVA_HOME and TORNADOVM_HOME

@@ -29,9 +29,6 @@
     <name>jitNN DJL engine</name>
     <description>A Deep Java Library engine that runs DJL code on jitNN</description>
 
-    <properties>
-        <djl.version>0.38.0</djl.version>
-    </properties>
 
     <dependencies>
         <dependency>

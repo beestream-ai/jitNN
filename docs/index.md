@@ -88,8 +88,8 @@ TornadoVM device with `-Djitnn.device=<driver>:<device>` (`tornado --devices` li
 
 ## Quick start
 
-You need JDK 22 or newer and a TornadoVM SDK built from `develop`, installed in your local Maven
-repository; [INSTALL.md](INSTALL.md) has the details.
+You need JDK 22 or newer and a TornadoVM 8.1.0 SDK to run on; Maven fetches TornadoVM's API from
+Maven Central. [INSTALL.md](INSTALL.md) has the details.
 
 ```bash
 source <TornadoVM>/setvars.sh                        # JAVA_HOME and TORNADOVM_HOME

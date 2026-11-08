@@ -36,10 +36,10 @@ tasks compiled into plans.
 
 ## Requirements
 
-- **TornadoVM** develop 8.0.1-dev or later, built with the CUDA or Metal backend
+- **TornadoVM** 8.1.0 or newer, built with the CUDA or Metal backend
   (`make jdk22plus BACKEND=cuda`). Its SDK includes the library modules and its `tornado-argfile`
-  adds them. On Blackwell GPUs (RTX 50 series) use a TornadoVM that loads the CUDA 13 libraries
-  before older ones: cuBLAS 12.0, found first on many systems, has no kernels for them.
+  adds them. It loads the newest CUDA libraries first, which Blackwell GPUs (RTX 50 series) need:
+  cuBLAS 12.0, found first on many systems, has no kernels for them.
 - **cuDNN** 9 (`libcudnn.so.9`) on the library path. cuBLAS, cuFFT and cuSPARSE come with the CUDA
   toolkit.
 - **MLX** needs TornadoVM's Metal backend, `brew install mlx` (for `mlx.metallib`;
@@ -100,9 +100,7 @@ Everything else runs on jitNN's kernels, mostly because TornadoVM has no binding
 
 ## CUDA graphs
 
-Plans that call the libraries are captured as CUDA graphs like any other plan. With cuDNN this needs
-TornadoVM develop 7.3.2-dev or newer: older versions free the cuDNN workspace while graphs captured
-earlier still use it.
+Plans that call the libraries are captured as CUDA graphs like any other plan.
 
 Results with and without the libraries are in
 [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking).

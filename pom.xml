@@ -48,12 +48,16 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>22</maven.compiler.release>
-        <!-- jitNN needs TornadoVM develop (8.0.1-dev): the on-demand
+        <!-- TornadoVM 8.1.0 or newer, from Maven Central: the on-demand
              TornadoExecutionPlan.transferToDevice(Object...) moves parameters between plans, the
              library tasks (TaskGraph.libraryTask) call cuBLAS, cuDNN, cuFFT, cuSPARSE and MLX, and
-             withDynamicShapes() shares kernels across array sizes. -->
-        <tornadovm.version>8.0.1-jdk22plus-dev</tornadovm.version>
+             withDynamicShapes() shares kernels across array sizes. To build against a TornadoVM
+             develop install, pass its version: -Dtornadovm.version=8.1.1-jdk22plus-dev. -->
+        <tornadovm.version>8.1.0-jdk22plus</tornadovm.version>
         <junit.version>5.10.1</junit.version>
+        <djl.version>0.38.0</djl.version>
+        <!-- reproducible jars: a fixed timestamp in every archive entry -->
+        <project.build.outputTimestamp>2026-11-08T00:00:00Z</project.build.outputTimestamp>
         <!-- Device for accelerator tests, as <driver>:<device> listed by the tornado devices command. -->
         <jitnn.test.device>0:0</jitnn.test.device>
         <jitnn.test.verbose>false</jitnn.test.verbose>
@@ -189,6 +193,37 @@
     <build>
         <pluginManagement>
             <plugins>
+                <!-- every plugin pinned, so builds do not change with Maven's defaults -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>3.2.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>3.3.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.3.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>3.1.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>3.1.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>3.8.1</version>
+                </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>

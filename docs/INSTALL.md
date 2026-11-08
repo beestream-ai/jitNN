@@ -5,25 +5,25 @@
 | What | Version | Notes |
 |---|---|---|
 | JDK | 22 or newer | compiled with `--release 22`; tested on JDK 25 |
-| TornadoVM | `develop` (8.1.1-dev) | needs `TornadoExecutionPlan.transferToDevice(Object...)`, `withDynamicShapes()` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), which every `develop` build installs |
+| TornadoVM | 8.1.0 or newer | needs `TornadoExecutionPlan.transferToDevice(Object...)`, `withDynamicShapes()` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), all on Maven Central |
 | A device | CUDA, OpenCL or Metal | optional: the reference backend runs on any CPU |
-| CUDA toolkit | 12 or 13; 13 for Blackwell GPUs (RTX 50 series) | optional, for the CUDA backend; vendor libraries on Blackwell need a TornadoVM that loads the CUDA 13 libraries first (beehive-lab/TornadoVM#1280) |
+| CUDA toolkit | 12 or 13; 13 for Blackwell GPUs (RTX 50 series) | optional, for the CUDA backend |
 | cuDNN, MLX | cuDNN 9; MLX from `brew install mlx` | optional, for `-Djitnn.native` (see [NATIVE.md](NATIVE.md)); cuBLAS, cuFFT and cuSPARSE come with the CUDA toolkit |
 | Python packages | `torch`, `numpy`, `gguf` (llama.cpp's), `onnx`, `onnxruntime`: any recent; `scikit-learn` 1.9.1; `tensorflow` 2.x with Keras 3 | optional, only to regenerate the [references](#regenerating-the-references) |
 
-jitNN depends only on TornadoVM's `tornado-api` and library modules, provided by the TornadoVM SDK
-at run time. `jitnn-onnx` and `jitnn-tf` use their own protobuf reader, `jitnn-gguf` its own GGUF
+jitNN depends only on TornadoVM's `tornado-api` and library modules, which Maven fetches from
+Maven Central; the TornadoVM SDK provides them at run time. `jitnn-onnx` and `jitnn-tf` use their own protobuf reader, `jitnn-gguf` its own GGUF
 reader. `jitnn-djl` depends on DJL's `ai.djl:api` (0.38.0). The optional `jitnn-llm`
 (`./mvnw -Pllm ...`) needs jitllm built against the same TornadoVM SDK: run `./mvnw install` in a
 jitllm checkout first.
 
 ## TornadoVM
 
-Build TornadoVM from `develop` with the backends you want and install it into the local Maven
-repository, from which jitNN resolves `tornado-api` and the library modules:
+Build the TornadoVM SDK, the runtime jitNN runs on, with the backends you want; `v8.1.0` matches
+the version jitNN compiles against:
 
 ```bash
-git clone -b develop https://github.com/beehive-lab/TornadoVM && cd TornadoVM
+git clone -b v8.1.0 https://github.com/beehive-lab/TornadoVM && cd TornadoVM
 make jdk22plus BACKEND=opencl,metal      # or BACKEND=cuda, or several
 source setvars.sh                        # JAVA_HOME, TORNADOVM_HOME, PATH
 tornado --devices                        # device ids, as <driver>:<device>
@@ -33,19 +33,16 @@ Run `source setvars.sh` in every shell that builds or runs jitNN.
 
 ## jitNN
 
-The pom's `tornadovm.version` is `8.0.1-jdk22plus-dev`. To build against a newer `develop`
-install, pass its version on every Maven command, for example
-`-Dtornadovm.version=8.1.1-jdk22plus-dev`:
-
 ```bash
-git clone https://github.com/beestream-ai/jitnn && cd jitnn
-./mvnw install -DskipTests -Dtornadovm.version=8.1.1-jdk22plus-dev
+git clone https://github.com/beestream-ai/jitNN && cd jitNN
+./mvnw install -DskipTests
 ./mvnw test                                          # reference backend only
 ./mvnw test -Paccel-tests -Djitnn.test.device=0:0    # plus the device tests
 ```
 
 The Maven wrapper downloads Maven 3.9.6 on first use; `./mvnw -o` builds offline once the
-dependencies are in `~/.m2`.
+dependencies are in `~/.m2`. To build against a TornadoVM `develop` install instead of the
+release, pass its version on every Maven command: `-Dtornadovm.version=8.1.1-jdk22plus-dev`.
 
 ## Test data
 

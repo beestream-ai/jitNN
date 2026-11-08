@@ -19,6 +19,7 @@ Sizes are in bytes.
 | `jitnn.cpu.bnns` | `auto` | on macOS, BNNS (Accelerate) for the same convolutions; `off` never |
 | `jitnn.cpu.native.choose` | `measure` | how the `cpu` backend picks between its kernel and `blas`, `onednn`, `bnns` per operator and shape: `measure` times each way for three calls, runs the fastest, and re-times after 64 more calls for the final choice; `kernel`, `blas`, `onednn` or `bnns` forces that way when available (tests) |
 | `jitnn.cpu.reuse` | `true` | a `cpu` trace of the same structure as the last reuses its intermediates' arrays, as a compiled plan does; tensors not requested at that sync (`Engine.sync(t)`, `t.item()`) are then gone |
+| `jitnn.cpu.reuse.traces` | `32` | trace structures each thread remembers for that reuse |
 | `jitnn.cpu.stats` | `false` | time every `cpu` operator and print calls, time and reference fallbacks at exit; `Engine.cpuStats()` gives counts without it |
 | `jitnn.cpu.stats.shapes` | `false` | with `jitnn.cpu.stats`: one row per operator and shape |
 | `jitnn.device` | TornadoVM's default device | `<driver>:<device>`, as listed by `tornado --devices` |
@@ -33,6 +34,7 @@ Sizes are in bytes.
 | `jitnn.dynamicShapes` | `true` | share kernels across array sizes (TornadoVM `withDynamicShapes()`), so a new batch or sequence size reuses compiled kernels |
 | `jitnn.graph.maxTasks` | `40` | tasks per TornadoVM task graph; longer traces become a chain of graphs (a graph holds at most 256 tasks and 8 KiB of bytecode) |
 | `jitnn.hostPool.bytes` | `268435456` (256 MiB) | host arrays kept for reuse: outputs that outlive their plan's next run are copied into one, returned on `Tensor.release` or collection |
+| `jitnn.parallelCopyBytes` | `33554432` (32 MiB) | host inputs at least this large are copied into a plan's buffers by up to eight threads |
 | `jitnn.reuseBuffers` | `true` | reuse dead backward-pass and inference buffers inside a compiled step |
 | `jitnn.reuseBuffers.exact` | `auto` | reuse only dead buffers of exactly the same size, so vendor-library operands need no copies: `auto` (on Metal with MLX), `true`, `false` |
 | `jitnn.verbose` | `false` | log every compiled plan (device, nodes, tasks, build time) and the vendor libraries found |
