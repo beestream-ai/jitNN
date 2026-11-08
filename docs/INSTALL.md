@@ -38,7 +38,7 @@ tornado --devices                        # device ids, as <driver>:<device>
 ## jitNN
 
 ```bash
-git clone https://github.com/beehive-lab/jitnn && cd jitnn
+git clone https://github.com/beestream-ai/jitnn && cd jitnn
 ./mvnw install -DskipTests
 ./mvnw test                                          # reference backend only
 ./mvnw test -Paccel-tests -Djitnn.test.device=0:0    # plus the device tests

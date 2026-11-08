@@ -95,7 +95,7 @@ local Maven repository. The full guide is in [docs/INSTALL.md](docs/INSTALL.md).
 
 ```bash
 source <TornadoVM>/setvars.sh                        # JAVA_HOME and TORNADOVM_HOME
-git clone https://github.com/beehive-lab/jitnn && cd jitnn
+git clone https://github.com/beestream-ai/jitnn && cd jitnn
 ./mvnw install -DskipTests
 ./mvnw test                                          # reference backend, no GPU needed
 ./mvnw test -Paccel-tests -Djitnn.test.device=0:0    # a TornadoVM device (tornado --devices)
