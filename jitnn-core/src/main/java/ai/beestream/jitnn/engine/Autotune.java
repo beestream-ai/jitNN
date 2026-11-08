@@ -184,7 +184,7 @@ public final class Autotune {
         } finally {
             TUNING.set(false);
             FORCED.set(Map.of());
-            TornadoExecutor.forgetTuning(decided);
+            PlanCache.forgetTuning(decided);
             Trace.drain();
             for (Node n : saved) {
                 Trace.record(n);
@@ -241,7 +241,7 @@ public final class Autotune {
         }
         FORCED.set(Map.of());
         // the measurement plans and inputs go now: the next choice may need the device memory
-        TornadoExecutor.forgetTuning(java.util.Set.of());
+        PlanCache.forgetTuning(java.util.Set.of());
         for (Tensor t : inputs) {
             t.release();
         }
@@ -282,7 +282,7 @@ public final class Autotune {
             outs.addAll(Arrays.asList(replay(p, inputs)));
         }
         Engine.sync(outs.toArray(new Tensor[0]));
-        return TornadoExecutor.timeLast(RUNS) / reps;
+        return PlanRunner.timeLast(RUNS) / reps;
     }
 
     private static boolean close(float[] a, float[] b) {

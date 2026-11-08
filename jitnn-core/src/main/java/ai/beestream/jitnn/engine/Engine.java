@@ -253,7 +253,7 @@ public final class Engine {
                 return;
             }
         }
-        TornadoExecutor.fetch(s);
+        PlanRunner.fetch(s);
     }
 
     /**
@@ -262,7 +262,7 @@ public final class Engine {
      * {@code [compiles, replays, reuses, remembered]}.
      */
     public static long[] planStats() {
-        return TornadoExecutor.isLoaded() ? TornadoExecutor.stats() : new long[4];
+        return TornadoExecutor.isLoaded() ? Telemetry.stats() : new long[4];
     }
 
     /**
@@ -274,7 +274,7 @@ public final class Engine {
         if (!Boolean.getBoolean("jitnn.profile")) {
             throw new IllegalStateException("a timeline needs -Djitnn.profile=true (and -Djitnn.cudaGraph=false on CUDA)");
         }
-        TornadoExecutor.traceStart();
+        Telemetry.traceStart();
         tracing = true;
     }
 
@@ -317,7 +317,7 @@ public final class Engine {
      */
     public static void stopTrace(java.nio.file.Path file) throws java.io.IOException {
         tracing = false;
-        List<String> events = new java.util.ArrayList<>(TornadoExecutor.traceStop());
+        List<String> events = new java.util.ArrayList<>(Telemetry.traceStop());
         events.add(0, "{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":0,\"args\":{\"name\":\"ranges\"}}");
         events.add(1, "{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":1,\"args\":{\"name\":\"host: plan executions\"}}");
         events.add(2, "{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":2,\"args\":{\"name\":\"device: kernels\"}}");
@@ -335,8 +335,8 @@ public final class Engine {
             };
         }
         long start = System.nanoTime();
-        return () -> TornadoExecutor.traceEvent(String.format(java.util.Locale.ROOT, "{\"name\":\"%s\",\"cat\":\"range\",\"ph\":\"X\",\"ts\":%.3f,\"dur\":%.3f,\"pid\":1,\"tid\":0}",
-                name.replace("\"", "'"), (start - TornadoExecutor.traceOrigin()) / 1e3, (System.nanoTime() - start) / 1e3));
+        return () -> Telemetry.traceEvent(String.format(java.util.Locale.ROOT, "{\"name\":\"%s\",\"cat\":\"range\",\"ph\":\"X\",\"ts\":%.3f,\"dur\":%.3f,\"pid\":1,\"tid\":0}",
+                name.replace("\"", "'"), (start - Telemetry.traceOrigin()) / 1e3, (System.nanoTime() - start) / 1e3));
     }
 
     /**
@@ -344,7 +344,7 @@ public final class Engine {
      * reuse) of the last plan that ran, in bytes; 0 on the reference backend.
      */
     public static long lastIntermediateBytes() {
-        return TornadoExecutor.isLoaded() ? TornadoExecutor.lastIntermediateBytes() : 0;
+        return TornadoExecutor.isLoaded() ? Telemetry.lastIntermediateBytes() : 0;
     }
 
     /**
@@ -352,7 +352,7 @@ public final class Engine {
      * last plan execution, from TornadoVM's profiler. Zeros otherwise.
      */
     public static long[] lastProfile() {
-        return TornadoExecutor.isLoaded() ? TornadoExecutor.lastProfile() : new long[2];
+        return TornadoExecutor.isLoaded() ? Telemetry.lastProfile() : new long[2];
     }
 
     /**
@@ -360,7 +360,7 @@ public final class Engine {
      * as [launches, nanoseconds], accumulated since the last call (which resets it).
      */
     public static java.util.Map<String, long[]> kernelBreakdown() {
-        return TornadoExecutor.kernelBreakdown();
+        return Telemetry.kernelBreakdown();
     }
 
     /**
@@ -369,7 +369,7 @@ public final class Engine {
      * buckets do, so their plans are not evicted and compiled again.
      */
     public static void reservePlans(int plans) {
-        TornadoExecutor.RESERVED.addAndGet(Math.max(0, plans));
+        PlanCache.RESERVED.addAndGet(Math.max(0, plans));
     }
 
     /**
@@ -377,7 +377,7 @@ public final class Engine {
      * excluded) and inside {@code TornadoExecutionPlan.execute()} ({@code [1]}).
      */
     public static long[] timeSplit() {
-        return TornadoExecutor.isLoaded() ? TornadoExecutor.timeSplit() : new long[2];
+        return TornadoExecutor.isLoaded() ? Telemetry.timeSplit() : new long[2];
     }
 
     private static volatile java.io.PrintStream kernelSink = initialKernelSink();
@@ -422,7 +422,7 @@ public final class Engine {
      * two calls give a step's counts.
      */
     public static long[] trafficStats() {
-        return TornadoExecutor.isLoaded() ? TornadoExecutor.trafficStats() : new long[4];
+        return TornadoExecutor.isLoaded() ? Telemetry.trafficStats() : new long[4];
     }
 
     /**
@@ -431,14 +431,14 @@ public final class Engine {
      * copies, elements copied].
      */
     public static long[] transferStats() {
-        return TornadoExecutor.isLoaded() ? TornadoExecutor.transferStats() : new long[6];
+        return TornadoExecutor.isLoaded() ? Telemetry.transferStats() : new long[6];
     }
 
     /** Closes every cached compiled plan, first saving persistent storages to the host. */
     public static void reset() {
         sync();
         if (TornadoExecutor.isLoaded()) {
-            TornadoExecutor.closeAll();
+            PlanCache.closeAll();
         }
     }
 }
