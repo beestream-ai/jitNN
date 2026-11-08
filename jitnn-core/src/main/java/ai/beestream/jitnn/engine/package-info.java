@@ -14,16 +14,14 @@
  * limitations under the License.
  */
 /**
- * The execution engine, which records operators in a per-thread {@link ai.beestream.jitnn.engine.Trace}
- * and, at a sync point, compiles the trace into one TornadoVM task graph
- * ({@link ai.beestream.jitnn.engine.TornadoExecutor}), cached by structure and replayed, or runs it on the
- * host with the double-precision reference ({@link ai.beestream.jitnn.engine.ReferenceExecutor}). Also the device
- * choice ({@link ai.beestream.jitnn.engine.Devices}), run-time autotuning, and the switch to vendor
- * libraries ({@link ai.beestream.jitnn.engine.Native}).
+ * The execution engine, which records operators in a per-thread trace and, at a sync point, compiles
+ * the trace into one TornadoVM task graph, cached by structure and replayed, or runs it on the host
+ * with the double-precision reference. Also the device choice, run-time autotuning, and the switch
+ * to vendor libraries.
  *
  * <p><b>Internal: not part of the API</b>, and may change in any release. Use
  * {@link ai.beestream.jitnn.JitnnRuntime} and {@link ai.beestream.jitnn.JitnnConfig}. The exceptions are
- * the types a {@link ai.beestream.jitnn.CustomOp} works with: {@link ai.beestream.jitnn.engine.Emitter} and
- * {@link ai.beestream.jitnn.engine.Node}.
+ * the types a {@link ai.beestream.jitnn.CustomOp} works with, {@link ai.beestream.jitnn.engine.Emitter}
+ * and {@link ai.beestream.jitnn.engine.Node}, the only ones in the published API documentation.
  */
 package ai.beestream.jitnn.engine;

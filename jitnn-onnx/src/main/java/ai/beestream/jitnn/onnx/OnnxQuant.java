@@ -186,7 +186,7 @@ final class OnnxQuant {
     /**
      * An Int8MatMul node: a (FP32 values to quantise with scale s and zero point z, or the integers
      * themselves when {@code integers}) times the constant INT8 weight w [K, N] with scale sw, as
-     * prepared {@link ai.beestream.jitnn.ops.Int8.Weights} constants.
+     * prepared {@code Int8.Weights} constants.
      */
     private static Node int8MatMul(Node from, String a, String s, String z, boolean integers, String w, String sw, Map<String, Value> constants, List<String> outputs,
             int[] fresh) {

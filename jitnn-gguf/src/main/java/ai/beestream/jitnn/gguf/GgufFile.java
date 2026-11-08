@@ -45,7 +45,7 @@ import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
 /**
  * A GGUF file (llama.cpp's model format, versions 2 and 3): its metadata and its tensors, which load
  * as persistent jitNN tensors. The block-quantised weights (Q8_0, Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, Q5_0, Q5_1, Q2_K, Q3_K) stay
- * in their GGUF blocks and run through {@link ai.beestream.jitnn.ops.Gguf}; F32, F16, BF16 and I32
+ * in their GGUF blocks and run through {@code Gguf}; F32, F16, BF16 and I32
  * tensors load as those types.
  *
  * <p>Tensors are memory-mapped rather than read: each one is mapped copy-on-write together with the

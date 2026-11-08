@@ -20,8 +20,8 @@ package ai.beestream.jitnn;
  * types for mixed precision, IEEE FP16 and bfloat16 (the top 16 bits of an FP32), and Q8_0, GGUF's
  * 8-bit blocks (per 32 consecutive values an FP16 scale and 32 signed bytes, 34 bytes), and the
  * OCP 8-bit floats FP8 E4M3 and E5M2, one byte per value, stored without their scale (see
- * {@link ai.beestream.jitnn.ops.Fp8}). Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, Q5_0, Q5_1, Q2_K and Q3_K are GGUF's other block
- * formats, stored as their raw blocks (see {@link ai.beestream.jitnn.ops.Gguf}).
+ * {@code Fp8}). Q4_0, Q4_1, Q4_K, Q5_K, Q6_K, Q5_0, Q5_1, Q2_K and Q3_K are GGUF's other block
+ * formats, stored as their raw blocks (see {@code Gguf}).
  */
 public enum DType {
     /** IEEE 32-bit float, the default. */

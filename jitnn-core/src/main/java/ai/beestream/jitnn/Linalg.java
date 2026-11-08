@@ -23,7 +23,7 @@ import java.util.Arrays;
  * and SVD. Every function is differentiable with PyTorch's formulas.
  *
  * <p>The decompositions run one work-group per matrix (see
- * {@link ai.beestream.jitnn.kernels.LinalgKernels}), so they serve batches of small and medium
+ * {@code LinalgKernels}), so they serve batches of small and medium
  * matrices (up to a few hundred rows), the sizes found inside models. Eigenvectors and singular
  * vectors are only defined up to sign; jitNN makes the largest-magnitude component of each
  * eigenvector, and of each left singular vector, positive. General (non-symmetric)

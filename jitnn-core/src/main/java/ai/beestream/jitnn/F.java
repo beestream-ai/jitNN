@@ -1129,7 +1129,7 @@ public final class F {
         return ai.beestream.jitnn.ops.NdIndexing.scatterND(data, indices, updates, reduction);
     }
 
-    /** Folds columns back into an image, summing overlaps (torch fold, ONNX Col2Im); see {@link ai.beestream.jitnn.ops.Spatial#fold}. */
+    /** Folds columns back into an image, summing overlaps (torch fold, ONNX Col2Im); see {@code Spatial.fold}. */
     public static Tensor fold(Tensor cols, int[] outputSize, int[] kernel, int[] stride, int[] pad, int[] dil) {
         return ai.beestream.jitnn.ops.Spatial.fold(cols, outputSize, kernel, stride, pad, dil);
     }

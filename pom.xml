@@ -254,7 +254,9 @@
         </pluginManagement>
         <plugins>
             <!-- API documentation: ./mvnw install -DskipTests && ./mvnw javadoc:aggregate
-                 writes one site for every module to target/reports/apidocs. -->
+                 writes one site for every module to target/reports/apidocs. It documents the public
+                 API only: the packages below, and from the internal engine package the two types a
+                 CustomOp works with. Add -Pjavadoc-internals to document every package. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
@@ -269,10 +271,26 @@
                         <additionalOption>--add-modules</additionalOption>
                         <additionalOption>jdk.incubator.vector</additionalOption>
                     </additionalOptions>
+                    <sourceFileIncludes>
+                        <sourceFileInclude>ai/beestream/jitnn/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/dist/**/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/io/**/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/engine/Emitter.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/engine/Node.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/engine/package-info.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/nn/**/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/ml/**/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/data/**/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/onnx/**/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/gguf/**/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/tf/**/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/djl/**/*.java</sourceFileInclude>
+                        <sourceFileInclude>ai/beestream/jitnn/llm/**/*.java</sourceFileInclude>
+                    </sourceFileIncludes>
                     <groups>
                         <group>
-                            <title>Core: tensors, autograd, runtime and configuration; several devices; checkpoints</title>
-                            <packages>ai.beestream.jitnn:ai.beestream.jitnn.dist*:ai.beestream.jitnn.io*</packages>
+                            <title>Core: tensors and autograd; runtime and configuration; several devices; checkpoints; custom operators</title>
+                            <packages>ai.beestream.jitnn:ai.beestream.jitnn.dist*:ai.beestream.jitnn.io*:ai.beestream.jitnn.engine</packages>
                         </group>
                         <group>
                             <title>Neural networks and models; classical machine learning</title>
@@ -282,10 +300,6 @@
                             <title>Importers and integrations</title>
                             <packages>ai.beestream.jitnn.onnx*:ai.beestream.jitnn.gguf*:ai.beestream.jitnn.tf*:ai.beestream.jitnn.djl*:ai.beestream.jitnn.llm*</packages>
                         </group>
-                        <group>
-                            <title>Internals (not part of the API): engine, operators, kernels, CPU backend, vendor libraries</title>
-                            <packages>ai.beestream.jitnn.engine*:ai.beestream.jitnn.ops*:ai.beestream.jitnn.kernels*:ai.beestream.jitnn.cpu*:ai.beestream.jitnn.natives*</packages>
-                        </group>
                     </groups>
                 </configuration>
             </plugin>
@@ -293,6 +307,32 @@
     </build>
 
     <profiles>
+        <!-- Javadoc of every package, the internal ones included, in their own group -->
+        <profile>
+            <id>javadoc-internals</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <configuration>
+                            <sourceFileIncludes combine.self="override">
+                                <sourceFileInclude>**/*.java</sourceFileInclude>
+                            </sourceFileIncludes>
+                            <sourceFileExcludes>
+                                <sourceFileExclude>ai/beestream/jitnn/examples/**</sourceFileExclude>
+                            </sourceFileExcludes>
+                            <groups combine.children="append">
+                                <group>
+                                    <title>Internals (not part of the API): operators; kernels; CPU backend; vendor libraries</title>
+                                    <packages>ai.beestream.jitnn.ops*:ai.beestream.jitnn.kernels*:ai.beestream.jitnn.cpu*:ai.beestream.jitnn.natives*</packages>
+                                </group>
+                            </groups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <!-- jitnn-llm: needs jitllm installed in the local repository (./mvnw install in a jitllm checkout) -->
         <profile>
             <id>llm</id>

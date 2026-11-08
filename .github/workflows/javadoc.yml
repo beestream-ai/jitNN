@@ -1,0 +1,47 @@
+# Builds the Javadoc of jitNN's public API on every push to main and publishes it with GitHub
+# Pages. The build runs always; the deployment runs only when the repository variable
+# JAVADOC_PAGES is "true" (Settings > Secrets and variables > Actions > Variables) and Pages is
+# set to "GitHub Actions" (Settings > Pages > Source).
+name: Javadoc
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: javadoc
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Build the Javadoc
+        run: bash docs/build-javadoc.sh "$RUNNER_TEMP/apidocs"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/apidocs
+
+  deploy:
+    needs: build
+    if: vars.JAVADOC_PAGES == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
