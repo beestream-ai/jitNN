@@ -69,7 +69,7 @@ Five layers of checks run on the host and on every device.
      under FP16 autocast with dynamic loss scaling), against the FP32 PyTorch run: half-precision
      operands cannot follow FP32 step by step, so the step-0 loss is checked to 1e-2 and the end of
      training to 3%.
-   - **Generative and recurrent gates** (`scripts/pytorch/wave4.py`; the same initial weights, batches and noise as
+   - **Generative and recurrent gates** (`scripts/pytorch/generative_recurrent.py`; the same initial weights, batches and noise as
      PyTorch, with noise from jitNN's Philox): a VAE on MNIST (BCE plus Gaussian KL, 400 steps), a
      DCGAN on MNIST (transposed convolutions, LeakyReLU, BCE with logits, two Adam optimisers, 300
      steps), a U-Net segmenting MNIST digits (transposed convolution, bilinear upsampling, skip

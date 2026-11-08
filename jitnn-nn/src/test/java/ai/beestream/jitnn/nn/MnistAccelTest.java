@@ -5,7 +5,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * The MNIST gates, against PyTorch from the same weights: the wave 1 MLP (2 epochs) and the wave 2
+ * The MNIST gates, against PyTorch from the same weights: the MLP (2 epochs) and
  * LeNet-5 (1 epoch). Needs {@code -Djitnn.mnist=<dir>}; see scripts/pytorch/mnist_train.py.
  */
 class MnistAccelTest {

@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.Test;
 
-/** Autograd against finite differences for every differentiable wave 1 operator. */
+/** Autograd against finite differences for every differentiable core operator. */
 class GradientTest {
 
     private static final float[] A23 = seq(6, 1.3f, 0.2f);
@@ -50,7 +50,7 @@ class GradientTest {
     }
 
     @Test
-    void wave4ActivationsAndLosses() {
+    void moreActivationsAndLosses() {
         float[] prob = { 0.2f, 0.7f, 0.4f, 0.9f, 0.15f, 0.55f };
         float[] target = { 0.3f, 1, 0, 0.6f, 0.2f, 0.9f };
         gradCheck("leaky relu", x -> x[0].leakyRelu(0.1f).square().sum(), new float[][] { A23 }, new int[][] { S23 });
@@ -108,7 +108,7 @@ class GradientTest {
     }
 
     @Test
-    void wave5Activations() {
+    void extendedActivations() {
         float[] v = { 1.3f, -0.4f, 2.2f, -2.5f, 0.6f, -1.1f };
         gradCheck("elu", x -> x[0].elu(0.7f).square().sum(), new float[][] { v }, new int[][] { S23 });
         gradCheck("selu", x -> x[0].selu().square().sum(), new float[][] { v }, new int[][] { S23 });

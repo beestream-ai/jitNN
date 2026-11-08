@@ -20,8 +20,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Wave 4 gates on MNIST ({@code -Djitnn.mnist=<dir>} with the PyTorch references of
- * scripts/pytorch/wave4.py): a VAE (BCE plus Gaussian KL, reparameterised with fixed noise), a
+ * Generative gates on MNIST ({@code -Djitnn.mnist=<dir>} with the PyTorch references of
+ * scripts/pytorch/generative_recurrent.py): a VAE (BCE plus Gaussian KL, reparameterised with fixed noise), a
  * DCGAN (transposed convolutions, LeakyReLU, BCE with logits, two optimisers) and a U-Net
  * (transposed convolution, bilinear upsampling, skip concatenation). Same initial weights, batches
  * and noise as PyTorch; checks the step-0 gradients against FP64, the loss curves and the
@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
  */
 class GenerativeAccelTest {
 
-    // The same constants as wave4.py.
+    // The same constants as generative_recurrent.py.
     static final int VAE_BATCH = 128, VAE_STEPS = 400, VAE_HIDDEN = 400, VAE_LATENT = 20, VAE_NOISE = 5000, VAE_EVAL_NOISE = 9000, VAE_EVAL_BATCHES = 10;
     static final float VAE_LR = 1e-3f;
     static final int GAN_BATCH = 64, GAN_STEPS = 300, GAN_LATENT = 64, GAN_WIDTH = 32, GAN_NOISE = 6000, GAN_G_SEED = 1, GAN_D_SEED = 50;
@@ -77,7 +77,7 @@ class GenerativeAccelTest {
     void vaeMatchesPyTorch() throws Exception {
         Path dir = dir();
         Path reference = dir.resolve("vae_pytorch.f32");
-        Curves torch = Curves.load(reference, 1, "scripts/pytorch/wave4.py train vae");
+        Curves torch = Curves.load(reference, 1, "scripts/pytorch/generative_recurrent.py train vae");
         Mnist train = Mnist.load(dir, true, true);
         Mnist test = Mnist.load(dir, false, true);
         Vae model = new Vae(Mnist.PIXELS, VAE_HIDDEN, VAE_LATENT, 1);
@@ -116,7 +116,7 @@ class GenerativeAccelTest {
     void dcganMatchesPyTorch() throws Exception {
         Path dir = dir();
         Path reference = dir.resolve("dcgan_pytorch.f32");
-        Curves torch = Curves.load(reference, 0, "scripts/pytorch/wave4.py train dcgan");
+        Curves torch = Curves.load(reference, 0, "scripts/pytorch/generative_recurrent.py train dcgan");
         Mnist train = Mnist.load(dir, true, true);
         Dcgan.Generator g = new Dcgan.Generator(GAN_LATENT, GAN_WIDTH, GAN_G_SEED);
         Dcgan.Discriminator d = new Dcgan.Discriminator(GAN_WIDTH, GAN_D_SEED);
@@ -161,7 +161,7 @@ class GenerativeAccelTest {
     void unetMatchesPyTorch() throws Exception {
         Path dir = dir();
         Path reference = dir.resolve("unet_pytorch.f32");
-        Curves torch = Curves.load(reference, 2, "scripts/pytorch/wave4.py train unet");
+        Curves torch = Curves.load(reference, 2, "scripts/pytorch/generative_recurrent.py train unet");
         Mnist train = Mnist.load(dir, true, true);
         Mnist test = Mnist.load(dir, false, true);
         UNet model = new UNet(1, UNET_WIDTH, 1);

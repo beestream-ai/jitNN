@@ -8,7 +8,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Wave 2 kernels on ResNet/MobileNet layer shapes (batch 64): convolution forward, input gradient
+ * Convolution, normalisation and pooling kernels on ResNet/MobileNet layer shapes (batch 64): convolution forward, input gradient
  * and weight gradient in GFLOP/s, BatchNorm and pooling in GB/s. Printed, not asserted. Run with
  * {@code -Dtest=ConvBenchAccelTest -Djitnn.test.profile=true}.
  */
@@ -56,7 +56,7 @@ class ConvBenchAccelTest {
     }
 
     @Test
-    void wave2Kernels() {
+    void convolutionKernels() {
         conv("conv3x3 64->64 28x28", 64, 64, 28, 64, 3, 1, 1);
         conv("conv3x3 128->128 14x14", 64, 128, 14, 128, 3, 1, 1);
         conv("conv3x3 256->256 7x7", 64, 256, 7, 256, 3, 1, 1);

@@ -13,8 +13,8 @@ import uk.ac.manchester.tornado.api.types.arrays.ShortArray;
  * {@code transA != 0} means A is stored [K,M]; {@code transB != 0} means B is stored [N,K].
  *
  * <p>16x16 tiles staged in local memory; each thread computes one element of C. This is the
- * portable baseline, not the tuned kernel: register blocking and double buffering come in the
- * wave 1 performance pass.
+ * portable baseline, not the tuned kernel: register blocking and double buffering are in the
+ * generated kernels (scripts/codegen/gemm.py).
  */
 public final class GemmKernels {
 

@@ -19,14 +19,14 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Wave 4 recurrent gates on the byte-level corpus ({@code -Djitnn.text=<dir>} with the PyTorch
- * references of scripts/pytorch/wave4.py): two-layer LSTM and GRU language models, time-first
+ * Recurrent gates on the byte-level corpus ({@code -Djitnn.text=<dir>} with the PyTorch
+ * references of scripts/pytorch/generative_recurrent.py): two-layer LSTM and GRU language models, time-first
  * batches, Adam with gradient clipping. Same initial weights and batches as PyTorch's cuDNN
  * layers; checks the step-0 gradients against FP64, the loss curve and the evaluation loss.
  */
 class RecurrentAccelTest {
 
-    // The same constants as wave4.py.
+    // The same constants as generative_recurrent.py.
     static final int BATCH = 32, SEQ = 64, DIM = 64, HIDDEN = 256, LAYERS = 2, STEPS = 300;
     static final float LR = 2e-3f, CLIP = 1.0f;
 
@@ -65,7 +65,7 @@ class RecurrentAccelTest {
         String d = System.getProperty("jitnn.text", "");
         assumeTrue(!d.isEmpty() && Files.exists(Path.of(d, "corpus.txt")), "set -Djitnn.text=<dir with corpus.txt>");
         Path reference = Path.of(d, kind + "_pytorch.f32");
-        Curves torch = Curves.load(reference, 1, "scripts/pytorch/wave4.py train " + kind);
+        Curves torch = Curves.load(reference, 1, "scripts/pytorch/generative_recurrent.py train " + kind);
         TextCorpus corpus = TextCorpus.load(Path.of(d, "corpus.txt"));
         CharRnn model = new CharRnn(TextCorpus.VOCAB, DIM, HIDDEN, LAYERS, gru, 1);
         Adam opt = new Adam(model.parameters(), LR);

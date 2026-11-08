@@ -22,7 +22,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Wave 2 gates: ResNet-18 and MobileNetV2 (small variants) for 200 MNIST steps against PyTorch
+ * CNN gates: ResNet-18 and MobileNetV2 (small variants) for 200 MNIST steps against PyTorch
  * from the same initial weights (scripts/pytorch/cnn_train.py): losses step by step, then
  * accuracy in evaluation mode (running BatchNorm statistics) on the first 1000 test images.
  * The step-0 gradients are held to PyTorch's own FP32 error: with vendor libraries (-Djitnn.native),

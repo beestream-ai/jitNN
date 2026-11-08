@@ -9,7 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-/** A PyTorch reference run (metrics, then losses) and the loss-curve checks shared by the wave 4 gates. */
+/** A PyTorch reference run (metrics, then losses) and the loss-curve checks shared by the generative and recurrent gates. */
 record Curves(float[] metrics, float[] losses) {
 
     static Curves load(Path file, int metrics, String script) throws Exception {

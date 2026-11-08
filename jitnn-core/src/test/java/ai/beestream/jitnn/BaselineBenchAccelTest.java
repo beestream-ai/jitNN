@@ -7,7 +7,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Baseline speed of the wave 1 kernels, printed rather than asserted. Inputs are persistent so
+ * Baseline speed of the core kernels, printed rather than asserted. Inputs are persistent so
  * only kernel time and dispatch are measured. Run on demand:
  * {@code ./mvnw test -pl jitnn-core -Paccel-tests -Dtest=BaselineBenchAccelTest}.
  */

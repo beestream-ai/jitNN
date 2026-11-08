@@ -6,7 +6,7 @@ import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-/** The wave 1 MLP trains on the host reference backend. */
+/** The MLP trains on the host reference backend. */
 class MlpTrainingTest {
 
     @BeforeAll

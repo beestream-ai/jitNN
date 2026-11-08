@@ -8,7 +8,7 @@ import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-/** Forward values of the wave 1 operators on the reference backend, against hand-computed results. */
+/** Forward values of the core operators on the reference backend, against hand-computed results. */
 class ReferenceOpsTest {
 
     @BeforeAll

@@ -148,7 +148,7 @@ public final class ElementwiseKernels {
     public static final int HARD_SWISH = 25;
     /** x where x > alpha, else 0 (Keras's ThresholdedReLU). */
     public static final int THRESHOLD = 26;
-    // math and logic (wave 5); gradients are composed in Unary.backward
+    // math and logic; gradients are composed in Unary.backward
     public static final int SIN = 27;
     public static final int COS = 28;
     public static final int TAN = 29;
@@ -170,7 +170,7 @@ public final class ElementwiseKernels {
     public static final int LOG1P = 45;
     public static final int EXPM1 = 46;
     public static final int LOGICAL_NOT = 47;
-    // NaN-aware (wave 5): tested by bit pattern, as TornadoVM folds x != x (J19)
+    // NaN-aware: tested by bit pattern, as TornadoVM folds x != x (J19)
     public static final int IS_NAN = 48;
     public static final int IS_INF = 49;
     public static final int IS_FINITE = 50;
@@ -459,7 +459,7 @@ public final class ElementwiseKernels {
         return r;
     }
 
-    /** Wave 5 activation gradients and PReLU (split out to stay under TornadoVM's inlining limit). */
+    /** More activation gradients and PReLU (split out to stay under TornadoVM's inlining limit). */
     public static float binaryActivationGrad(int op, float x, float y, float alpha, float beta) {
         float r;
         if (op == ELU_GRAD) {
@@ -574,7 +574,7 @@ public final class ElementwiseKernels {
         return r;
     }
 
-    /** Wave 5 activations (split out to stay under TornadoVM's inlining limit). */
+    /** More activations (split out to stay under TornadoVM's inlining limit). */
     public static float unaryActivation(int op, float x, float alpha, float beta) {
         float r;
         if (op == ELU) {

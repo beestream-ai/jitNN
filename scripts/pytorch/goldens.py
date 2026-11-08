@@ -83,7 +83,7 @@ add("linear", "linear", [], [rnd(8, 20), rnd(12, 20), rnd(12)])
 add("linear_relu", "linear_relu", [], [rnd(8, 20), rnd(12, 20), rnd(12)])
 add("linear_relu_big", "linear_relu", [], [rnd(128, 96), rnd(72, 96), rnd(72)])
 add("linear_nobias", "linear_nobias", [], [rnd(16, 24), rnd(8, 24)])
-# ---- wave 2: convolution (attrs: stride pad dilation groups), batch norm, pooling, relu6
+# ---- convolution (attrs: stride pad dilation groups), batch norm, pooling, relu6
 for (name, n, cin, h, w, cout, k, st, pd, dl, g) in [
     ("conv_3x3", 2, 3, 9, 11, 8, 3, 1, 1, 1, 1),
     ("conv_stride2", 2, 4, 10, 10, 6, 3, 2, 1, 1, 1),
@@ -104,12 +104,12 @@ add("avg_pool_3s2p1", "avg_pool2d", [3, 2, 1], [rnd(2, 3, 11, 11)])
 add("avg_pool_2s2", "avg_pool2d", [2, 2, 0], [rnd(2, 4, 8, 8)])
 add("global_avg_pool", "global_avg_pool", [], [rnd(3, 7, 5, 5)])
 add("relu6", "relu6", [], [rnd(17, 13, lo=-3, hi=9)])
-# ---- wave 3: activations
+# ---- activations
 for op in ["tanh", "sigmoid", "gelu", "gelu_tanh", "silu"]:
     add(op, op, [], [rnd(17, 13, lo=-6, hi=6)])
     add(f"{op}_tails", op, [], [rnd(64, lo=-12, hi=12)])
 add("swiglu", "swiglu", [], [rnd(9, 14, lo=-4, hi=4), rnd(9, 14)])
-# ---- wave 3: slicing and joining (attrs: axis start length / axis)
+# ---- slicing and joining (attrs: axis start length / axis)
 add("narrow_mid", "narrow", [1, 2, 4], [rnd(4, 9, 5)])
 add("narrow_first", "narrow", [0, 1, 2], [rnd(3, 7)])
 add("narrow_last", "narrow", [2, 5, 3], [rnd(2, 3, 8)])
@@ -119,11 +119,11 @@ add("concat_first", "concat", [0], [rnd(3, 6), rnd(4, 6)])
 add("concat_last", "concat", [-1], [rnd(5, 2), rnd(5, 7)])
 add("stack_0", "stack", [0], [rnd(3, 4), rnd(3, 4), rnd(3, 4)])
 add("stack_last", "stack", [2], [rnd(3, 4), rnd(3, 4)])
-# ---- wave 3: embedding (repeated, unused and padding rows); attrs: padding index or -1
+# ---- embedding (repeated, unused and padding rows); attrs: padding index or -1
 add("embedding", "embedding", [-1], [rng.integers(0, 11, (3, 5)).astype(np.int32), rnd(11, 6)])
 add("embedding_padding", "embedding", [2], [np.array([2, 0, 2, 5, 5, 5, 1], np.int32), rnd(7, 4)])
 add("embedding_wide", "embedding", [-1], [rng.integers(0, 50, 300).astype(np.int32), rnd(50, 33)])
-# ---- wave 3: batched matmul (equal batches, or one side shared) and attention
+# ---- batched matmul (equal batches, or one side shared) and attention
 for ta in (0, 1):
     for tb in (0, 1):
         a = rnd(2, 3, 7, 5) if ta else rnd(2, 3, 5, 7)
@@ -196,7 +196,7 @@ for kind in (0, 1):
             add(f"matmul_half{kind}_t{ta}{tb}", "matmul_half", [ta, tb, kind], [a, b])
     add(f"bmm_half{kind}", "matmul_half", [0, 1, kind], [rnd(2, 3, 9, 16), rnd(2, 3, 11, 16)])
     add(f"linear_half{kind}", "linear_half", [kind], [rnd(2, 7, 24), rnd(10, 24), rnd(10)])
-# ---- wave 3: LayerNorm and RMSNorm over the last axis; attrs: eps
+# ---- LayerNorm and RMSNorm over the last axis; attrs: eps
 add("layer_norm", "layer_norm", [1e-5], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5), rnd(33)])
 add("layer_norm_3d", "layer_norm", [1e-5], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5), rnd(48)])
 add("layer_norm_long", "layer_norm", [1e-5], [rnd(3, 1000, lo=1, hi=5), rnd(1000, lo=0.5, hi=1.5), rnd(1000)])
@@ -206,7 +206,7 @@ add("rms_norm", "rms_norm", [1e-6], [rnd(7, 33), rnd(33, lo=0.5, hi=1.5)])
 add("rms_norm_3d", "rms_norm", [1e-6], [rnd(2, 5, 48), rnd(48, lo=0.5, hi=1.5)])
 add("rms_norm_long", "rms_norm", [1e-6], [rnd(3, 1000), rnd(1000, lo=0.5, hi=1.5)])
 add("rms_norm_rows", "rms_norm", [1e-6], [rnd(150, 16), rnd(16, lo=0.5, hi=1.5)])
-# ---- wave 4: activations and losses (attrs: slope)
+# ---- activations and losses (attrs: slope)
 add("leaky_relu", "leaky_relu", [0.01], [rnd(17, 13)])
 add("leaky_relu_0.2", "leaky_relu", [0.2], [rnd(9, 4)])
 add("softplus", "softplus", [], [rnd(17, 13)])
@@ -219,7 +219,7 @@ add("bce_hard", "bce", [], [rng.uniform(0.001, 0.999, size=(6, 7)).astype(np.flo
 add("bce_logits", "bce_logits", [], [rnd(5, 13, lo=-40, hi=40), rng.uniform(0, 1, size=(5, 13)).astype(np.float32)])
 add("bce_logits_small", "bce_logits", [], [rnd(4, 9), (rng.uniform(size=(4, 9)) < 0.5).astype(np.float32)])
 add("gaussian_kl", "gaussian_kl", [], [rnd(5, 8), rnd(5, 8)])
-# ---- wave 4: transposed convolution (attrs: stride pad output_padding dilation groups) and resizing
+# ---- transposed convolution (attrs: stride pad output_padding dilation groups) and resizing
 add("conv_t", "conv_transpose2d", [2, 1, 1, 1, 1], [rnd(2, 4, 5, 5), rnd(4, 3, 3, 3), rnd(3)])
 add("conv_t_k4s2", "conv_transpose2d", [2, 1, 0, 1, 1], [rnd(2, 8, 4, 4), rnd(8, 4, 4, 4), rnd(4)])
 add("conv_t_s1", "conv_transpose2d", [1, 0, 0, 1, 1], [rnd(1, 5, 4, 3), rnd(5, 2, 3, 3), rnd(2)])
@@ -237,7 +237,7 @@ add("resize_bilinear", "interpolate", [1, 0, 7, 9], [rnd(2, 3, 4, 5)])
 add("resize_bilinear_down", "interpolate", [1, 0, 3, 2], [rnd(1, 2, 7, 5)])
 add("resize_nearest", "interpolate", [0, 0, 3, 7], [rnd(2, 2, 5, 4)])
 add("resize_align_1", "interpolate", [1, 1, 1, 6], [rnd(1, 2, 3, 4)])
-# ---- wave 5: activations (attrs: alpha / slope / threshold / min max)
+# ---- activations (attrs: alpha / slope / threshold / min max)
 for op, attrs in [("elu", [1.0]), ("elu_0.5", [0.5]), ("selu", []), ("celu", [1.3]), ("mish", []), ("softsign", []),
                   ("hardsigmoid", []), ("hardswish", []), ("hardtanh", [-0.7, 1.2]), ("thresholded_relu", [0.4]), ("cube", [])]:
     add(op, op.split("_0")[0], attrs, [rnd(13, 11, lo=-5, hi=5)])
@@ -245,7 +245,7 @@ add("elu_small", "elu", [1.0], [rnd(9, 7, lo=-1e-3, hi=1e-3)])
 add("prelu_shared", "prelu", [], [rnd(4, 3, 5), rnd(1)])
 add("prelu_channels", "prelu", [], [rnd(2, 6, 4, 3), rnd(6)])
 add("rrelu_eval", "rrelu_eval", [0.125, 1 / 3], [rnd(9, 8)])
-# ---- wave 5: math (inputs inside each domain), comparisons, logic, where, one-hot
+# ---- math (inputs inside each domain), comparisons, logic, where, one-hot
 for op, gen in [("sin", rnd), ("cos", rnd), ("tan", lambda *d: rnd(*d, lo=-1.3, hi=1.3)), ("asin", lambda *d: rnd(*d, lo=-0.95, hi=0.95)),
                 ("acos", lambda *d: rnd(*d, lo=-0.95, hi=0.95)), ("atan", lambda *d: rnd(*d, lo=-5, hi=5)), ("sinh", lambda *d: rnd(*d, lo=-4, hi=4)),
                 ("cosh", lambda *d: rnd(*d, lo=-4, hi=4)), ("asinh", lambda *d: rnd(*d, lo=-5, hi=5)), ("acosh", lambda *d: rnd(*d, lo=1.1, hi=6)),
@@ -266,7 +266,7 @@ for op in ("ne", "le", "logical_and", "logical_or", "logical_xor"):
 add("logical_not", "logical_not", [], [ints(6, 7)], grads=[False])
 add("where", "where", [], [(rnd(6, 7) > 0).astype(np.float32), rnd(6, 7), rnd(7)], grads=[False, True, True])
 add("one_hot", "one_hot", [5], [np.array([0, 4, 2, 2, 1, 3, 0], np.int32)])
-# ---- wave 5: losses (attrs: reduction 0 none, 1 mean, 2 sum, then the loss's parameter)
+# ---- losses (attrs: reduction 0 none, 1 mean, 2 sum, then the loss's parameter)
 signs = lambda *d: np.where(rng.uniform(size=d) < 0.5, -1.0, 1.0).astype(np.float32)
 add("l1_mean", "l1", [1], [rnd(6, 7), rnd(6, 7)])
 add("l1_none", "l1", [0], [rnd(5, 3), rnd(5, 3)])
@@ -280,7 +280,7 @@ add("cosine_similarity", "cosine_similarity", [1], [rnd(6, 9), rnd(6, 9)])
 add("cosine_proximity", "cosine_proximity", [1], [rnd(6, 9), rnd(6, 9)])
 add("poisson_log", "poisson_log", [1], [rnd(6, 5), pos(6, 5)])
 add("poisson", "poisson", [1], [pos(6, 5), pos(6, 5)])
-# ---- wave 6: metric losses (attrs: reduction, then margin), CTC (attrs: reduction, blank, input lengths, target lengths), sparsemax
+# ---- metric losses (attrs: reduction, then margin), CTC (attrs: reduction, blank, input lengths, target lengths), sparsemax
 add("triplet_margin", "triplet_margin", [1, 1.0], [rnd(7, 6), rnd(7, 6), rnd(7, 6)])
 add("contrastive", "contrastive", [1, 1.5], [rnd(8, 5, lo=-1, hi=1), rnd(8, 5, lo=-1, hi=1), (rng.uniform(size=8) < 0.5).astype(np.float32)], [True, True, False])
 add("cosine_embedding", "cosine_embedding", [1, 0.2], [rnd(8, 6), rnd(8, 6), signs(8)], [True, True, False])
@@ -288,7 +288,7 @@ add("margin_ranking_sum", "margin_ranking", [2, 0.3], [rnd(9), rnd(9), signs(9)]
 add("ctc_mean", "ctc", [1, 0, 12, 9, 11, 4, 2, 3], [rnd(12, 3, 6, lo=-3, hi=3), np.array([[1, 2, 2, 5], [3, 3, 0, 0], [4, 1, 4, 0]], np.int32)])
 add("ctc_none_blank3", "ctc", [0, 3, 20, 17, 7, 5], [rnd(20, 2, 5, lo=-3, hi=3), np.array([[1, 0, 1, 2, 4, 4, 2], [2, 2, 1, 0, 4, 0, 0]], np.int32)])
 add("sparsemax", "sparsemax", [], [rnd(6, 9, lo=-3, hi=3)])
-# ---- wave 6: linear algebra (multi-part results flattened and concatenated; vectors signed as jitNN signs them)
+# ---- linear algebra (multi-part results flattened and concatenated; vectors signed as jitNN signs them)
 def spd(*shape):
     m = rng.uniform(-1, 1, size=shape)
     return (m @ np.swapaxes(m, -1, -2) + shape[-1] * np.eye(shape[-1])).astype(np.float32)
@@ -324,7 +324,7 @@ add("eigh_batch", "eigh", [], [sym(2, 6, 6)])
 add("svd_tall", "svd", [], [rnd(6, 4)])
 add("svd_wide", "svd", [], [rnd(4, 6)])
 add("svd_batch", "svd", [], [rnd(2, 5, 5)])
-# ---- wave 6: Fourier transforms on (re, im) pairs (attrs: n, dim, norm 0 backward / 1 ortho / 2 forward); stft/istft (attrs: n_fft, hop, center, normalized, window 0 none / 1 hann)
+# ---- Fourier transforms on (re, im) pairs (attrs: n, dim, norm 0 backward / 1 ortho / 2 forward); stft/istft (attrs: n_fft, hop, center, normalized, window 0 none / 1 hann)
 add("fft", "fft", [-1, -1, 0], [rnd(3, 12, 2)])
 add("fft_pad_ortho", "fft", [16, -1, 1], [rnd(2, 10, 2)])
 add("fft_crop_dim0", "fft", [5, 0, 2], [rnd(6, 4, 2)])
@@ -338,14 +338,14 @@ add("rfft2", "rfft2", [], [rnd(2, 4, 6)])
 add("stft_hann", "stft", [16, 4, 1, 0, 1], [rnd(2, 64)])
 add("stft_rect_nocenter", "stft", [8, 3, 0, 1, 0], [rnd(30)])
 add("istft_hann", "istft", [16, 4, 1, 0, 1], [rnd(2, 9, 17, 2)])
-# ---- wave 6: sparse times dense (attrs: rows, cols, nnz, row indices, column indices; duplicates add up) and GCN (attrs: nodes, edges, sources, destinations)
+# ---- sparse times dense (attrs: rows, cols, nnz, row indices, column indices; duplicates add up) and GCN (attrs: nodes, edges, sources, destinations)
 sp_r = [0, 2, 2, 4, 1, 0, 3, 4, 2, 1, 4]
 sp_c = [1, 0, 5, 3, 3, 1, 2, 0, 4, 0, 5]
 add("spmm", "spmm", [5, 6, len(sp_r)] + sp_r + sp_c, [rnd(len(sp_r)), rnd(6, 7)])
 g_src = [0, 1, 1, 2, 3, 4, 5, 5, 0]
 g_dst = [1, 0, 2, 3, 2, 5, 4, 0, 5]
 add("gcn", "gcn", [6, len(g_src)] + g_src + g_dst, [rnd(6, 4), rnd(3, 4)])
-# ---- wave 7: data-dependent sizes (unique attrs: 0 values, 1 inverse, 2 counts)
+# ---- data-dependent sizes (unique attrs: 0 values, 1 inverse, 2 counts)
 def sparse(*shape):
     a = rnd(*shape)
     a[rng.uniform(size=shape) < 0.5] = 0
@@ -361,7 +361,7 @@ dup = rng.integers(0, 7, (40, 30)).astype(np.float32)
 add("unique", "unique", [0], [dup], [False])
 add("unique_inverse", "unique", [1], [dup], [False])
 add("unique_counts", "unique", [2], [dup], [False])
-# ---- wave 7: FP8 with a power-of-two scale (attrs: format 0 E4M3 / 1 E5M2, log2 of the scale)
+# ---- FP8 with a power-of-two scale (attrs: format 0 E4M3 / 1 E5M2, log2 of the scale)
 add("fp8_roundtrip_e4m3", "fp8_roundtrip", [0, -6], [rnd(9, 13)], [False])
 add("fp8_roundtrip_e5m2", "fp8_roundtrip", [1, -6], [rnd(9, 13, lo=-100, hi=100)], [False])
 add("fp8_fake_quantize", "fp8_fake", [0, -5], [rnd(7, 11)])
@@ -386,19 +386,19 @@ for fmt in range(5):
     for rows, n in [(1, 23), (5, 24), (40, 20)]:
         add(f"gguf_linear_{name}_r{rows}", "gguf_linear", [fmt, n], [rnd(rows, 512), gguf_blocks(fmt, n, 512), rnd(n)], [True, False, True])
     add(f"gguf_dequant_{name}", "gguf_dequant", [fmt, 3], [gguf_blocks(fmt, 3, 512)], [False])
-# ---- wave 6: embedding-model losses
+# ---- embedding-model losses
 add("negative_sampling", "negative_sampling", [], [rnd(6, 5, lo=-1, hi=1), rnd(6, 5, lo=-1, hi=1), rnd(6, 4, 5, lo=-1, hi=1)])
 add("glove_loss", "glove_loss", [], [rnd(7, 5, lo=-1, hi=1), rnd(7, 5, lo=-1, hi=1), rnd(7), rnd(7), pos(7), pos(7)], [True, True, True, True, False, False])
 add("msle", "msle", [1], [pos(6, 5), pos(6, 5)])
 add("mape", "mape", [1], [rnd(6, 5), rnd(6, 5, lo=0.5, hi=3) * signs(6, 5)])
-# ---- wave 5: norms (attrs: groups eps / eps / size alpha beta k)
+# ---- norms (attrs: groups eps / eps / size alpha beta k)
 add("group_norm", "group_norm", [3, 1e-5], [rnd(2, 6, 4, 5), rnd(6, lo=0.5, hi=1.5), rnd(6)])
 add("group_norm_1", "group_norm", [1, 1e-5], [rnd(3, 4, 7), rnd(4, lo=0.5, hi=1.5), rnd(4)])
 add("instance_norm", "instance_norm", [1e-5], [rnd(2, 3, 6, 5)])
 add("lrn", "lrn", [3, 1e-2, 0.75, 1.0], [rnd(2, 7, 4, 3)])
 add("lrn_even", "lrn", [4, 0.5, 0.6, 2.0], [rnd(1, 9, 5)])
 add("weight_norm", "weight_norm", [], [rnd(5, 3, 2, 2), rnd(5, lo=0.5, hi=2)])
-# ---- wave 5: 1-D and 3-D convolution and pooling, adaptive pooling, padding
+# ---- 1-D and 3-D convolution and pooling, adaptive pooling, padding
 add("conv1d", "conv1d", [2, 1, 1], [rnd(2, 3, 11), rnd(5, 3, 3), rnd(5)])
 add("conv1d_dil", "conv1d", [1, 2, 2], [rnd(1, 4, 9), rnd(3, 4, 3), rnd(3)])
 add("conv3d", "conv3d", [1, 1, 1], [rnd(1, 2, 4, 5, 3), rnd(3, 2, 3, 3, 3), rnd(3)])
@@ -413,7 +413,7 @@ for mode in (0, 1, 2):
     add(f"pad1d_m{mode}", "pad", [mode, 2, 3], [rnd(2, 3, 6)])
     add(f"pad2d_m{mode}", "pad", [mode, 1, 2, 2, 1], [rnd(1, 2, 4, 5)])
 add("pad3d_reflect", "pad", [1, 1, 1, 2, 0, 1, 1], [rnd(1, 1, 3, 4, 3)])
-# ---- wave 5: scans and sorting (attrs: axis / axis descending)
+# ---- scans and sorting (attrs: axis / axis descending)
 add("cumsum_0", "cumsum", [0], [rnd(7, 5)])
 add("cumsum_last", "cumsum", [-1], [rnd(3, 4, 9)])
 add("cumprod_1", "cumprod", [1], [rnd(4, 6, 3, lo=0.5, hi=1.5)])
@@ -429,7 +429,7 @@ add("sort_desc_axis0", "sort", [0, 1], [rnd(9, 4)])
 add("sort_ties", "sort", [1, 0], [ties])
 add("argsort_ties", "argsort", [1, 0], [ties])
 add("argsort_desc", "argsort", [-1, 1], [ties])
-# ---- wave 5: indexing (attrs: axis / axis / mode offsets...)
+# ---- indexing (attrs: axis / axis / mode offsets...)
 add("index_select_0", "index_select", [0], [rnd(6, 5), np.array([4, 0, 4, 2], np.int32)])
 add("index_select_1", "index_select", [1], [rnd(3, 7, 2), np.array([6, 1, 1, 0, 3], np.int32)])
 add("gather_1", "gather", [1], [rnd(4, 6), rng.integers(0, 6, size=(4, 3)).astype(np.int32)])
@@ -439,20 +439,20 @@ uniq = np.stack([rng.permutation(6)[:4] for _ in range(3)]).astype(np.int32)
 add("scatter_unique", "scatter", [1], [rnd(3, 6), uniq, rnd(3, 4)], grads=[False, False, False])
 for mode in (0, 1, 2):
     add(f"embedding_bag_m{mode}", "embedding_bag", [mode, 0, 3, 3, 7], [np.array([1, 4, 2, 0, 0, 3, 9, 4, 4, 2], np.int32), rnd(10, 5)])
-# ---- wave 5: masked and bidirectional recurrent layers (attrs: bidirectional, lengths...)
+# ---- masked and bidirectional recurrent layers (attrs: bidirectional, lengths...)
 def rnn_weights(gates, i, h):
     w = lambda *d: rnd(*d, lo=-0.5, hi=0.5)
     return [w(gates * h, i), w(gates * h, h), w(gates * h), w(gates * h)]
 add("lstm_masked", "rnn_lstm", [0, 5, 3, 1], [rnd(5, 3, 4, lo=-1, hi=1)] + rnn_weights(4, 4, 6) + [rnd(1, 3, 6, lo=-1, hi=1), rnd(1, 3, 6, lo=-1, hi=1)])
 add("lstm_bidirectional", "rnn_lstm", [1, 4, 4], [rnd(4, 2, 3, lo=-1, hi=1)] + rnn_weights(4, 3, 5) + rnn_weights(4, 3, 5))
 add("gru_bidirectional_masked", "rnn_gru", [1, 6, 2, 4], [rnd(6, 3, 4, lo=-1, hi=1)] + rnn_weights(3, 4, 5) + rnn_weights(3, 4, 5))
-# ---- wave 5: image operations
+# ---- image operations
 add("flip_hw", "flip", [2, 3], [rnd(2, 3, 4, 5)])
 add("flip_c", "flip", [1], [rnd(2, 3, 4, 5)])
 add("center_crop", "center_crop", [3, 4], [rnd(2, 3, 6, 7)])
 add("normalize_image", "normalize_image", [], [rnd(2, 3, 4, 5, lo=0, hi=1)])
 add("rgb_to_grayscale", "rgb_to_grayscale", [], [rnd(2, 3, 4, 5, lo=0, hi=1)])
-# ---- wave 5: NaN-aware operators (NaN and infinities injected)
+# ---- NaN-aware operators (NaN and infinities injected)
 def specials(*d):
     a = rnd(*d)
     flat = a.reshape(-1)
@@ -468,7 +468,7 @@ add("nan_to_num_grad", "nan_to_num", [0.5, 7.0], [rnd(4, 5)])
 for op in ("maximum_nan", "minimum_nan", "fmax", "fmin"):
     add(op, op, [], [nan_x, nan_y], grads=[False, False])
     add(f"{op}_plain", op, [], [rnd(5, 6), rnd(6)])
-# ---- wave 4: recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
+# ---- recurrent layers over [T, B, I]; inputs x, W_ih, W_hh, b_ih, b_hh, h0 (, c0)
 def rnn_case(name, op, t, b, i, h, gates):
     w = lambda *s: rnd(*s, lo=-0.5, hi=0.5)
     states = [rnd(b, h, lo=-1, hi=1)] + ([rnd(b, h, lo=-1, hi=1)] if op == "lstm" else [])

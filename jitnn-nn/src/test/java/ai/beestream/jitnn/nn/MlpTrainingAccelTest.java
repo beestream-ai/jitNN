@@ -9,7 +9,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * The wave 1 gate on a device: the same MLP, same initial weights (counter-based RNG) and same
+ * The MLP gate on a device: the same MLP, same initial weights (counter-based RNG) and same
  * batches trained on TornadoVM and on the host reference give the same loss curve, and each
  * training step after the first replays a cached plan.
  */

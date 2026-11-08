@@ -14,7 +14,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Every wave 1 operator on the TornadoVM device against the host reference. Run with
+ * Every core operator on the TornadoVM device against the host reference. Run with
  * {@code -Paccel-tests}; the device is {@code -Djitnn.test.device=<driver>:<device>}, and
  * {@code -Djitnn.test.backend=cpu} checks the CPU backend instead.
  */

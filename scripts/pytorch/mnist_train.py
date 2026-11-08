@@ -1,4 +1,4 @@
-"""PyTorch reference for jitNN's MNIST gates: the MLP (wave 1) and LeNet-5 (wave 2), from the
+"""PyTorch reference for jitNN's MNIST gates: the MLP and LeNet-5, from the
 same initial weights as jitNN (its Philox init, reproduced in jitnn_init.py), on the same batches
 in the same order, with Adam(1e-3) and batch 128. Writes [test accuracy, loss per step] as
 float32 for the Java gate tests.
