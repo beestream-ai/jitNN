@@ -47,25 +47,33 @@ public final class Examples {
         return dir != null ? Path.of(dir) : Path.of(System.getProperty("user.home"), ".jitnn", "examples");
     }
 
-    /** Downloads {@code url} to {@code file} unless the file is already there; returns the file. */
+    /**
+     * Downloads {@code url} (HTTPS only) to {@code file} unless the file is already there; returns the
+     * file. Redirects are followed only to HTTPS, and a failed download leaves nothing behind.
+     */
     public static Path download(String url, Path file) throws IOException {
         if (Files.exists(file)) {
             return file;
         }
+        if (!url.startsWith("https://")) {
+            throw new IOException("not an HTTPS URL: " + url);
+        }
         Files.createDirectories(file.getParent());
         System.out.println("downloading " + url);
         Path part = file.resolveSibling(file.getFileName() + ".part");
-        HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
+        HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
         try {
             HttpResponse<Path> r = http.send(HttpRequest.newBuilder(URI.create(url)).build(), HttpResponse.BodyHandlers.ofFile(part));
             if (r.statusCode() != 200) {
                 throw new IOException("HTTP " + r.statusCode() + " for " + url);
             }
+            Files.move(part, file, StandardCopyOption.REPLACE_EXISTING);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException(e);
+        } finally {
+            Files.deleteIfExists(part);
         }
-        Files.move(part, file, StandardCopyOption.REPLACE_EXISTING);
         return file;
     }
 
@@ -87,8 +95,32 @@ public final class Examples {
         return dir;
     }
 
-    /** Unpacks a .tar.gz (or the listed members of it) into {@code dir} with the system's tar. */
+    /**
+     * Unpacks a .tar.gz (or the listed members of it) into {@code dir} with the system's tar, after
+     * checking every member: no absolute paths, no {@code ..}, no links.
+     */
     public static void untar(Path tgz, Path dir, String... members) throws IOException, InterruptedException {
+        Process list = new ProcessBuilder("tar", "tzvf", tgz.toString()).redirectErrorStream(true).start();
+        List<String> entries = new String(list.getInputStream().readAllBytes()).lines().toList();
+        if (list.waitFor() != 0) {
+            throw new IOException("could not list " + tgz);
+        }
+        Process names = new ProcessBuilder("tar", "tzf", tgz.toString()).redirectErrorStream(true).start();
+        List<String> paths = new String(names.getInputStream().readAllBytes()).lines().toList();
+        if (names.waitFor() != 0) {
+            throw new IOException("could not list " + tgz);
+        }
+        for (String e : entries) {
+            if (e.startsWith("l") || e.startsWith("h")) {
+                throw new IOException(tgz + " holds a link: " + e);
+            }
+        }
+        Path base = dir.toAbsolutePath().normalize();
+        for (String name : paths) {
+            if (name.startsWith("/") || !base.resolve(name).normalize().startsWith(base)) {
+                throw new IOException(tgz + " holds a member outside the target directory: " + name);
+            }
+        }
         List<String> cmd = new ArrayList<>(List.of("tar", "xzf", tgz.toString(), "-C", dir.toString()));
         cmd.addAll(List.of(members));
         if (new ProcessBuilder(cmd).inheritIO().start().waitFor() != 0) {
@@ -99,9 +131,10 @@ public final class Examples {
     /** Unpacks a .zip into {@code dir}. */
     public static void unzip(Path zip, Path dir) throws IOException {
         try (ZipInputStream in = new ZipInputStream(Files.newInputStream(zip))) {
+            Path base = dir.toAbsolutePath().normalize();
             for (ZipEntry e; (e = in.getNextEntry()) != null;) {
-                Path out = dir.resolve(e.getName()).normalize();
-                if (!out.startsWith(dir)) {
+                Path out = base.resolve(e.getName()).normalize();
+                if (!out.startsWith(base)) {
                     throw new IOException("bad entry " + e.getName());
                 }
                 if (e.isDirectory()) {
