@@ -214,7 +214,7 @@ final class PlanMemo {
             replays++;
             memoReplays++;
             ct.lastUsed = ++executionsTotal;
-            lastIntermediateBytes = ct.intermediateBytes;
+            Telemetry.LAST.get()[2] = ct.intermediateBytes;
             evictIdle(ct);
             try {
                 execute(ct, slots);

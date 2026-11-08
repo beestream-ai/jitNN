@@ -49,10 +49,8 @@ final class Telemetry {
     private Telemetry() {
     }
 
-    static long lastKernelNanos;
     static long hostNanos;
     static long executeNanos;
-    static long lastTotalNanos;
     static long compiles;
     static long replays;
     static long reuses;
@@ -200,14 +198,17 @@ final class Telemetry {
         }
     }
 
-    /** With -Djitnn.profile=true: [device kernel ns, TornadoVM total ns] of the last execution. */
+    /**
+     * This thread's last plan execution: {@code [device kernel ns, TornadoVM total ns]} (with
+     * -Djitnn.profile=true) and {@code [2]} its intermediates' device bytes. Per thread, so that
+     * threads on other devices or slots do not overwrite each other's.
+     */
+    static final ThreadLocal<long[]> LAST = ThreadLocal.withInitial(() -> new long[3]);
+
+    /** With -Djitnn.profile=true: [device kernel ns, TornadoVM total ns] of this thread's last execution. */
     static long[] lastProfile() {
-        LOCK.lock();
-        try {
-            return new long[] { lastKernelNanos, lastTotalNanos };
-        } finally {
-            LOCK.unlock();
-        }
+        long[] l = LAST.get();
+        return new long[] { l[0], l[1] };
     }
 
     /**
@@ -269,16 +270,9 @@ final class Telemetry {
         }
     }
 
-    static long lastIntermediateBytes;
-
-    /** Device bytes of intermediates (buffers other than inputs and persistent storages) of the last plan run. */
+    /** Device bytes of intermediates (buffers other than inputs and persistent storages) of this thread's last plan run. */
     static long lastIntermediateBytes() {
-        LOCK.lock();
-        try {
-            return lastIntermediateBytes;
-        } finally {
-            LOCK.unlock();
-        }
+        return LAST.get()[2];
     }
 
     /** Compile and replay counts, for tests and benchmarks. */

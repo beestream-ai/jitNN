@@ -221,7 +221,7 @@ final class TornadoExecutor {
             compiles++;
         }
         ct.lastUsed = ++executionsTotal;
-        lastIntermediateBytes = ct.intermediateBytes;
+        Telemetry.LAST.get()[2] = ct.intermediateBytes;
         evictIdle(ct);
         CompiledTrace ran = executeRecovering(ct, layout, slotTag, nativeTag, replaced);
         if (ran != ct) {

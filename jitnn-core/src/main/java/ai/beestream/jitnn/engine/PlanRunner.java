@@ -282,8 +282,8 @@ final class PlanRunner {
         TRAFFIC[2] += ct.libraryCalls;
         TRAFFIC[3] += ct.tensorBytes;
         if (PROFILE) {
-            lastKernelNanos = ct.last.getProfilerResult().getDeviceKernelTime();
-            lastTotalNanos = ct.last.getProfilerResult().getTotalTime();
+            Telemetry.LAST.get()[0] = ct.last.getProfilerResult().getDeviceKernelTime();
+            Telemetry.LAST.get()[1] = ct.last.getProfilerResult().getTotalTime();
             accumulate(ct, ct.last.getProfilerResult().getProfileLog());
             if (TRACE != null) {
                 traceExecution(ct, ct.last.getProfilerResult().getProfileLog(), t0, System.nanoTime());

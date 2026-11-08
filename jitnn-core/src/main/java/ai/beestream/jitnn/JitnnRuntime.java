@@ -166,15 +166,15 @@ public final class JitnnRuntime {
 
     /**
      * Device memory for intermediates (activations, gradients and other temporaries, after buffer
-     * reuse) of the last plan that ran, in bytes; 0 on the reference backend.
+     * reuse) of the last plan this thread ran, in bytes; 0 on the reference backend.
      */
     public static long lastIntermediateBytes() {
         return Engine.lastIntermediateBytes();
     }
 
     /**
-     * With {@code jitnn.profile=true}: {@code [device kernel ns, TornadoVM total ns]} of the last
-     * plan execution, from TornadoVM's profiler. Zeros otherwise.
+     * With {@code jitnn.profile=true}: {@code [device kernel ns, TornadoVM total ns]} of this
+     * thread's last plan execution, from TornadoVM's profiler. Zeros otherwise.
      */
     public static long[] lastProfile() {
         return Engine.lastProfile();
