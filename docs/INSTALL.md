@@ -47,8 +47,29 @@ release, pass its version on every Maven command: `-Dtornadovm.version=8.1.1-jdk
 ### Releases
 
 Released versions are on the [GitHub releases page](https://github.com/beestream-ai/jitNN/releases)
-(the module jars and the Javadoc) and in GitHub Packages. To depend on them from Maven, add the
-repository to your `pom.xml`:
+and in GitHub Packages. Each release has the module jars, `jitnn-<version>-all.jar` (every module in
+one jar) and the Javadoc.
+
+#### Which module do I need
+
+Depend on the module for what you do; Maven brings the jitNN modules it builds on:
+
+| You want to | Depend on | It also brings |
+|---|---|---|
+| Tensors, autograd, operators, `Linalg`, `Fft`, data-parallel training | `jitnn-core` | |
+| Layers, models, optimisers, data loaders, tokenizers, classical ML | `jitnn-nn` | core |
+| Run or export ONNX models | `jitnn-onnx` | nn, core |
+| Run TensorFlow SavedModels and GraphDefs | `jitnn-tf` | onnx, nn, core |
+| Read GGUF quantised weights | `jitnn-gguf` | core |
+| Use jitNN as DJL's engine | `jitnn-djl` | onnx, nn, core, DJL's `api` |
+
+`jitnn-llm` (text generation through jitllm) is not released; build it with `-Pllm`. TornadoVM is a
+`provided` dependency of every module: it comes from the TornadoVM SDK at run time
+(`java @$TORNADOVM_HOME/tornado-argfile ...`), never from Maven.
+
+#### Maven
+
+Import `jitnn-bom` once, then list modules without versions, so they always match:
 
 ```xml
 <repositories>
@@ -58,21 +79,45 @@ repository to your `pom.xml`:
     </repository>
 </repositories>
 
-<dependency>
-    <groupId>ai.beestream</groupId>
-    <artifactId>jitnn-nn</artifactId>
-    <version>0.1.0</version>
-</dependency>
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>ai.beestream</groupId>
+            <artifactId>jitnn-bom</artifactId>
+            <version>0.1.0</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+
+<dependencies>
+    <dependency>
+        <groupId>ai.beestream</groupId>
+        <artifactId>jitnn-onnx</artifactId>
+    </dependency>
+</dependencies>
 ```
 
 GitHub Packages asks for a login even for public packages: add a `<server>` with id `github-jitnn`,
 your GitHub user name and a personal access token with the `read:packages` scope to
 `~/.m2/settings.xml`.
 
+#### Without a build tool
+
+`jitnn-<version>-all.jar` from the release page holds every module except `jitnn-llm`, and nothing
+else: TornadoVM comes from its SDK, and DJL (only for `jitnn-djl`) from your application.
+
+```bash
+java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-all.jar:your-app.jar your.Main
+```
+
+#### Making a release
+
 Maintainers release from the Actions tab: Release > Run workflow, with the version (for example
-`0.1.0`). It sets that version on a commit of its own, tags it `v0.1.0` (`main` keeps its
-`-SNAPSHOT` version), runs the tests, publishes to GitHub Packages and creates the GitHub release.
-"Dry run" stops after building and testing.
+`0.1.0`). It sets that version on a commit of its own and tags it `v0.1.0` (`main` keeps its
+`-SNAPSHOT` version), runs the tests, publishes the modules and the BOM to GitHub Packages and
+creates the GitHub release. "Dry run" stops after building and testing.
 
 ## Test data
 

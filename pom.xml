@@ -43,6 +43,8 @@
         <module>jitnn-djl</module>
         <module>jitnn-tf</module>
         <module>jitnn-examples</module>
+        <module>jitnn-bom</module>
+        <module>jitnn-all</module>
     </modules>
 
     <properties>

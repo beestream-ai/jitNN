@@ -74,6 +74,11 @@ Every operator, with its kernels and gradient, is listed in [OPERATORS.md](docs/
 | `jitnn-llm` | optional (`-Pllm`): text generation through jitllm, `Llm` |
 | `jitnn-djl` | the DJL engine, named `jitNN` (the default engine when it is on the class path) |
 | `jitnn-examples` | runnable examples after DL4J, Deep Netts, DJL, PyTorch, Keras, H2O, Tribuo and Smile ([README](jitnn-examples/README.md)) |
+| `jitnn-bom` | the bill of materials: import it to use modules of one version |
+| `jitnn-all` | every module in one jar, attached to each [release](https://github.com/beestream-ai/jitNN/releases) |
+
+Which module to depend on for what, and how to use a release from Maven or without a build tool:
+[INSTALL.md](docs/INSTALL.md#releases).
 
 ## Where it runs
 

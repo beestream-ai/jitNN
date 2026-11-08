@@ -1,8 +1,8 @@
 # Releases jitNN: run it from the Actions tab (Release > Run workflow) with a version such as
 # 0.1.0. It sets every module to that version, builds and tests on the reference and CPU
 # backends, commits the version change on its own and tags that commit v<version> (main keeps its
-# -SNAPSHOT version), publishes the Maven artifacts to GitHub Packages, and creates a GitHub
-# Release with the module jars and the Javadoc attached. With "dry run" ticked it stops after
+# -SNAPSHOT version), publishes the modules and jitnn-bom to GitHub Packages, and creates a GitHub
+# Release with the module jars, jitnn-<version>-all.jar and the Javadoc attached. With "dry run" ticked it stops after
 # building, testing and collecting the files.
 name: Release
 
@@ -85,8 +85,13 @@ jobs:
           for m in core nn onnx tf gguf djl; do
             cp "jitnn-$m/target/jitnn-$m-$VERSION.jar" "$RUNNER_TEMP/assets/"
           done
+          cp "jitnn-all/target/jitnn-all-$VERSION.jar" "$RUNNER_TEMP/assets/jitnn-$VERSION-all.jar"
           cp "$RUNNER_TEMP/jitnn-$VERSION-javadoc.zip" "$RUNNER_TEMP/assets/"
           ls -l "$RUNNER_TEMP/assets"
+          # the one jar must keep every module's service registrations
+          for f in ai.beestream.jitnn.engine.TracePass ai.beestream.jitnn.engine.LibraryProbe ai.djl.engine.EngineProvider; do
+            unzip -p "$RUNNER_TEMP/assets/jitnn-$VERSION-all.jar" "META-INF/services/$f" | grep -q . || { echo "::error::$f missing from the one jar"; exit 1; }
+          done
 
       - name: Create the GitHub Release
         if: ${{ !inputs.dry_run }}
