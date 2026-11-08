@@ -38,7 +38,7 @@ The results are from one NVIDIA A10 with the default arguments.
 | `IrisClassifier` | DL4J IrisClassifier, Deep Netts' iris | a 4-16-3 network against a random forest and logistic regression from `org.beehive.jitnn.ml` | 30 of 30 test flowers for all three |
 | `Cifar10ResNet` | DJL TrainResnetWithCifar10 | ResNet-18 with random crops and flips, batches assembled by four threads | 66.3% after 2 epochs, 2,100 images/s |
 | `CharLstmShakespeare` | DL4J LSTMCharModellingExample | a two-layer LSTM over the bytes of Tiny Shakespeare, then samples text one character at a time with its state | Shakespeare-shaped text after 2,000 steps (25 s) |
-| `NanoGptShakespeare` | Andrej Karpathy's nanoGPT (shakespeare_char) | nanoGPT's settings: a 6-layer, 6-head, 384-wide GPT with 256 tokens of context, AdamW with warm-up and cosine decay over 5,000 steps, then a new scene | validation loss 1.57 at step 750 (150 s with TF32); a full 5,000-step run currently runs out of host direct memory after about 900 steps |
+| `NanoGptShakespeare` | Andrej Karpathy's nanoGPT (shakespeare_char) | nanoGPT's settings: a 6-layer, 6-head, 384-wide GPT with 256 tokens of context, AdamW with warm-up and cosine decay over 5,000 steps, then a new scene | validation loss 1.69 after 5,000 steps (lowest 1.47 at step 2,000); 915 s with TF32 |
 | `VaeMnist` | DL4J VariationalAutoEncoderExample, PyTorch's VAE | PyTorch's settings: a 784-400-20 variational autoencoder, 10 epochs; decodes 64 random latent points into `vae-digits.png` | test loss 105.5 per image; 0.4 s per epoch |
 | `DcganMnist` | PyTorch's DCGAN (`--dataset mnist`) | MNIST at 64x64, five transposed convolutions against five convolutions, Adam for both, 25 epochs; writes `dcgan-digits.png` | 74 s per epoch (54 s with TF32) |
 | `Word2VecShakespeare` | DL4J Word2VecRawTextExample | skip-gram with negative sampling; nearest neighbours of a few words | "father": mother, guest, ... |
@@ -82,7 +82,7 @@ jitNN; PyTorch uses TF32 for convolutions by default.
 | `VaeMnist` | 55 s (10 epochs) | 13.6 s | | test loss 105.4 / 105.5 |
 | `DcganMnist` | 16-18 s per epoch | 74 s per epoch | 54 s per epoch | similar losses |
 | `GcnCora` | 0.8 s (200 epochs) | 3.6 s | | 80.9% / 77.6% |
-| `NanoGptShakespeare` | 607 s FP32, 298 s bf16 and `torch.compile` (val loss 1.70) | out of memory after about 900 steps | | |
+| `NanoGptShakespeare` | 607 s FP32, 298 s bf16 and `torch.compile` | | 915 s | validation loss 1.70 / 1.69 |
 
 ## Data
 

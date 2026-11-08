@@ -14,11 +14,13 @@ import org.beehive.jitnn.nn.LayerNorm;
 import org.beehive.jitnn.nn.Module;
 import org.beehive.jitnn.nn.optim.Adam;
 import org.beehive.jitnn.nn.optim.LRScheduler;
+import org.beehive.jitnn.ops.AttentionSoftmax;
 
 /**
  * Trains a GPT from scratch on Tiny Shakespeare, Andrej Karpathy's nanoGPT with its
  * shakespeare_char settings: the 65 characters of the text as tokens, 6 layers, 6 heads, 384 wide,
- * 256 tokens of context, dropout 0.2, no biases, batches of 64 random windows, AdamW (lr 1e-3,
+ * 256 tokens of context, dropout 0.2 (on the embeddings, the attention weights and both residual
+ * branches), no biases, batches of 64 random windows, AdamW (lr 1e-3,
  * beta2 0.99, weight decay 0.1 on the matrices only) with 100 warm-up steps and a cosine decay to
  * 1e-4 over 5,000 steps, gradients clipped to 1. Every 250 steps the loss is estimated on 200
  * training and 200 validation batches, as nanoGPT does. Afterwards it writes a new scene.
@@ -57,6 +59,7 @@ public final class NanoGptShakespeare {
         final Proj proj;
         final Proj fc;
         final Proj fcProj;
+        final Dropout attnDrop;
         final Dropout drop1;
         final Dropout drop2;
 
@@ -66,6 +69,7 @@ public final class NanoGptShakespeare {
             this.proj = child(new Proj(DIM, DIM, residual, seed + 1));
             this.fc = child(new Proj(DIM, 4 * DIM, 0.02f, seed + 2));
             this.fcProj = child(new Proj(4 * DIM, DIM, residual, seed + 3));
+            this.attnDrop = child(new Dropout(DROPOUT, seed + 6));
             this.drop1 = child(new Dropout(DROPOUT, seed + 4));
             this.drop2 = child(new Dropout(DROPOUT, seed + 5));
         }
@@ -78,9 +82,18 @@ public final class NanoGptShakespeare {
             Tensor q = qkvs[0].reshape(b, HEADS, t, DIM / HEADS);
             Tensor k = qkvs[1].reshape(b, HEADS, t, DIM / HEADS);
             Tensor v = qkvs[2].reshape(b, HEADS, t, DIM / HEADS);
-            Tensor a = F.scaledDotProductAttention(q, k, v, null, true, -1).permute(0, 2, 1, 3).reshape(b, t, DIM);
+            Tensor a = attention(q, k, v).permute(0, 2, 1, 3).reshape(b, t, DIM);
             x = x.add(drop1.forward(proj.forward(a)));
             return x.add(drop2.forward(fcProj.forward(fc.forward(ln2.forward(x)).gelu())));
+        }
+
+        /** Causal attention; in training with dropout on the attention weights, as nanoGPT's SDPA dropout_p. */
+        Tensor attention(Tensor q, Tensor k, Tensor v) {
+            if (!isTraining()) {
+                return F.scaledDotProductAttention(q, k, v, null, true, -1);
+            }
+            Tensor weights = AttentionSoftmax.apply(q.matmul(k, false, true), (float) (1.0 / Math.sqrt(q.dim(-1))), true);
+            return attnDrop.forward(weights).matmul(v);
         }
     }
 
@@ -144,7 +157,6 @@ public final class NanoGptShakespeare {
         Adam optNoDecay = new Adam(noDecay, 1e-3f, 0.9f, 0.99f, 1e-8f, 0, true);
         LRScheduler schedule = LRScheduler.warmupCosine(opt, 100, steps, 0.1f);
         LRScheduler scheduleNoDecay = LRScheduler.warmupCosine(optNoDecay, 100, steps, 0.1f);
-        opt.clipGradNorm(1.0f);
         System.out.printf("GPT with %,d parameters, %d characters in the vocabulary, %,d characters of text%n", gpt.parameterCount(), vocab, tokens.length);
 
         Random random = new Random(1337);
@@ -164,6 +176,9 @@ public final class NanoGptShakespeare {
             Tensor logits = gpt.forward(Tensor.of(x, batch, CONTEXT));
             Tensor loss = F.crossEntropy(logits.reshape(batch * CONTEXT, vocab), Tensor.of(y, batch * CONTEXT));
             loss.backward();
+            // every step, as nanoGPT's grad_clip (here the norm of each parameter group)
+            opt.clipGradNorm(1.0f);
+            optNoDecay.clipGradNorm(1.0f);
             opt.step();
             optNoDecay.step();
             loss.item();
