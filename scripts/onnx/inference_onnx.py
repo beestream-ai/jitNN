@@ -1,11 +1,11 @@
-"""ONNX Runtime on the T1 ONNX files (written by jitNN-benchmarking's scripts/t1.py): the reference outputs and
-timings that OnnxT1AccelTest compares jitNN against, on the same files and inputs.
+"""ONNX Runtime on the inference benchmark's ONNX files (written by jitNN-benchmarking's scripts/inference.py): the reference outputs and
+timings that OnnxInferenceAccelTest compares jitNN against, on the same files and inputs.
 
 For each <work dir>/<name>.onnx: inputs as InferenceBenchAccelTest builds them, ONNX Runtime's CUDA
 provider (TF32 off for FP32 files), host input in and host output out, 10 warm-up calls and the
 median of 50. Writes <name>.ort.f32 (the output) and ort_t1.json.
 
-usage: python t1_onnx.py <work dir>
+usage: python inference_onnx.py <work dir>
 """
 import json
 import os

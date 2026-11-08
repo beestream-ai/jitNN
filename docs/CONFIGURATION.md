@@ -170,9 +170,9 @@ latter through `jitnn.test.extra`).
 | `jitnn.bench.split` | `false` | `InferenceBenchAccelTest`: also print where a call's time goes (recording, execution, fetching the output, converting it to floats) |
 | `jitnn.bench.profileTasks` | `false` | `InferenceBenchAccelTest` with `jitnn.profile`: also print the device time of every task, not only per operator |
 | `jitnn.bench.warmup`, `jitnn.bench.runs` | 10, 50 | warm-up and timed calls of `InferenceBenchAccelTest` |
-| `jitnn.bench.out` | empty | directory where `InferenceBenchAccelTest` writes its outputs, for `scripts/t1.py` in [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking) to compare |
-| `jitnn.onnx.t1` | empty | directory with the exported ResNet-50 and BERT-base ONNX files and ONNX Runtime's outputs; `OnnxT1AccelTest` is skipped when empty |
-| `jitnn.onnx.t1.match` | empty | run only the ONNX files whose name contains this text |
+| `jitnn.bench.out` | empty | directory where `InferenceBenchAccelTest` writes its outputs, for `scripts/inference.py` in [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking) to compare |
+| `jitnn.onnx.inference` | empty | directory with the exported ResNet-50 and BERT-base ONNX files and ONNX Runtime's outputs; `OnnxInferenceAccelTest` is skipped when empty |
+| `jitnn.onnx.inference.match` | empty | run only the ONNX files whose name contains this text |
 | `jitnn.probe` | `false` | run `GradProbeTest`: MobileNetV2 step-0 gradients on the reference backend against PyTorch FP64, per parameter (needs `jitnn.mnist`) |
 
 `NativeAccelTest` runs only when vendor libraries are requested

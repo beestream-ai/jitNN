@@ -20,11 +20,11 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Inference latency of ResNet-50 and BERT-base, measured the way jitNN-benchmarking's scripts/t1.py measures
+ * Inference latency of ResNet-50 and BERT-base, measured the way jitNN-benchmarking's scripts/inference.py measures
  * ONNX Runtime, PyTorch and DJL on the same GPU: host input in, host output out, a warm-up, then
  * the median of timed runs. The models are built from the same seeds as the Python side, so every
  * framework runs the same weights on the same inputs; with {@code -Djitnn.bench.out=<dir>} the
- * outputs are written there for t1.py to compare.
+ * outputs are written there for inference.py to compare.
  *
  * <p>Runs only with {@code -Djitnn.bench.inference=true}; {@code -Djitnn.bench.models=resnet50,bert}
  * picks the models.
@@ -45,7 +45,7 @@ class InferenceBenchAccelTest {
         return Arrays.asList(System.getProperty("jitnn.bench.models", "resnet50,bert").split(",")).contains(model);
     }
 
-    /** The deterministic inputs t1.py builds: pixels in [-1, 1) and token ids spread over the vocabulary. */
+    /** The deterministic inputs inference.py builds: pixels in [-1, 1) and token ids spread over the vocabulary. */
     static uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray half(float[] x) {
         var h = new uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray(x.length);
         for (int i = 0; i < x.length; i++) {
@@ -123,13 +123,13 @@ class InferenceBenchAccelTest {
         long[] after = Engine.trafficStats();
         Arrays.sort(ms);
         double median = ms[RUNS / 2];
-        System.out.printf("[t1] jitnn %-28s median %8.3f ms  p10 %8.3f  p90 %8.3f  %10.1f samples/s  (first call %.0f ms)%n", name, median, ms[RUNS / 10], ms[RUNS * 9 / 10],
+        System.out.printf("[inference] jitnn %-28s median %8.3f ms  p10 %8.3f  p90 %8.3f  %10.1f samples/s  (first call %.0f ms)%n", name, median, ms[RUNS / 10], ms[RUNS * 9 / 10],
                 samples * 1000 / median, compile);
         if (cpuStats) {
             System.out.print(Engine.cpuReport());
         }
         long[] plansAfter = Engine.planStats();
-        System.out.printf("[t1] plans %-28s %d compiled, %d replayed (%d remembered) in %d calls%n", name, plansAfter[0] - plans[0], plansAfter[1] - plans[1], plansAfter[3] - plans[3],
+        System.out.printf("[inference] plans %-28s %d compiled, %d replayed (%d remembered) in %d calls%n", name, plansAfter[0] - plans[0], plansAfter[1] - plans[1], plansAfter[3] - plans[3],
                 RUNS);
         // per call: kernel launches, library calls, and the bytes the operators read and write at least
         System.out.printf("[traffic] %-28s %6.0f kernels %4.0f library calls %10.1f MB%n", name, (after[1] - before[1]) / (double) RUNS, (after[2] - before[2]) / (double) RUNS,
@@ -181,7 +181,7 @@ class InferenceBenchAccelTest {
             }
             double wall = (System.nanoTime() - t0) / 1e9;
             Arrays.sort(ms);
-            System.out.printf("[t1] jitnn %-28s %d threads: %10.1f samples/s, median latency %8.3f ms%n", name, threads, samples * (double) ms.length / wall, ms[ms.length / 2]);
+            System.out.printf("[inference] jitnn %-28s %d threads: %10.1f samples/s, median latency %8.3f ms%n", name, threads, samples * (double) ms.length / wall, ms[ms.length / 2]);
         } finally {
             pool.shutdown();
         }
@@ -227,7 +227,7 @@ class InferenceBenchAccelTest {
         for (double[] a : t) {
             Arrays.sort(a);
         }
-        System.out.printf("[t1] split %-28s record %.3f  execute %.3f (jitNN host %.3f, TornadoVM execute() %.3f)  fetch %.3f  convert %.3f ms (median)%n", name, t[0][n / 2], t[1][n / 2],
+        System.out.printf("[inference] split %-28s record %.3f  execute %.3f (jitNN host %.3f, TornadoVM execute() %.3f)  fetch %.3f  convert %.3f ms (median)%n", name, t[0][n / 2], t[1][n / 2],
                 t[4][n / 2], t[5][n / 2], t[2][n / 2], t[3][n / 2]);
     }
 
@@ -236,7 +236,7 @@ class InferenceBenchAccelTest {
         if (Boolean.getBoolean("jitnn.bench.profileTasks")) {
             // every task of the plan, not grouped by operator
             perTask.entrySet().stream().sorted((x, y) -> Long.compare(y.getValue()[1], x.getValue()[1])).limit(20)
-                    .forEach(en -> System.out.printf("[t1]   task %-44s %8.3f ms  %4d launches%n", en.getKey(), en.getValue()[1] / 1e6 / RUNS, en.getValue()[0] / RUNS));
+                    .forEach(en -> System.out.printf("[inference]   task %-44s %8.3f ms  %4d launches%n", en.getKey(), en.getValue()[1] / 1e6 / RUNS, en.getValue()[0] / RUNS));
         }
         java.util.Map<String, long[]> perOp = new java.util.TreeMap<>();
         long total = 0;
@@ -248,10 +248,10 @@ class InferenceBenchAccelTest {
             total += en.getValue()[1];
             launches += en.getValue()[0];
         }
-        System.out.printf("[t1] profile %s: %d launches, %.3f ms of kernels per call%n", name, launches / RUNS, total / 1e6 / RUNS);
+        System.out.printf("[inference] profile %s: %d launches, %.3f ms of kernels per call%n", name, launches / RUNS, total / 1e6 / RUNS);
         long all = total;
         perOp.entrySet().stream().sorted((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1])).limit(12)
-                .forEach(en -> System.out.printf("[t1]   %-40s %8.3f ms %5.1f%%  %4d launches%n", en.getKey(), en.getValue()[1] / 1e6 / RUNS,
+                .forEach(en -> System.out.printf("[inference]   %-40s %8.3f ms %5.1f%%  %4d launches%n", en.getKey(), en.getValue()[1] / 1e6 / RUNS,
                         100.0 * en.getValue()[1] / all, en.getValue()[0] / RUNS));
     }
 
@@ -262,13 +262,13 @@ class InferenceBenchAccelTest {
         }
         long m0 = System.nanoTime();
         Module model = ResNet.resnet50(3, 1000, false, 1);
-        System.out.printf("[t1] build resnet50: %.0f ms%n", (System.nanoTime() - m0) / 1e6);
+        System.out.printf("[inference] build resnet50: %.0f ms%n", (System.nanoTime() - m0) / 1e6);
         model.train(false);
         // fp32; fp16h: FP16 activations, convolutions on cuDNN in FP16 (needs -Djitnn.native)
         for (String mode : new String[] { "fp32", "fp16h" }) {
             for (int b : new int[] { 1, 32, 128 }) {
                 float[] x = images(b * 3 * 224 * 224);
-                // FP16 runs take an FP16 image, as PyTorch and ONNX Runtime do in t1.py
+                // FP16 runs take an FP16 image, as PyTorch and ONNX Runtime do in inference.py
                 uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray xh = mode.equals("fp16h") ? half(x) : null;
                 String name = "resnet50_b" + b + "_" + mode;
                 Supplier<Tensor> forward = () -> Grad.inference(() -> {
@@ -292,7 +292,7 @@ class InferenceBenchAccelTest {
         }
         long m0 = System.nanoTime();
         Bert model = new Bert(BERT_VOCAB, 512, 768, 12, 12, 1);
-        System.out.printf("[t1] build bert: %.0f ms%n", (System.nanoTime() - m0) / 1e6);
+        System.out.printf("[inference] build bert: %.0f ms%n", (System.nanoTime() - m0) / 1e6);
         model.train(false);
         int[][] shapes = { { 1, 128 }, { 32, 128 }, { 8, 512 } };
         // fp32; fp16: autocast (FP16 weights and products, FP32 activations); fp16h: FP16 activations too

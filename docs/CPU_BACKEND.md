@@ -211,7 +211,7 @@ existing `GoldenTest` and `ReferenceOpsTest` gain a CPU run:
 - sizes include tails that are not a multiple of the vector width;
 - strided and transposed GEMM layouts are included.
 
-Model level: logits match PyTorch FP32 within the bounds that t1 already reports.
+Model level: logits match PyTorch FP32 within the bounds that inference.py already reports.
 
 ## Build and run
 
@@ -231,7 +231,7 @@ Model level: logits match PyTorch FP32 within the bounds that t1 already reports
   Each machine has PyTorch CPU and ONNX Runtime CPU numbers, on all threads and on 1 thread, for
   ResNet-50 (b1/b32/b128), BERT (b1/b32 s128, b8 s512), training, and the jitNN REFERENCE
   backend.
-- **Same harness.** `t1.py --device cpu` and `InferenceBenchAccelTest` with
+- **Same harness.** `inference.py --device cpu` and `InferenceBenchAccelTest` with
   `-Djitnn.backend=cpu` produce the comparable rows.
 - **OpenCL on the CPU, whole models.** The TORNADO backend on an OpenCL CPU device (the x86
   machine, FP32, median ms; training in ms per step) against the Vector API kernels of the same

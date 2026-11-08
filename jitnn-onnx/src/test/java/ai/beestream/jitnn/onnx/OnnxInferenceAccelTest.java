@@ -17,12 +17,12 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * The T1 models from their ONNX files: ResNet-50 and BERT-base exported by PyTorch
- * (jitNN-benchmarking's scripts/t1.py), run by jitNN through the importer and compared with ONNX Runtime on the
- * same files and inputs (scripts/onnx/t1_onnx.py writes its outputs next to the models). Runs only
- * with {@code -Djitnn.onnx.t1=<work dir>}; {@code -Djitnn.onnx.t1.match=<substring>} picks files.
+ * The inference benchmark's models from their ONNX files: ResNet-50 and BERT-base exported by PyTorch
+ * (jitNN-benchmarking's scripts/inference.py), run by jitNN through the importer and compared with ONNX Runtime on the
+ * same files and inputs (scripts/onnx/inference_onnx.py writes its outputs next to the models). Runs only
+ * with {@code -Djitnn.onnx.inference=<work dir>}; {@code -Djitnn.onnx.inference.match=<substring>} picks files.
  */
-class OnnxT1AccelTest {
+class OnnxInferenceAccelTest {
 
     static final int WARMUP = 10;
     static final int RUNS = 50;
@@ -60,9 +60,9 @@ class OnnxT1AccelTest {
 
     @Test
     void t1Models() throws Exception {
-        String dir = System.getProperty("jitnn.onnx.t1", "");
-        assumeTrue(!dir.isEmpty(), "set -Djitnn.onnx.t1=<dir with the T1 .onnx files>");
-        String match = System.getProperty("jitnn.onnx.t1.match", "");
+        String dir = System.getProperty("jitnn.onnx.inference", "");
+        assumeTrue(!dir.isEmpty(), "set -Djitnn.onnx.inference=<dir with the inference benchmark's .onnx files>");
+        String match = System.getProperty("jitnn.onnx.inference.match", "");
         Path work = Path.of(dir);
         String[] files;
         try (Stream<Path> s = Files.list(work)) {

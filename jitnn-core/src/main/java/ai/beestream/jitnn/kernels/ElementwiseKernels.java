@@ -12,7 +12,7 @@ import uk.ac.manchester.tornado.api.types.arrays.IntArray;
  * across a launch, so its cost is negligible next to the memory traffic, and one compiled kernel
  * serves every op of that arity.
  *
- * <p>Kernel code uses non-short-circuit {@code &} and {@code |} in conditions (TornadoVM bug T1:
+ * <p>Kernel code uses non-short-circuit {@code &} and {@code |} in conditions (TornadoVM bug:
  * short-circuit operators inside loops can drop a branch).
  */
 public final class ElementwiseKernels {

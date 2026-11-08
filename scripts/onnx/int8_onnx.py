@@ -1,16 +1,16 @@
-"""INT8 versions of the T1 ONNX files, made with ONNX Runtime's quantisation tools, and their
-references for OnnxT1AccelTest (-Djitnn.onnx.t1.match=int8).
+"""INT8 versions of the inference benchmark's ONNX files, made with ONNX Runtime's quantisation tools, and their
+references for OnnxInferenceAccelTest (-Djitnn.onnx.inference.match=int8).
 
 - BERT: dynamic quantisation (int8 weights, activations quantised per call: DynamicQuantizeLinear
   and MatMulInteger), as quantize_dynamic writes it.
 - ResNet-50: static quantisation in the QDQ format, int8 per-channel weights, uint8 activations
-  calibrated on the T1 images.
+  calibrated on the inference benchmark's images.
 
 For each model: <name>.ort.f32, the output of ONNX Runtime's CPU provider (which runs the integer
 kernels), the agreement of that output with the FP32 model, and the median time of ONNX Runtime's
-CUDA provider on the INT8 file. Inputs as in t1_onnx.py.
+CUDA provider on the INT8 file. Inputs as in inference_onnx.py.
 
-usage: python int8_onnx.py <T1 work dir> <out dir>
+usage: python int8_onnx.py <inference work dir> <out dir>
 """
 import json
 import os
