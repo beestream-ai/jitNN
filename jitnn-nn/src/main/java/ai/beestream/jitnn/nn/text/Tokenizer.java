@@ -17,7 +17,6 @@ package ai.beestream.jitnn.nn.text;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -204,13 +203,9 @@ public final class Tokenizer {
     }
 
     /** Loads {@code tokenizer.json}, or the one inside directory {@code path}. */
-    public static Tokenizer load(Path path) {
+    public static Tokenizer load(Path path) throws IOException {
         Path file = Files.isDirectory(path) ? path.resolve("tokenizer.json") : path;
-        try {
-            return new Tokenizer(map(Json.parse(file), file.toString()));
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return new Tokenizer(map(Json.parse(file), file.toString()));
     }
 
     private void normalizer(Object o) {

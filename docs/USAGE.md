@@ -30,9 +30,35 @@ parameters) and replayed without compiling when that structure recurs, as on eve
   reused"). Values already read to the host stay valid.
 - **Keep the step's structure stable.** A new batch size or branch compiles a new plan.
   `-Djitnn.verbose=true` logs each compile.
-- **Close models you are done with.** Closing an `OnnxSession`, a `TfModel` or a DJL model (or
-  calling `Tensor.release()` on its weights) lets the next model of the same structure reuse its
-  plans without compiling. A released tensor cannot be used again.
+- **Close models you are done with.** Closing a `Module`, an `OnnxSession`, a `TfModel` or a DJL
+  model (or calling `Tensor.release()` on its weights) releases its weights, and the folded and
+  channels-last copies jitNN made of them. Their plans stay cached, so the next model of the same
+  structure reuses them without compiling; otherwise they are closed once idle, or by
+  `JitnnRuntime.reset()`. A released tensor cannot be used again.
+
+## Threads and errors
+
+**Threads.** Recording is per thread: each thread has its own trace, backend and device, and a
+sync point runs only what that thread recorded. Plans, weights on the device and the
+configuration are shared by the JVM.
+
+| May be used from several threads at once | One thread at a time |
+|---|---|
+| `JitnnRuntime`, `JitnnConfig`; inference: `OnnxSession.run`, `TfModel.run`, and `Grad.inference` over a `Module` in evaluation mode, which share its weights (up to `-Djitnn.concurrency` plans run at once, the rest in turn) | training: a `Module`'s forward and backward, `zeroGrad`, optimisers, `GradScaler`, `LRScheduler`; configuring a model or session (`train`, `loadStateDict`, `withBuckets`); a `DataLoader`'s iterator; a tensor that has not been synced yet |
+
+A tensor computed on one thread can be read on another once the thread that recorded it has
+synced it (read it, or `JitnnRuntime.sync(t)`). Tensors belong to the device they were computed
+on: move data between ranks through a `Collective`.
+
+**Errors.** `JitnnException` (unchecked) reports a device or runtime failure: a plan TornadoVM
+could not compile or run, a failed vendor-library call, a native library of the CPU backend that
+could not be called; its cause is the underlying exception. Misuse is reported with
+`IllegalArgumentException` (shapes, types, invalid options) and `IllegalStateException` (a
+released tensor, a reused buffer). Loaders (`StateDict.load`, `HfCheckpoint.open`,
+`Tokenizer.load`, `fromHuggingFace`, `OnnxModel.load`, `TfModel.load`, `GgufFile.open`) throw
+`IOException` for files that cannot be read or parsed. When a rank of `ProcessGroup.run` fails,
+the collective is aborted, the other ranks fail at their next collective, and the first failure
+is thrown.
 
 ## Autograd
 

@@ -180,7 +180,7 @@ public final class Dnnl {
             }
             return out.get(ValueLayout.ADDRESS, 0);
         } catch (Throwable e) {
-            throw new IllegalStateException(e);
+            throw new ai.beestream.jitnn.JitnnException("calling " + "oneDNN" + " failed", e);
         }
     });
 
@@ -390,7 +390,7 @@ public final class Dnnl {
                 throw e;
             } catch (Throwable e) {
                 lastOwner = null;
-                throw new IllegalStateException(e);
+                throw new ai.beestream.jitnn.JitnnException("calling " + "oneDNN" + " failed", e);
             }
         }
     }

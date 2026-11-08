@@ -16,7 +16,6 @@
 package ai.beestream.jitnn.nn.models;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -64,20 +63,20 @@ public final class HfCheckpoint {
         }
     }
 
-    private void add(Path file) {
-        StateDict d = files.computeIfAbsent(file.toString(), f -> StateDict.load(file));
+    private void add(Path file) throws IOException {
+        StateDict d = files.get(file.toString());
+        if (d == null) {
+            d = StateDict.load(file);
+            files.put(file.toString(), d);
+        }
         for (String n : d.tensorNames()) {
             byName.put(n, d);
         }
     }
 
     /** Opens a model directory. */
-    public static HfCheckpoint open(Path dir) {
-        try {
-            return new HfCheckpoint(dir);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+    public static HfCheckpoint open(Path dir) throws IOException {
+        return new HfCheckpoint(dir);
     }
 
     /** The directory the checkpoint was read from. */

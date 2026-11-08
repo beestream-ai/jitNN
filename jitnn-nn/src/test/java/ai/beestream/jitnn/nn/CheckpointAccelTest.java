@@ -37,14 +37,14 @@ class CheckpointAccelTest {
     }
 
     @Test
-    void resumeMatchesEveryOptimizer() {
+    void resumeMatchesEveryOptimizer() throws Exception {
         for (var make : CheckpointRun.optimizers()) {
             CheckpointRun.resumeMatches(make, dir, 4);
         }
     }
 
     @Test
-    void buffersRoundTrip() {
+    void buffersRoundTrip() throws Exception {
         CheckpointRun.buffersRoundTrip(dir);
     }
 }

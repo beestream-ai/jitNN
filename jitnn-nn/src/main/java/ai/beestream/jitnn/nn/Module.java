@@ -22,8 +22,15 @@ import java.util.List;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.io.StateDict;
 
-/** A differentiable building block with parameters and child modules. */
-public abstract class Module {
+/**
+ * A differentiable building block with parameters and child modules.
+ *
+ * <p>A module owns its parameters and buffers, and its children's. {@link #close()} releases them
+ * on the device. Training a module (forward and backward, {@code zeroGrad}, its optimiser) is for
+ * one thread at a time; inference in evaluation mode ({@code Grad.inference}) may run from several
+ * threads at once, sharing the weights.
+ */
+public abstract class Module implements AutoCloseable {
 
     private final List<Tensor> params = new ArrayList<>();
     private final List<Module> children = new ArrayList<>();
@@ -153,5 +160,38 @@ public abstract class Module {
         for (int i = 0; i < bs.size(); i++) {
             d.copyInto("buffers." + i, bs.get(i));
         }
+    }
+
+    private boolean closed;
+
+    /**
+     * Releases the parameters and buffers of this module and its children, their gradients, and
+     * the weights jitNN derived from them (BatchNorm-folded and channels-last copies). Using the
+     * module afterwards is an error. Plans compiled for it stay cached for a model of the same
+     * structure, which reuses them without compiling, and are closed once idle
+     * ({@code jitnn.plan.idleExecutions}) or by {@code JitnnRuntime.reset()}. Closing twice does
+     * nothing.
+     */
+    @Override
+    public void close() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        for (Tensor p : parameters()) {
+            Tensor g = p.grad();
+            if (g != null) {
+                g.release();
+            }
+            p.release();
+        }
+        for (Tensor b : buffers()) {
+            b.release();
+        }
+    }
+
+    /** Whether {@link #close()} was called. */
+    public boolean isClosed() {
+        return closed;
     }
 }

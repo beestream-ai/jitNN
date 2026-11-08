@@ -233,7 +233,7 @@ public final class Native {
             Devices.apply(plan);
             plan.execute();
         } catch (uk.ac.manchester.tornado.api.exceptions.TornadoExecutionPlanException e) {
-            throw new IllegalStateException(e);
+            throw new ai.beestream.jitnn.JitnnException("a vendor library probe failed on " + Devices.name(), e);
         }
     }
 

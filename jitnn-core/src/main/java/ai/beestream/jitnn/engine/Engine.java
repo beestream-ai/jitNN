@@ -20,6 +20,7 @@ import java.util.function.Supplier;
 
 import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.JitnnConfig;
+import ai.beestream.jitnn.JitnnException;
 import ai.beestream.jitnn.Tensor;
 
 /**
@@ -153,10 +154,14 @@ public final class Engine {
         }
         List<Node> nodes = Trace.drain();
         if (!nodes.isEmpty()) {
-            if (backend() == Backend.CPU) {
-                CpuExecutor.run(nodes, wanted);
-            } else {
-                TornadoExecutor.run(nodes, wanted);
+            try {
+                if (backend() == Backend.CPU) {
+                    CpuExecutor.run(nodes, wanted);
+                } else {
+                    TornadoExecutor.run(nodes, wanted);
+                }
+            } catch (RuntimeException e) {
+                throw JitnnException.wrap("running " + nodes.size() + " operators on " + (backend() == Backend.CPU ? "the CPU backend" : Devices.name()), e);
             }
         }
         for (Tensor t : wanted) {

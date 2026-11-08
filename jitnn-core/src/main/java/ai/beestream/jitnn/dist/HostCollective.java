@@ -15,8 +15,7 @@
  */
 package ai.beestream.jitnn.dist;
 
-import java.util.concurrent.BrokenBarrierException;
-import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Phaser;
 
 import ai.beestream.jitnn.Tensor;
 
@@ -29,7 +28,8 @@ import ai.beestream.jitnn.Tensor;
 public final class HostCollective implements Collective {
 
     private final int world;
-    private final CyclicBarrier barrier;
+    /** The ranks meet here; terminated by {@link #abort}, which releases every rank, now or later. */
+    private final Phaser barrier;
     private final float[][] staged;
     private volatile float[] result;
 
@@ -39,7 +39,7 @@ public final class HostCollective implements Collective {
             throw new IllegalArgumentException("world size " + worldSize);
         }
         this.world = worldSize;
-        this.barrier = new CyclicBarrier(worldSize);
+        this.barrier = new Phaser(worldSize);
         this.staged = new float[worldSize][];
     }
 
@@ -49,13 +49,8 @@ public final class HostCollective implements Collective {
     }
 
     private void await() {
-        try {
-            barrier.await();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("collective interrupted", e);
-        } catch (BrokenBarrierException e) {
-            throw new IllegalStateException("another rank failed during a collective", e);
+        if (barrier.arriveAndAwaitAdvance() < 0) {
+            throw new IllegalStateException("another rank failed: the collective was aborted");
         }
     }
 
@@ -152,7 +147,7 @@ public final class HostCollective implements Collective {
 
     /** Releases every rank waiting in a collective with an error (called when a rank fails). */
     public void abort() {
-        barrier.reset();
+        barrier.forceTermination();
     }
 
     @Override

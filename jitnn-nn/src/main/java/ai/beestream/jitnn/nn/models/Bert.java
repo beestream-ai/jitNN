@@ -15,6 +15,7 @@
  */
 package ai.beestream.jitnn.nn.models;
 
+import java.io.IOException;
 import java.nio.file.Path;
 
 import ai.beestream.jitnn.F;
@@ -103,7 +104,7 @@ public final class Bert extends Module {
      * heads (classification and the like) are left to the caller, who can read them with
      * {@link HfCheckpoint}.
      */
-    public static Bert fromHuggingFace(Path dir) {
+    public static Bert fromHuggingFace(Path dir) throws IOException {
         HfCheckpoint w = HfCheckpoint.open(dir);
         String type = w.configString("model_type", "bert");
         boolean distil = type.equals("distilbert");

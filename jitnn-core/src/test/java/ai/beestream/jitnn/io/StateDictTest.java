@@ -49,7 +49,7 @@ class StateDictTest {
     }
 
     @Test
-    void roundTripEveryType() {
+    void roundTripEveryType() throws Exception {
         Tensor f32 = Tensor.persistent(Tensor.of(new float[] { 1.5f, -2, 3.25f, 0, 7, -0.125f }, 2, 3));
         Tensor f16 = Tensor.persistentHalf(new float[] { 0.5f, -1, 65504 }, 3);
         Tensor bf16 = Tensor.persistent(ShortArray.fromElements((short) 0x3f80, (short) 0xc000), DType.BF16, 2);

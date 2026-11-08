@@ -110,7 +110,7 @@ public final class Blas {
                 try {
                     linker.downcallHandle(fn.get(), FunctionDescriptor.ofVoid(ValueLayout.JAVA_INT)).invokeExact(threads);
                 } catch (Throwable e) {
-                    throw new IllegalStateException(e);
+                    throw new ai.beestream.jitnn.JitnnException("calling " + "the BLAS library" + " failed", e);
                 }
                 return;
             }
@@ -137,7 +137,7 @@ public final class Blas {
                 }
             }
         } catch (Throwable e) {
-            throw new IllegalStateException(e);
+            throw new ai.beestream.jitnn.JitnnException("calling " + "the BLAS library" + " failed", e);
         }
     }
 
@@ -179,7 +179,7 @@ public final class Blas {
             try {
                 ompSetThreads.invokeExact(Cpu.threads());
             } catch (Throwable e) {
-                throw new IllegalStateException(e);
+                throw new ai.beestream.jitnn.JitnnException("calling " + "the BLAS library" + " failed", e);
             }
             THREADS_SET.set(Boolean.TRUE);
         }
@@ -196,7 +196,7 @@ public final class Blas {
             SGEMM.invokeExact(ROW_MAJOR, ta ? TRANS : NO_TRANS, tb ? TRANS : NO_TRANS, m, n, k, 1f, a.seg().asSlice(a.off() * 4), (int) lda, b.seg().asSlice(b.off() * 4), (int) ldb, beta,
                     c.asSlice(cOff * 4), (int) ldc);
         } catch (Throwable e) {
-            throw new IllegalStateException(e);
+            throw new ai.beestream.jitnn.JitnnException("calling " + "the BLAS library" + " failed", e);
         }
     }
 

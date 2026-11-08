@@ -63,6 +63,19 @@ public final class Fusion {
      */
     private static final Map<Storage, Map<List<Long>, Folded>> FOLDED = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
+    static {
+        // a released weight's folded copies go with it
+        Storage.onRelease(s -> {
+            Map<List<Long>, Folded> derived = FOLDED.remove(s);
+            if (derived != null) {
+                for (Folded f : derived.values()) {
+                    f.w().release();
+                    f.b().release();
+                }
+            }
+        });
+    }
+
     private Fusion() {
     }
 

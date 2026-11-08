@@ -66,6 +66,16 @@ public final class ChannelsLast {
 
     /** Channels-last copies of persistent convolution weights, by the weight's storage. */
     private static final java.util.Map<Storage, LastWeight> WEIGHTS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+    static {
+        // a released weight's channels-last copy goes with it
+        Storage.onRelease(s -> {
+            LastWeight c = WEIGHTS.remove(s);
+            if (c != null) {
+                c.w().release();
+            }
+        });
+    }
+
     static final Layout TO_LAST = new Layout(1);
     static final Layout TO_FIRST = new Layout(0);
 

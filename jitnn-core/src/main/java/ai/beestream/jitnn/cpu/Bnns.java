@@ -171,7 +171,7 @@ public final class Bnns {
         } catch (RuntimeException e) {
             throw e;
         } catch (Throwable e) {
-            throw new IllegalStateException(e);
+            throw new ai.beestream.jitnn.JitnnException("calling " + "BNNS" + " failed", e);
         }
     }
 
@@ -202,7 +202,7 @@ public final class Bnns {
             } catch (RuntimeException e) {
                 throw e;
             } catch (Throwable e) {
-                throw new IllegalStateException(e);
+                throw new ai.beestream.jitnn.JitnnException("calling " + "BNNS" + " failed", e);
             }
         }
     }
@@ -240,7 +240,7 @@ public final class Bnns {
             } catch (RuntimeException e) {
                 throw e;
             } catch (Throwable e) {
-                throw new IllegalStateException(e);
+                throw new ai.beestream.jitnn.JitnnException("calling " + "BNNS" + " failed", e);
             }
         }
     }

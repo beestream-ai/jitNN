@@ -243,7 +243,7 @@ final class PlanCache {
         try {
             ct.plan.close();
         } catch (TornadoExecutionPlanException e) {
-            throw new IllegalStateException(e);
+            throw new ai.beestream.jitnn.JitnnException("closing plan " + ct.name + " failed", e);
         }
     }
 
@@ -277,7 +277,7 @@ final class PlanCache {
         var it = CACHE.values().iterator();
         while (it.hasNext()) {
             CompiledTrace ct = it.next();
-            if (ct != running && !ct.busy && local(ct) && ct.intermediateBytes >= IDLE_BYTES && executionsTotal - ct.lastUsed > IDLE_EXECUTIONS) {
+            if (ct != running && !ct.busy && local(ct) && (ct.intermediateBytes >= IDLE_BYTES || orphaned(ct)) && executionsTotal - ct.lastUsed > IDLE_EXECUTIONS) {
                 if (VERBOSE) {
                     System.err.printf("[jitnn] closed idle plan %s (%.1f MB of intermediates)%n", ct.name, ct.intermediateBytes / 1e6);
                 }
@@ -285,6 +285,23 @@ final class PlanCache {
                 it.remove();
             }
         }
+    }
+
+    /**
+     * True when every weight the plan binds was released (its model was closed): the plan stays
+     * for a model of the same structure, and is closed once idle.
+     */
+    static boolean orphaned(CompiledTrace ct) {
+        boolean any = false;
+        for (Storage s : ct.bound) {
+            if (s != null && s.persistent) {
+                if (!s.released) {
+                    return false;
+                }
+                any = true;
+            }
+        }
+        return any;
     }
 
     /** Closes every cached plan except {@code keep}; false when there was nothing to close. */

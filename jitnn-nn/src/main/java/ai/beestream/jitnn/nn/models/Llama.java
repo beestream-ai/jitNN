@@ -15,6 +15,7 @@
  */
 package ai.beestream.jitnn.nn.models;
 
+import java.io.IOException;
 import java.nio.file.Path;
 
 import ai.beestream.jitnn.F;
@@ -94,7 +95,7 @@ public final class Llama extends Module {
      * q, k, v biases), grouped-query attention, tied or separate output weights, and linear or
      * Llama 3.1 RoPE scaling. A head dimension other than hidden_size / heads is not supported.
      */
-    public static Llama fromHuggingFace(Path dir) {
+    public static Llama fromHuggingFace(Path dir) throws IOException {
         HfCheckpoint w = HfCheckpoint.open(dir);
         String type = w.configString("model_type", "llama");
         if (!type.equals("llama") && !type.equals("mistral") && !type.equals("qwen2")) {

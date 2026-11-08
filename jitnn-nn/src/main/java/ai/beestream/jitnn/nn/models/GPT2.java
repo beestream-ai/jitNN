@@ -15,6 +15,7 @@
  */
 package ai.beestream.jitnn.nn.models;
 
+import java.io.IOException;
 import java.nio.file.Path;
 
 import ai.beestream.jitnn.F;
@@ -69,7 +70,7 @@ public final class GPT2 extends Module {
      * copy): {@code config.json} and safetensors weights, as {@code GPT2Model} or {@code GPT2LMHeadModel}
      * save them. The language-model head is the tied token embedding, as in GPT-2.
      */
-    public static GPT2 fromHuggingFace(Path dir) {
+    public static GPT2 fromHuggingFace(Path dir) throws IOException {
         HfCheckpoint w = HfCheckpoint.open(dir);
         int dim = w.configInt("n_embd");
         if (w.config().get("n_inner") instanceof Number inner && inner.intValue() != 4 * dim) {

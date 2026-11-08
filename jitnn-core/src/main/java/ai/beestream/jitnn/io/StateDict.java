@@ -235,7 +235,7 @@ public final class StateDict {
     }
 
     /** Writes the dictionary to {@code path} as safetensors; reading live tensors waits for them. */
-    public void save(Path path) {
+    public void save(Path path) throws IOException {
         Map<String, SafeTensors.Source> sources = new LinkedHashMap<>();
         if (!stored.isEmpty()) {
             for (String name : stored.keySet()) {
@@ -244,24 +244,16 @@ public final class StateDict {
             }
         }
         live.forEach((k, t) -> sources.put(k, source(t)));
-        try {
-            SafeTensors.write(path, sources, values);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        SafeTensors.write(path, sources, values);
     }
 
     /** Opens a safetensors file; tensors are read when copied in. */
-    public static StateDict load(Path path) {
-        try {
-            SafeTensors.Header h = SafeTensors.readHeader(path);
-            StateDict d = new StateDict(path);
-            d.stored.putAll(h.entries());
-            d.values.putAll(h.metadata());
-            return d;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+    public static StateDict load(Path path) throws IOException {
+        SafeTensors.Header h = SafeTensors.readHeader(path);
+        StateDict d = new StateDict(path);
+        d.stored.putAll(h.entries());
+        d.values.putAll(h.metadata());
+        return d;
     }
 
     private static SafeTensors.Source source(Tensor t) {

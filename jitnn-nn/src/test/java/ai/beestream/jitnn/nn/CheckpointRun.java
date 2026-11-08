@@ -86,7 +86,7 @@ final class CheckpointRun {
      * scheduler, loading them into a model and optimiser built from other seeds and training
      * {@code k} more give the same losses and weights, bit for bit.
      */
-    static void resumeMatches(Function<List<Tensor>, Optimizer> make, Path dir, int k) {
+    static void resumeMatches(Function<List<Tensor>, Optimizer> make, Path dir, int k) throws Exception {
         Sequential straight = mlp(1);
         Optimizer straightOpt = make.apply(straight.parameters());
         LRScheduler straightLr = LRScheduler.step(straightOpt, 3, 0.5f);
@@ -124,7 +124,7 @@ final class CheckpointRun {
     }
 
     /** Batch-norm running statistics are buffers: they are saved and restored with the model. */
-    static void buffersRoundTrip(Path dir) {
+    static void buffersRoundTrip(Path dir) throws Exception {
         BatchNorm2d bn = new BatchNorm2d(4);
         bn.forward(Tensor.normal(5, 1.0f, 2.0f, 8, 4, 3, 3));
         Path file = dir.resolve("bn.safetensors");
@@ -137,7 +137,7 @@ final class CheckpointRun {
     }
 
     /** Loading into a model of another structure, or another optimiser type, fails before writing anything. */
-    static void mismatchesAreRejected(Path dir) {
+    static void mismatchesAreRejected(Path dir) throws Exception {
         Sequential model = mlp(1);
         Path file = dir.resolve("m.safetensors");
         new StateDict().put("model", model.stateDict()).put("optimizer", new Adam(model.parameters(), 0.01f).stateDict()).save(file);

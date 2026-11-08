@@ -244,6 +244,16 @@ public final class Storage {
         return materialize();
     }
 
+    private static final java.util.List<java.util.function.Consumer<Storage>> RELEASE_HOOKS = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /**
+     * Calls {@code hook} when a persistent storage is released, so that weights derived from it
+     * (folded, channels-last) are released with it.
+     */
+    public static void onRelease(java.util.function.Consumer<Storage> hook) {
+        RELEASE_HOOKS.add(hook);
+    }
+
     /**
      * Declares that the storage is no longer used. A persistent storage (its model was closed): a
      * compiled plan that binds it can then be reused for another model of the same structure without
@@ -252,11 +262,17 @@ public final class Storage {
      */
     public void release() {
         if (persistent) {
+            if (released) {
+                return;
+            }
             // work recorded before the model was closed may still read it
             if (Engine.pending() > 0) {
                 Engine.sync();
             }
             released = true;
+            for (java.util.function.Consumer<Storage> hook : RELEASE_HOOKS) {
+                hook.accept(this);
+            }
         } else {
             drop();
         }
