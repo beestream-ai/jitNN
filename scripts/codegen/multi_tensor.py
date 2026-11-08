@@ -1,3 +1,16 @@
+# Copyright (c) 2026 Beestream Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Generates jitNN's multi-tensor kernels (MultiTensorKernels.java): optimiser updates and gradient
 statistics over several tensors in one launch, as PyTorch's foreach kernels. A kernel cannot pick
 an array at run time, so every slot is its own branch. TornadoVM tasks take at most 20 arguments,
@@ -11,6 +24,8 @@ STATS = 8
 
 o = []
 w = o.append
+from license_header import JAVA_HEADER  # noqa: E402
+w(JAVA_HEADER.rstrip("\n"))
 w("""package ai.beestream.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;

@@ -203,3 +203,5 @@ DEVELOPMENT
 
 jitNN is released under the [Apache License, Version 2.0](https://github.com/beestream-ai/jitNN/blob/main/LICENSE).
 Copyright (c) 2026 Beestream Ltd.
+Third-party material (code from jitllm under the MIT License, the Iris data under CC BY 4.0)
+is listed in [NOTICE](https://github.com/beestream-ai/jitNN/blob/main/NOTICE).

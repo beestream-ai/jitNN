@@ -1,3 +1,16 @@
+# Copyright (c) 2026 Beestream Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Step-0 gradients of the CNN gate models in FP64 (the "true" gradient), and how far PyTorch's
 own FP32 gradients are from it per parameter. Writes <prefix>.grad0_f64 (float64 values, in
 parameters() order) and <prefix>.grad0_f32err (float32 relative L2 error of PyTorch FP32, per

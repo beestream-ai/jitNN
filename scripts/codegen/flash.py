@@ -1,3 +1,16 @@
+# Copyright (c) 2026 Beestream Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Generates jitNN's fused attention kernels (FlashAttention tiling, KernelContext) for one head
 dimension limit D. Local-memory arrays need compile-time sizes, so each limit is its own class.
 
@@ -34,6 +47,8 @@ DELTA = """    /** delta[r] = sum over c of dO[r, c] * O[r, c] for the n = Z * T
     }
 """ if D == 64 else ""
 
+from license_header import JAVA_HEADER  # noqa: E402
+print(JAVA_HEADER, end="")
 print(f"""package ai.beestream.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;

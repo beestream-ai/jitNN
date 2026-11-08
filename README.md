@@ -191,3 +191,5 @@ The same pages build as a Read the Docs site (`.readthedocs.yaml`). To build it 
 
 jitNN is released under the [Apache License, Version 2.0](LICENSE).
 Copyright (c) 2026 Beestream Ltd.
+Third-party material (code from jitllm under the MIT License, the Iris data under CC BY 4.0)
+is listed in [NOTICE](NOTICE).

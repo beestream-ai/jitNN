@@ -1,3 +1,16 @@
+# Copyright (c) 2026 Beestream Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Channels-last Winograd F(4x4, 3x3) transforms, derived from the NCHW ones in ConvKernels.java.
 
 usage: python3 scripts/codegen/winograd_channels_last.py > jitnn-core/src/main/java/ai/beestream/jitnn/kernels/ConvChannelsLastKernels.java
@@ -75,6 +88,8 @@ def main():
     inp = method(text, "winograd4Input")
     outp = method(text, "winograd4Output")
     wgt = method(text, "winograd4Weight")
+    from license_header import JAVA_HEADER
+    print(JAVA_HEADER, end="")
     print("package ai.beestream.jitnn.kernels;")
     print()
     print("import uk.ac.manchester.tornado.api.KernelContext;")

@@ -89,4 +89,4 @@ jitNN; PyTorch uses TF32 for convolutions by default.
 The examples download, on first use: MNIST, CIFAR-10, Tiny Shakespeare (from char-rnn), Cora
 (LINQS), the IMDB reviews (fast.ai's copy of Maas et al.), MovieLens ml-latest-small (GroupLens),
 the prostate data (H2O), the red wine quality data (UCI), ResNet-50 from the ONNX model zoo, and
-GPT-2 and bert-base-uncased from Hugging Face. The iris data (UCI, CC BY 4.0) ships with the module.
+GPT-2 and bert-base-uncased from Hugging Face. The iris data (UCI, CC BY 4.0, see [NOTICE](../NOTICE)) ships with the module.
