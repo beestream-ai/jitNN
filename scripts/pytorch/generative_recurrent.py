@@ -1,7 +1,8 @@
 """PyTorch references for jitNN's generative and recurrent gates: a VAE, a DCGAN and a U-Net on
-MNIST, and LSTM and GRU character language models on the text corpus. Built exactly like jitnn.nn.models (same layers,
-parameter order and seeds, so bit-identical initial weights), trained on the same batches with
-the same noise (jitNN's Philox, reproduced by jitnn_init.uniform).
+MNIST, and LSTM and GRU character language models on the text corpus. Built exactly like
+jitnn.nn.models (same layers, parameter order and seeds, so bit-identical initial weights),
+trained on the same batches with the same noise (jitNN's Philox, reproduced by
+jitnn_init.uniform).
 
 usage: python generative_recurrent.py train  <vae|dcgan|unet|lstm|gru> <data dir> <out file>
        python generative_recurrent.py grad64 <vae|dcgan|unet|lstm|gru> <data dir> <out prefix>
