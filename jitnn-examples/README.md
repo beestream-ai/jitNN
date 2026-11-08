@@ -16,8 +16,8 @@ jitnn-examples/run.sh Gpt2TextGeneration "The meaning of life is" 80
 
 - Downloads go to `~/.jitnn/examples` (`JAVA_OPTS=-Djitnn.examples.data=<dir>` to change it).
 - `JAVA_OPTS` passes JVM flags: `-Djitnn.device=1:0` for another device (`tornado --devices` lists
-  them), `-Djitnn.verbose=true` to log every compiled plan, `-Djitnn.withNative=true` to let jitNN
-  call cuBLAS and cuDNN.
+  them), `-Djitnn.verbose=true` to log every compiled plan, `-Djitnn.native=auto` to call the vendor
+  libraries where installed ([NATIVE.md](../docs/NATIVE.md)).
 - `JITNN_DEVICE_MEMORY` sets TornadoVM's device-memory budget (default 12GB).
 
 The first step of every example compiles the whole step (forward, backward and optimiser) into one

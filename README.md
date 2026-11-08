@@ -160,7 +160,8 @@ all are JVM system properties (`-D...`) unless marked as an API call.
 Fusion, buffer reuse, channels-last inference, Winograd convolutions, CUDA graphs and kernel
 sharing across shapes are on by default; their switches exist for debugging. In your own code, keep
 shapes stable between steps, read results (`item()`, `toFloatArray()`) once per step, since every
-read is a sync point, and release tensors you no longer need (`Tensor.release`). To see where time
+read is a sync point, and release what you no longer need: tensors with `release()`, models with
+`close()`, which also frees their derived weights and idle plans. To see where time
 goes, run with `-Djitnn.profile=true` and print `JitnnRuntime.kernelBreakdown()`; `-Djitnn.verbose=true`
 logs every compiled plan and `-Djitnn.debugKeys=true` shows why a step recompiles.
 [CONFIGURATION.md](docs/CONFIGURATION.md) lists every option. Benchmarks and results are in
@@ -171,14 +172,14 @@ logs every compiled plan and `-Djitnn.debugKeys=true` shows why a step recompile
 | Document | Contents |
 |---|---|
 | [INSTALL.md](docs/INSTALL.md) | TornadoVM, building, test data, the Python environments for the references |
-| [USAGE.md](docs/USAGE.md) | the user guide: tensors, sync points, autograd, modules, training, maths, devices, importers, DJL, custom operators |
+| [USAGE.md](docs/USAGE.md) | the user guide: tensors, sync points, threads and errors, autograd, modules, training, maths, devices, importers, DJL, custom operators |
 | [EXAMPLES](jitnn-examples/README.md) | complete example programs and how to run them |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | every `jitnn.*` option |
 | [NATIVE.md](docs/NATIVE.md) | vendor libraries: which operators use them, and the fallback |
 | [CPU_BACKEND.md](docs/CPU_BACKEND.md) | the Vector API CPU backend |
 | [OPERATORS.md](docs/OPERATORS.md) | every operator, the ONNX and TensorFlow operators, the DJL engine |
 | [VALIDATION.md](docs/VALIDATION.md) | how correctness is checked: references, gradients, model gates |
-| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | architecture, code layout, adding an operator, code generators |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | architecture, the public API and the internal packages, code layout, adding an operator, code generators |
 | [API reference](docs/api.md) | Javadoc for every module |
 
 The same pages build as a Read the Docs site: `pip install -r docs/requirements.txt && make -C docs html`.
