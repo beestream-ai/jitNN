@@ -28,9 +28,8 @@ import uk.ac.manchester.tornado.api.enums.TornadoVMBackendType;
  * cuFFT and cuSPARSE on CUDA, MLX on Metal (through TornadoVM's library tasks, inside the same
  * task graph as the JIT kernels).
  *
- * <p>Off by default. {@code -Djitnn.native=auto} (or {@code -Djitnn.withNative=true}, which the
- * {@code --with-native} option of jitNN's tools sets) uses every library that is available on the
- * plan's device; a comma-separated list ({@code cublas,cudnn,cufft,cusparse,cutlass,mlx}) restricts it.
+ * <p>Off by default. {@code -Djitnn.native=auto} (or {@code -Djitnn.withNative=true}) uses every
+ * library that is available on the plan's device; a comma-separated list ({@code cublas,cudnn,cufft,cusparse,cutlass,mlx}) restricts it.
  * A library is available when TornadoVM's module for it is loaded and a one-task probe plan runs on
  * the device; one that is missing, or that fails later, is left to the JIT kernels.
  */

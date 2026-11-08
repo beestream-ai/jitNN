@@ -1,287 +1,141 @@
-# CPU backend (Java Vector API): design
+# CPU backend
 
-Status: phases 1–4 done (executor, GEMM and convolution, inference operators, training kernels and buffer reuse); remaining: tuning (phase 5).
+The CPU backend runs jitNN models on the host CPU, with no GPU and no TornadoVM runtime. Its
+kernels are pure Java: FP32, multithreaded, and vectorised with the Java Vector API
+(`jdk.incubator.vector`) on x86 (AVX2, AVX-512) and AArch64 (NEON). Native libraries (a BLAS,
+oneDNN, Apple's BNNS) can take some operators when they are installed.
 
-## Goal
+## Selecting it
 
-Run jitNN models fast on CPUs with no GPU and no native libraries. The backend is pure Java, FP32,
-multithreaded, and vectorised with `jdk.incubator.vector`. It runs on any JDK 22+ and on x86
-(AVX2, AVX-512) and AArch64 (NEON, SVE).
-
-Today the only CPU path is `REFERENCE`. It runs scalar, single-threaded, double-accumulating
-reference code, one node at a time. It is an oracle, not a backend: ResNet-50 at batch 1 takes
-about 30 s per call on a 64-core Xeon, while PyTorch takes 25 ms.
-
-## Where it plugs in
-
-A third value `Engine.Backend.CPU`, selected with `-Djitnn.backend=cpu`.
-
-- **Default.** TORNADO when a TornadoVM runtime is on the class path, otherwise CPU.
-  REFERENCE stays available for tests and as the oracle.
-- **Execution model: lazy, like TORNADO.** `Engine.record` adds nodes to the trace. At `Engine.sync`,
-  `CpuExecutor.run(nodes, wanted)` does the following:
-  1. Applies `Fusion.rewrite(nodes, wanted)`, the same pass the GPU path uses. Conv, BatchNorm
-     and ReLU fold into one conv with an epilogue; linear and GELU fold into one GEMM epilogue;
-     add and ReLU fold into one element-wise op.
-  2. Runs the nodes in program order.
-  3. Releases intermediate buffers after their last use (liveness over the trace).
-- **No compile step and no plan cache.** A trace on the CPU costs only the fusion pass. The
-  trace structure can be cached later if the pass shows up in profiles.
-
-## Operator dispatch
-
-`Op` gains one default method:
-
-```java
-/** Computes {@code node} with the CPU backend's kernels; false when the operator has none (the executor then runs {@link #reference}). */
-default boolean cpu(Node node) {
-    return false;
-}
+```bash
+java --add-modules jdk.incubator.vector -Djitnn.backend=cpu ...
 ```
 
-- **Fallback.** Every one of the ~120 operators works on day one through `reference`. The
-  executor counts fallbacks per operator name. `-Djitnn.cpu.stats=true` prints them at exit, so
-  missing kernels are visible.
-- **OpenCL on the host CPU.** When TornadoVM can see an OpenCL device of type CPU (PoCL, the
-  Intel CPU runtime), operators without a CPU kernel run there instead of their reference, with
-  the kernels jitNN uses on GPUs, when that is faster. Each operator and shape runs its reference
-  twice (the first warms the JIT) and on the device three times (the first compiles), timed with
-  the copies, and keeps the faster place: the rotary embedding of a small LLaMA was slower on the device than its
-  reference, the U-Net operators much faster. Consecutive operators that chose the device form
-  one TornadoVM plan. Its inputs are copied in and the outputs a later node reads come back to
-  host arrays, so the two sides never share memory. An operator the device fails to compile runs
-  its reference from then on.
-  `-Djitnn.cpu.opencl` picks the device or turns this off; the counters show calls per operator
-  that ran there.
-  The CPU drivers install signal handlers that take the signals the JVM raises on purpose
-  (safepoint polls, implicit null checks), so the JVM dies of a SIGSEGV with no error report at a
-  random point. Preloading the JVM's signal chaining library,
-  `LD_PRELOAD=$JAVA_HOME/lib/libjsig.so`, fixes it for PoCL and for the Intel CPU runtime
-  (`POCL_SIGFPE_HANDLER=0` alone does not). Without it the device is left alone, with a warning.
-  The drivers start one worker thread per logical CPU, and those keep competing with the backend's
-  threads after a plan returns: the GEMMs of a LLaMA step ran 10% slower on PoCL, 50% slower on the
-  Intel runtime. Give the driver the backend's thread count: `POCL_MAX_PTHREAD_COUNT` (PoCL 3) or
-  `POCL_CPU_MAX_CU_COUNT` (later PoCL versions), `CL_CONFIG_CPU_TBB_NUM_WORKERS` (the Intel runtime).
-  On the x86 machine with 32 threads (ms per training step, mean of three medians of 10 steps; each
-  runtime with its own reference, measured in the same session):
+- `jitnn.backend` takes `tornado`, `cpu` or `reference`. Without it, jitNN uses `tornado` when a
+  TornadoVM runtime is on the class path, else `cpu` when the JVM has the Vector API module, else
+  `reference`.
+- Without `--add-modules jdk.incubator.vector`, `-Djitnn.backend=cpu` fails at once with a message
+  naming the flag; it does not fall back to scalar code.
+- The backend needs only the `tornado-api` jar (for `FloatArray`), no TornadoVM runtime or driver.
+- `reference` runs each operator eagerly with its Java reference implementation. Tests use it as
+  the oracle.
 
-  | Runtime | Workload | reference | timed choice |
-  |---|---|---|---|
-  | PoCL 3.0 | U-Net b32 | 653 | 155 |
-  | PoCL 3.0 | LLaMA b4 s256 | 1248 | 1134 |
-  | Intel CPU runtime 2026.2 | U-Net b32 | 644 | 134 |
-  | Intel CPU runtime 2026.2 | LLaMA b4 s256 | 1154 | 1074 |
+## How it runs
 
-  The U-Net moves its transposed convolutions, upsampling and its backward, large concat and narrow,
-  and max-pool backward to the device; LLaMA its rotary embedding. Without the thread cap the Intel
-  runtime made LLaMA slower than its reference (1719 ms). MobileNetV2, the VAE and the MLP have no
-  operator without a CPU kernel and do not change.
-  Running whole models on the OpenCL device instead does not pay overall: on PoCL GPU-shaped kernels
-  ran ResNet-50 and BERT 4–15x slower than the Vector API kernels, on the Intel runtime they come
-  close and win two of eight rows (see Measuring).
-- **Native libraries.** Linear, matmul and convolutions (forward with bias and ReLU, backward data
-  and weights) can also run on native libraries, called through the foreign function API with no
-  native code in jitNN: a BLAS's `cblas_sgemm` (`jitnn.cpu.blas`: MKL, OpenBLAS, Arm Performance
-  Libraries, Apple Accelerate), and for convolutions oneDNN (`jitnn.cpu.onednn`) and Apple's BNNS
-  (`jitnn.cpu.bnns`, macOS). A BLAS convolution is im2col and one GEMM per image (forward), or per
-  group of images side by side (backward, then col2im for the data gradient). oneDNN and BNNS keep
-  one plan per convolution shape in the layout they want; a weight is reordered or packed again
-  only when its version changes. Each operator and shape takes the available ways in turn, three calls
-  each (the first warms the JIT or builds the plan, the best of the other two counts), and runs
-  the fastest; those first calls fall in the program's warm-up, so after 64 more calls the ways
-  are timed once more, and that choice is final (timing only during warm-up picked the slower way
-  for BERT's attention in some runs). A library that rejects a shape leaves it to the kernel.
-  Attention can run on the BLAS too: each head's two products on the library, the softmax rows of
-  all heads in parallel between them (BERT b1 on an M4 Pro: attention 0.33 to 0.20 ms per layer,
-  the model 24.4 to 22.7 ms). Libraries use the backend's thread count
-  (MKL and OpenBLAS by their calls, OpenMP builds of oneDNN and Arm Performance Libraries per
-  calling thread). Not solved yet: the libraries' idle worker threads keep spinning after a call and
-  compete with the backend's own threads, which the per-operator timing does not see. On the x86
-  machine MKL made ResNet-50 b32 slower end to end (258 to 418 ms) although it won each GEMM it took,
-  and MKL together with oneDNN (two OpenMP runtimes) slower still; OpenBLAS on the Arm machine
-  slowed training by 20–55%. oneDNN alone helped convolutional networks (ms, training ms per step,
-  one round):
+Operators are recorded lazily, as on the TornadoVM backend. At each sync point (`Engine.sync`,
+`t.item()`, ...) the backend:
 
-  | Workload | kernels | oneDNN |
-  |---|---|---|
-  | ResNet-50 b32 | 258 | 221 |
-  | ResNet-50 (CIFAR) training b32 | 485 | 449 |
-  | MobileNetV2 training b64 | 1543 | 301 |
+1. rewrites the trace with the same fusion pass as on a GPU (for example convolution, BatchNorm and
+   ReLU become one convolution with an epilogue);
+2. runs the nodes in program order;
+3. returns each intermediate to the host pool after its last use.
 
-  On an Apple M4 Pro, Accelerate's GEMM (on the AMX units) runs at 3.0–3.5 TFLOP/s against 0.5 for
-  the Vector API kernel (4 FP32 lanes on NEON), and its threads do not get in the way (ms, training
-  ms per step, 12 threads unless noted, single runs):
+There is no compile step. When a trace of the same structure runs again (the next training or
+inference step), its intermediates reuse the arrays of the previous run, as a compiled plan reuses
+its device buffers. Tensors not requested at that sync are then gone, as on a device.
 
-  | Workload | kernels | Accelerate (8 threads) | Accelerate | Accelerate + BNNS |
-  |---|---|---|---|---|
-  | ResNet-50 b1 | 40.5 | 16.3 | 18.1–22.0 | 15.6 |
-  | BERT b1 s128 | 72 | 28 | 29 | |
-  | ResNet-50 b32 | 677 | 412 | 438–448 | 256 |
-  | BERT b32 s128 | 1679 | 433 | 452 | |
-  | BERT training b8 s128 | 1713 | 581 | 608 | |
-  | ResNet-18 training b64 | | | 536 | 267 |
-  | MobileNetV2 training b64 | | | 1394 | 657 |
+## What runs where
 
-  These runs had the pool spinning 200 µs; without it (now the macOS default) ResNet-50 b1 runs
-  at 12.3–13.2 ms, BERT b1 at 23.6–24.9 and BERT training at 541–551 ms per step.
-  The BNNS filter API is deprecated since macOS 15 in favour of BNNS graphs (which need a compiled
-  Core ML model) but still runs; its backward pass needs filters that read the weights in place.
-- **Code split.** Operators decode their own `iattr` layout (the constants are private to each
-  op class). They then call shared primitives in a new package `ai.beestream.jitnn.cpu`. Those
-  primitives take only segments, offsets and sizes. That package is the only code that imports
-  `jdk.incubator.vector`.
+| Where | Operators |
+|---|---|
+| Native library, when installed and faster for that shape | `linear`, `matmul` (BLAS); convolution forward with bias and ReLU, backward data and backward weights (BLAS as im2col and GEMM, oneDNN, BNNS); attention (BLAS for the two products per head) |
+| Vector API kernel | `linear`, `matmul`, convolution and both its gradients, element-wise (`binary`, `unary`, fused), `softmax`, `row_norm` (LayerNorm, RMSNorm), `reduce`, `cross_entropy`, `batch_norm`, `pool2d`, `embedding`, `flash_attention`, the backward passes of these, the optimiser step |
+| OpenCL device on the host CPU | operators with no CPU kernel, when such a device is set up and faster (see below) |
+| Reference implementation | everything else |
 
-## Data
+`-Djitnn.cpu.stats=true` prints at exit the calls, time and reference fallbacks per operator, so
+missing kernels are visible. `Engine.cpuStats()` returns the counts; `Engine.cpuReport()` returns
+the table since its last call.
 
-- **Storage and access.** Storage stays FP32 in TornadoVM `FloatArray` (off-heap). Kernels read
-  and write through `FloatArray.getSegment()` with
-  `FloatVector.fromMemorySegment(SPECIES, seg, off, LITTLE_ENDIAN)`, with no copies.
-  `Tensor.wrap` heap arrays use `FloatVector.fromArray`.
-- **Vector width.** Width is `FloatVector.SPECIES_PREFERRED`: 16 lanes on AVX-512, 8 on AVX2,
-  4 on NEON. Tails use masks.
-- **Inputs in other types.** FP16 inputs are converted to FP32 at the node boundary. INT8 and
-  Q8_0 are later work.
+### Native libraries
 
-## Threading
+The libraries are called through the Java foreign function API; jitNN ships no native code.
 
-- **Pool.** One process-wide pool of `jitnn.cpu.threads` platform threads. The default is the
-  physical core count, capped at one socket's cores: hyper-threads do not help FMA-bound GEMM,
-  and on a two-socket Xeon one socket's 32 cores ran ResNet-50 and BERT 10–40% faster than all
-  64. On Apple silicon it is the performance cores only: on an M4 Pro 8 threads ran ResNet-50
-  3–19% faster than all 12 cores, BERT the same within noise. Idle threads spin for `jitnn.cpu.spinMicros` before sleeping (200 µs; none on macOS, where spinning made ResNet-50 b1 29% slower on the Vector API kernels and BERT b1 16% slower with Accelerate on an M4 Pro).
-- **Parallel-for.** `Cpu.parallelFor(n, grain, body)` uses static contiguous chunks. There is no
-  work stealing, so per-call overhead stays near the cost of one wake-up and one barrier.
-- **Grain.** Each op picks the grain from its work estimate. Below about 32 K FLOPs it runs on
-  the calling thread.
-- **Pool ownership.** Calls from several user threads share the pool. Each sync runs
-  single-threaded if the pool is busy, rather than oversubscribing.
+| Option | Library | `auto` (default) |
+|---|---|---|
+| `jitnn.cpu.blas` | `cblas_sgemm` of Intel MKL, OpenBLAS, Arm Performance Libraries or Apple Accelerate | the first found on the library path |
+| `jitnn.cpu.onednn` | oneDNN (`libdnnl`) | found on the library path |
+| `jitnn.cpu.bnns` | Apple BNNS (Accelerate), convolutions including grouped | used on macOS |
 
-## Kernels, in priority order
+Each takes `auto`, `off` or a library file (BNNS: `auto` or `off`).
 
-Priority follows where ResNet-50 and BERT spend time on the GPU path, and what the baseline
-measures.
+- **Choice per shape.** Each operator and shape tries the available ways (kernel, BLAS, oneDNN,
+  BNNS), three calls each, and keeps the fastest. After 64 more calls it times them once more, and
+  that choice is final. `-Djitnn.cpu.native.choose=kernel|blas|onednn|bnns` forces one way where it
+  is available.
+- **Rejected shapes.** A library that rejects a shape leaves it to the kernel from then on.
+- **Threads.** The libraries use the backend's thread count. Use an OpenMP build of oneDNN: jitNN
+  sets its thread count, while a TBB build takes every core. Calls from inside a parallel loop use
+  the kernel only.
+- **Plans and weights.** oneDNN and BNNS keep one plan per convolution shape in the layout they
+  want. A weight is reordered or packed again only when it changes.
+- **Idle library threads.** Some libraries' worker threads keep spinning after a call and compete
+  with the backend's threads, which the per-shape timing does not see. If a model runs slower with
+  a library, turn it off.
+- **BNNS.** Its filter API is deprecated since macOS 15 but still runs.
 
-1. **GEMM: `cpu.Gemm.sgemm`.**
-   - Structure: BLIS-style. B is packed into KC×NR panels and A into MC×KC blocks. The
-     register-tiled micro-kernel computes MR×NR with `fma`: 6×(2·VLEN) on AVX-512 and AVX2,
-     8×(2·VLEN) on NEON. Blocking constants come from the vector width and are tuned once per
-     machine class.
-   - Parameters: it covers `ta`/`tb`, batch with strides, and an epilogue (bias, ReLU, GELU,
-     add).
-   - Threading: it parallelises over (batch, M blocks, N blocks).
-   - Users: `linear`, `matmul`, conv and attention.
-2. **Conv2d (NCHW).**
-   - 1×1 stride-1 convolutions are a plain GEMM: `W[Cout,Cin] · X[Cin,H·W]`.
-   - Other convolutions use im2col per image, or per row band when the column buffer exceeds
-     L2, followed by GEMM.
-   - Depthwise and grouped convolutions with few channels per group use a direct, vectorised
-     kernel over W.
-   - The fused epilogue applies bias, folded BatchNorm and ReLU.
-3. **Element-wise.**
-   - Ops: `binary`, `unary`, `fused`, `cast`.
-   - Fast paths cover contiguous inputs, scalar broadcast and row or channel broadcast.
-   - Transcendentals use `VectorOperators.EXP`, `TANH` and `LOG`: SVML intrinsics on x86, Java
-     fallback elsewhere. AArch64 speed needs measuring.
-4. **Row ops.** `softmax`, `attention_softmax`, `row_norm` (LayerNorm, RMSNorm), `reduce`,
-   `cross_entropy`, `nll`. One pass per row computes max or sum; a vector loop then normalises.
-5. **Spatial.** `pool2d`, `adaptive_pool`, `batch_norm` (inference, and training statistics),
-   `pad`, `upsample`.
-6. **Data movement.** `permute`, `narrow`, `concat`, `gather`, `index_select`, `embedding`.
-   These use blocked copies; the inner contiguous dimension uses `MemorySegment.copy`.
-7. **Attention: `flash_attention`.** Per (batch, head) and Q block: GEMM QKᵀ, then row softmax,
-   then GEMM ·V, with a tiled online softmax so memory stays O(seq·block).
-8. **Training.**
-   - The backward kernels of the above: `conv2d_bwd_data` is GEMM plus col2im, and
-     `conv2d_bwd_weight` is im2colᵀ GEMM.
-   - Plus `batch_norm_bwd`, `row_norm_bwd`, `softmax_bwd`, `pool2d_bwd`, `embedding_bwd` and
-     `optim` (SGD, Adam, AdamW).
+### OpenCL on the host CPU
 
-Steps 1–6 cover ResNet-50 and BERT inference with no fallbacks. Step 8 covers the training
-benchmark.
+When a TornadoVM runtime is present and it sees an OpenCL device of type CPU (PoCL, the Intel CPU
+runtime), operators without a CPU kernel can run there with jitNN's GPU kernels.
 
-## Accuracy
+- **Choice.** Each operator and shape runs its reference twice and on the device three times,
+  timed with the copies, and keeps the faster place. `-Djitnn.cpu.opencl.choose=always` sends it to
+  the device without timing.
+- **Plans.** Consecutive operators that chose the device run as one TornadoVM plan. Inputs are
+  copied in and outputs a later node reads are copied back; the two sides never share memory.
+- **Failures.** An operator the device cannot compile (FP16 without `cl_khr_fp16`, say) runs its
+  reference from then on.
+- **Signal chaining (required).** The CPU OpenCL drivers install signal handlers that take signals
+  the JVM raises on purpose, and the JVM then dies of a SIGSEGV at a random point. Preload the JVM's
+  signal chaining library: `LD_PRELOAD=$JAVA_HOME/lib/libjsig.so`. Without it `auto` leaves the
+  device alone and prints a warning.
+- **Driver threads.** Give the driver the backend's thread count, or its idle threads compete with
+  the backend's: `POCL_MAX_PTHREAD_COUNT` (PoCL 3), `POCL_CPU_MAX_CU_COUNT` (later PoCL),
+  `CL_CONFIG_CPU_TBB_NUM_WORKERS` (Intel runtime).
 
-The backend uses FP32 storage and FP32 accumulation. GEMM sums in blocks of KC, so error grows
-with log(K), not K.
+`Engine.cpuOpenClDevice()` returns the device in use, or null.
 
-Acceptance against REFERENCE uses the same per-op tolerances as the GPU golden tests. The
-existing `GoldenTest` and `ReferenceOpsTest` gain a CPU run:
+## Threads
 
-- every op is checked against REFERENCE;
-- sizes include tails that are not a multiple of the vector width;
-- strided and transposed GEMM layouts are included.
+One process-wide pool runs the parallel loops in static contiguous chunks; the calling thread takes
+the first.
 
-Model level: logits match PyTorch FP32 within the bounds that inference.py already reports.
+- **Size.** By default the physical cores the process may use, at most one socket's; on Apple
+  silicon the performance cores only.
+- **Several user threads.** A loop started while another thread holds the pool, or from inside a
+  parallel loop, runs on the calling thread alone rather than oversubscribing the cores.
+- **Spinning.** Idle pool threads, and a caller waiting for them, spin briefly before they sleep,
+  so the operators of one step hand work on without waking threads up.
 
-## Build and run
+## Options
 
-- **Module flag.** `jdk.incubator.vector` needs `--add-modules jdk.incubator.vector` at compile
-  and run time. The flag goes into the compiler args and the surefire `argLine`.
-- **Runtime classes.** The CPU backend needs no TornadoVM runtime and no driver, only the
-  `tornado-api` jar for `FloatArray`.
-- **Module missing.** If the module is absent at run time, `Backend.CPU` fails fast with a
-  message naming the flag. It does not degrade silently to scalar code.
+| Option | Default | Effect |
+|---|---|---|
+| `jitnn.backend` | see above | `tornado`, `cpu` or `reference` |
+| `jitnn.cpu.threads` | physical cores, at most one socket (Apple silicon: performance cores) | threads of the parallel loops, the calling thread included |
+| `jitnn.cpu.spinMicros` | `200` (`0` on macOS) | how long idle threads spin before they sleep |
+| `jitnn.cpu.poolBytes` | 2 GiB | host arrays kept for reuse, unless `jitnn.hostPool.bytes` is set |
+| `jitnn.cpu.reuse` | `true` | reuse the previous run's arrays for a trace of the same structure |
+| `jitnn.cpu.reuse.traces` | `32` | trace structures remembered per thread for that reuse |
+| `jitnn.cpu.gemm.kc`, `.mcPanels`, `.nc`, `.tileMacs` | `256`, `16`, `256`, `1048576` | GEMM blocking: depth per block, rows of A per tile (in panels), columns of B per tile, minimum multiply-adds per parallel tile |
+| `jitnn.cpu.blas`, `jitnn.cpu.onednn`, `jitnn.cpu.bnns` | `auto` | native libraries (see above) |
+| `jitnn.cpu.native.choose` | `measure` | `kernel`, `blas`, `onednn` or `bnns` forces that way |
+| `jitnn.cpu.opencl` | `auto` | OpenCL CPU device for operators without a kernel: `auto`, `off` or `<driver>:<device>` |
+| `jitnn.cpu.opencl.choose` | `measure` | `always` skips the timing |
+| `jitnn.cpu.stats` | `false` | time every operator and print the table at exit |
+| `jitnn.cpu.stats.shapes` | `false` | with `jitnn.cpu.stats`: one row per operator and shape |
 
-## Measuring
+`-Djitnn.verbose=true` also logs the libraries found and each OpenCL placement. All options are in
+[CONFIGURATION.md](CONFIGURATION.md).
 
-- **Baseline.** The baseline was captured before any code (2026-10-28) on two machines:
-  - an x86 machine: Xeon Gold 6338, 2×32 cores, AVX-512;
-  - an AArch64 machine: Neoverse-N1, 128 cores, NEON.
+## Limits
 
-  Each machine has PyTorch CPU and ONNX Runtime CPU numbers, on all threads and on 1 thread, for
-  ResNet-50 (b1/b32/b128), BERT (b1/b32 s128, b8 s512), training, and the jitNN REFERENCE
-  backend.
-- **Same harness.** `inference.py --device cpu` and `InferenceBenchAccelTest` with
-  `-Djitnn.backend=cpu` produce the comparable rows.
-- **OpenCL on the CPU, whole models.** The TORNADO backend on an OpenCL CPU device (the x86
-  machine, FP32, median ms; training in ms per step) against the Vector API kernels of the same
-  session. PoCL 3.0 in one session; the Intel CPU runtime 2026.2 with all its threads (capped at 32
-  it was 1.3–2x slower) in another, mean of two rounds (GPT-2: one):
+- Storage and accumulation are FP32. The tests check the kernels against the reference backend.
+- Only FP32 tensors use the kernels. FP16, BF16, FP8 and quantised tensors run the reference
+  implementation, or the OpenCL device.
+- Operators with neither a kernel nor an OpenCL device run the reference implementation, which is
+  scalar and single-threaded. Check `-Djitnn.cpu.stats=true` when a model is slow.
+- Convolutions work in the NCHW layout.
 
-  | Workload | PoCL | Vector API | Intel runtime | Vector API |
-  |---|---|---|---|---|
-  | ResNet-50 b1 | 302 | 21 | 29.6 | 19.8 |
-  | BERT b1 s128 | 447 | 41 | 35.0 | 31.1 |
-  | ResNet-50 b32 | 1186 | 261 | **255** | 277 |
-  | BERT b32 s128 | 2888 | 419 | 490 | 395 |
-  | ResNet-18 training b64 | 1338 | 350 | **260** | 341 |
-  | ResNet-50 (CIFAR) training b32 | 2644 | 508 | 492 | 472 |
-  | BERT training b8 s128 | 7221 | 747 | 838 | 732 |
-  | GPT-2 training b8 s256 | 15350 | 1409 | 1549 | 1381 |
-
-  The Intel runtime's compiler vectorises the GPU kernels well enough to beat the Vector API on
-  batched convolutions (ResNet-50 b32, ResNet-18 training); PoCL's does not. PoCL passed 452 of the
-  490 device tests; the rest need FP16, which its CPU driver lacks. Both drivers need `libjsig`
-  (see Operator dispatch): without it the Intel runtime crashed the JVM on the first kernel launch,
-  in TornadoVM's own tests too.
-- **Per-phase checks.** Each phase reports:
-  - GEMM GFLOP/s against machine peak;
-  - per-op time against REFERENCE;
-  - end-to-end time against PyTorch and ORT, single-thread and all-thread.
-
-## Phases
-
-1. **Skeleton.**
-   - `Backend.CPU` and `CpuExecutor` (trace, fusion, liveness, fallback).
-   - The pool and fallback statistics.
-   - The CPU-vs-REFERENCE test harness.
-2. **GEMM.** GEMM with epilogues, plus `linear`, `matmul`, and conv 1×1 and im2col. Measure
-   GFLOP/s.
-3. **Remaining inference ops.** Element-wise, row, spatial and movement ops, plus flash
-   attention. Done when ResNet-50 and BERT inference run with zero fallbacks.
-4. **Training.** Backward kernels and the optimiser, then the training benchmark.
-5. **Memory and tuning.**
-   - Reuse intermediate buffers across syncs (HostPool).
-   - Per-machine blocking constants, chosen with the autotuner in `Autotune`.
-   - Optional NHWC convs.
-
-After this backend: option 2 (TornadoVM OpenCL on a CPU device) and option 3 (native
-BLAS/oneDNN via FFM) are measured against it on the same rows.
-
-## Open questions
-
-- Default thread count: physical cores (proposed) or `availableProcessors()`.
-- Whether CPU should replace REFERENCE as the default when no TornadoVM runtime is present
-  (proposed: yes).
-- Whether the GPU path should also use the CPU kernels for its host-side work, such as weight
-  folding on the host. Out of scope for now.
+Benchmark results are in [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking).

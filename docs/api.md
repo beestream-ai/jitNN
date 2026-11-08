@@ -21,8 +21,7 @@ The packages, by area:
 
 ## Building it locally
 
-Javadoc needs JDK 22+ and the TornadoVM jars in your local Maven repository (see
-[Installing and building jitNN](INSTALL.md)). With those in place:
+With JDK 22+ and the TornadoVM jars in the local Maven repository (see [INSTALL.md](INSTALL.md)):
 
 ```bash
 ./mvnw install -DskipTests
@@ -30,5 +29,5 @@ Javadoc needs JDK 22+ and the TornadoVM jars in your local Maven repository (see
 ```
 
 Without them, `docs/build-javadoc.sh <output directory>` downloads a JDK and builds TornadoVM's Java
-modules first, as the Read the Docs build does. `make -C docs html-with-api` builds this site with the
-Javadoc under `_build/html/api`.
+modules first, as the Read the Docs build does. `make -C docs html-with-api` builds this site with
+the Javadoc under `_build/html/api`.

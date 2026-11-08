@@ -1,13 +1,9 @@
 # Operators
 
-Every operator has a forward kernel, a gradient (a backward kernel or a composition of operators),
-and a double-precision host reference. Kernels live in `jitnn-core/src/main/java/ai/beestream/jitnn/kernels`
-and are written with TornadoVM's `KernelContext` API, so every operator runs on CUDA, OpenCL and
-Metal.
-
-The operators of the first three sections are validated on CUDA, OpenCL and Metal. The sections
-from "Generative and recurrent models" on are validated on CUDA and OpenCL (NVIDIA A100);
-they have not been run on Metal yet.
+Every operator has a forward kernel, a gradient (a backward kernel or a composition of operators)
+and a double-precision host reference. The kernels, in `jitnn-core/.../kernels`, use TornadoVM's
+`KernelContext` API and run on CUDA, OpenCL and Metal. The first three sections are validated on
+all three backends; the sections from "Generative and recurrent models" on, on CUDA and OpenCL only.
 
 ## Core operators
 
@@ -41,7 +37,7 @@ they have not been run on Metal yet.
 | LR schedules: step, multi-step, cosine | host | |
 
 Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `Flatten`, `Dropout`,
-`ReLU6`, `Add` (residual). Models in `nn.models`: `ResNet.resnet18`, `ResNet.resnet50` and `MobileNetV2.mobilenetV2`
+`ReLU6`, `Add` (residual). Models: `ResNet.resnet18`, `ResNet.resnet50`, `MobileNetV2.mobilenetV2`
 (torchvision layouts, plus a small-input variant).
 
 ## Transformers and mixed precision
@@ -63,9 +59,8 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 | Autocast | casts at `F.linear`, `matmul` and attention | |
 | Gradient statistics for clipping and loss scaling: global norm, unscale-and-clip factor, overflow flag | `LowPrecision.sumSquaresFinite` (one per gradient, bit-pattern test) and `gradStats`; the optimiser kernels apply the factor and skip on overflow | |
 
-`F.linear` takes inputs with any leading dimensions. Modules: `Embedding`, `LayerNorm`,
-`RMSNorm`, `MultiheadAttention`. Models in `nn.models`: `GPT2`, `Llama` (Llama-style decoder) and
-`Bert` (masked language modelling).
+`F.linear` takes any leading dimensions. Modules: `Embedding`, `LayerNorm`, `RMSNorm`,
+`MultiheadAttention`. Models: `GPT2`, `Llama` (Llama-style decoder), `Bert` (masked language modelling).
 
 ## Generative and recurrent models
 
@@ -79,10 +74,9 @@ Modules: `Conv2d`, `BatchNorm2d`, `MaxPool2d`, `AvgPool2d`, `GlobalAvgPool2d`, `
 | Random fills seeded from a tensor | `RandomKernels.philoxSeeded` | |
 
 `Tensor.uniform`/`normal` take the seed as an INT32 [2] tensor (`Tensor.seed(long)`), so noise drawn
-every step (VAE sampling, GAN latents) replays the compiled step instead of recompiling it. Modules:
-`ConvTranspose2d`, `Upsample`, `LeakyReLU`, `Sigmoid`, `Tanh`, `LSTM`, `GRU`. Models in
-`nn.models`: `Vae`, `Dcgan.Generator`/`Dcgan.Discriminator`, `UNet` and `CharRnn` (an LSTM or GRU
-language model). The final cell state of an LSTM carries no gradient.
+every step (VAE sampling, GAN latents) replays the compiled step. Modules: `ConvTranspose2d`,
+`Upsample`, `LeakyReLU`, `Sigmoid`, `Tanh`, `LSTM`, `GRU`. Models: `Vae`, `Dcgan.Generator`/`Discriminator`,
+`UNet`, `CharRnn` (LSTM or GRU language model). An LSTM's final cell state carries no gradient.
 
 ## Extended operator set
 
@@ -111,8 +105,8 @@ Modules: `ELU`, `SELU`, `CELU`, `Mish`, `Softsign`, `Softplus`, `HardSigmoid`, `
 
 ## Inference fusion
 
-Before a trace is compiled, a producer is fused into its only consumer when nobody else can read
-the intermediate (inside `Grad.inference`, in autograd's temporaries, and in imported ONNX graphs):
+Before compilation, a producer is fused into its only consumer when nothing else can read the
+intermediate (inside `Grad.inference`, autograd's temporaries and imported ONNX graphs):
 
 | Pattern | Becomes |
 |---|---|
@@ -120,14 +114,11 @@ the intermediate (inside `Grad.inference`, in autograd's temporaries, and in imp
 | linear, then exact GELU | GELU in the GEMM epilogue |
 | add, then ReLU | one element-wise kernel |
 
-Chains of FP32 element-wise operators (unary and binary, broadcasting included) whose
-intermediates nothing else can read (the same internal intermediates as above, including the
-backward pass's) run as one generated kernel (`ElementwiseFused`); an intermediate of a chain that
-another operator also reads is stored by the chain.
-
-Forward GEMMs and convolutions whose output tiles cannot fill the GPU split their reduction (K)
-into slices that are summed in order. `-Djitnn.fuse=false`, `-Djitnn.fuse.elementwise=false` and
-`-Djitnn.splitK=false` turn these off.
+Chains of FP32 element-wise operators (broadcasting included) whose intermediates are internal in
+the same sense, backward pass included, run as one generated kernel (`ElementwiseFused`); an
+intermediate another operator reads is stored by the chain. Forward GEMMs and convolutions whose
+output tiles cannot fill the GPU split K into slices summed in order. `-Djitnn.fuse=false`,
+`-Djitnn.fuse.elementwise=false` and `-Djitnn.splitK=false` turn these off.
 
 ## Convolution algorithms
 
@@ -138,9 +129,9 @@ into slices that are summed in order. `-Djitnn.fuse=false`, `-Djitnn.fuse.elemen
 | strided, input gradient | a GEMM into columns and a gather, or one implicit GEMM per stride phase |
 | everything else | implicit GEMM with padded local memory and prefetching; the filter gradient split over output positions |
 
-`-Djitnn.winograd`, `jitnn.conv1x1`, `jitnn.convPhases` and the other properties in
-[CONFIGURATION.md](CONFIGURATION.md#kernel-variants) select the other variants. With
-`-Djitnn.native`, cuDNN or cuBLAS take these instead (see [NATIVE.md](NATIVE.md)).
+`jitnn.winograd`, `jitnn.conv1x1`, `jitnn.convPhases` and the other
+[kernel variants](CONFIGURATION.md#kernel-variants) select the alternatives. With `-Djitnn.native`,
+cuDNN or cuBLAS take these instead (see [NATIVE.md](NATIVE.md)).
 
 ## Optimisers and losses
 
@@ -151,9 +142,8 @@ into slices that are summed in order. `-Djitnn.fuse=false`, `-Djitnn.fuse.elemen
 | Metric losses | triplet margin, contrastive, cosine embedding, margin ranking (each with a `Reduction`) | composed | autograd |
 | Other | `F.sparsemax` (projection onto the probability simplex), `F.logSigmoid` (without overflow), `F.negativeSamplingLoss` (word2vec), `F.gloveLoss` (GloVe's weighted least squares) | composed | autograd |
 
-Optimisers in `nn.optim`: `Lamb` and `Lars`, next to `SGD`, `Adam`/AdamW (with AMSGrad),
-`AdaGrad`, `RMSProp`, `AdaDelta`, `AdaMax` and `NAdam`. Every optimiser applies gradient clipping
-and loss scaling inside its update.
+`nn.optim` also has `Lamb` and `Lars`. Every optimiser applies gradient clipping and loss scaling
+inside its update.
 
 ## Linear algebra
 
@@ -173,32 +163,25 @@ and loss scaling inside its update.
 
 Every function is differentiable with PyTorch's formulas. The decompositions run one work-group
 per matrix (`LinalgKernels`: LU with partial pivoting, Householder QR, cyclic Jacobi for `eigh`,
-one-sided Jacobi for the SVD), so they suit batches of small and medium matrices (up to a few
-hundred rows) rather than one large matrix. Eigenvectors and singular vectors are only defined up
-to sign: jitNN makes the largest-magnitude component of each eigenvector, and of each left
-singular vector, positive. There is no general (non-symmetric) eigendecomposition, which needs
-complex numbers.
+one-sided Jacobi for the SVD), so they suit batches of matrices up to a few hundred rows, not one
+large matrix. The largest-magnitude component of each eigenvector and left singular vector is made
+positive. There is no non-symmetric eigendecomposition (it needs complex numbers).
 
 ## Fourier transforms
 
 `ai.beestream.jitnn.Fft`, after `torch.fft`: `fft`, `ifft`, `rfft`, `irfft`, `fft2`, `ifft2`,
-`rfft2`, and the short-time transforms `stft` and `istft`. A complex tensor is a real tensor with
-a trailing axis of 2 (real, imaginary), as `torch.view_as_real` gives it; `dim` counts the complex
-axes only. `Fft.Norm` is `BACKWARD`, `ORTHO` or `FORWARD`, as torch's `norm`. Every transform is
-differentiable.
-
-The transforms are direct DFTs, O(n^2) per row, reading their phases from a twiddle table computed
-on the host (`FftKernels.dft`): right for the lengths found inside models (window sizes, sequence
-mixing), not for very long signals.
+`rfft2`, `stft`, `istft`, all differentiable. A complex tensor is a real tensor with a trailing axis
+of 2 (as `torch.view_as_real`); `dim` counts complex axes only. `Fft.Norm` is `BACKWARD`, `ORTHO` or
+`FORWARD`. The transforms are direct O(n^2) DFTs with a host-computed twiddle table
+(`FftKernels.dft`): suited to the lengths inside models, not to very long signals.
 
 ## Sparse matrices and graphs
 
-`SparseMatrix.fromCoo(rows, cols, rowIndex, colIndex)` builds a structure once on the host; it is
-kept on the device in CSR form, and in CSR form of its transpose. The values are a separate FP32
-tensor in coordinate order, so they can be learned. `matrix.mm(values, dense)` multiplies by a
-dense [cols, features] matrix (`SparseKernels.spmm`); the gradient for the values is a sampled
-dense-dense product (`SparseKernels.sddmm`) and the gradient for the dense operand a product with
-the transpose. Duplicated coordinates add up.
+`SparseMatrix.fromCoo(rows, cols, rowIndex, colIndex)` builds a structure once on the host, kept on
+the device in CSR form for it and its transpose. The values are a separate, learnable FP32 tensor in
+coordinate order; duplicated coordinates add up. `matrix.mm(values, dense)` multiplies by a dense
+[cols, features] matrix (`SparseKernels.spmm`); the values' gradient is a sampled dense-dense
+product (`SparseKernels.sddmm`), the dense operand's a product with the transpose.
 
 `SparseMatrix.gcn(n, src, dst)` gives the normalised adjacency D^-1/2 (A + I) D^-1/2 of a graph
 convolutional network as a `SparseMatrix.Valued` (structure and fixed values), and the module
@@ -212,11 +195,10 @@ convolutional network as a `SparseMatrix.Valued` (structure and fixed values), a
 | `Doc2Vec(vocab, documents, dim, mode, seed)`, `Mode.PV_DBOW` or `Mode.PV_DM` | paragraph vectors with negative sampling |
 | `GloVe(vocab, dim, seed)` | weighted least squares on log co-occurrence counts |
 
-Each model has a `loss(...)` method that takes a batch of examples and returns a scalar tensor,
-and `vectors()` (`documentVectors()` for `Doc2Vec`) to read the learned vectors. The examples
-come from `nn.text`: `Vocabulary.build(sentences, minCount)` assigns word ids by frequency, and
-`Corpus` draws skip-gram pairs (word2vec's dynamic window), CBOW windows, negatives from the
-unigram distribution raised to 3/4, and distance-weighted co-occurrence counts, all from a seed.
+Each model has `loss(...)` (a batch of examples to a scalar) and `vectors()` (`documentVectors()`
+for `Doc2Vec`). Examples come from `nn.text`: `Vocabulary.build(sentences, minCount)` assigns word
+ids by frequency; `Corpus` draws, from a seed, skip-gram pairs (dynamic window), CBOW windows,
+negatives from the unigram distribution raised to 3/4, and distance-weighted co-occurrence counts.
 
 ## Classical machine learning
 
@@ -237,9 +219,7 @@ features]; class labels are `int[]`.
 | `Tsne` | exact t-SNE, O(n^2) per iteration |
 
 L-BFGS uses a line search on the directional derivative. Distances, histograms, gradients and
-predictions run on the device (`TreeKernels` bins features, builds split histograms, routes
-samples and predicts); the small sequential parts (choosing splits, the L-BFGS recursion) run on
-the host.
+predictions run on the device (`TreeKernels`); choosing splits and the L-BFGS recursion run on the host.
 
 ## Data-dependent sizes
 
@@ -250,9 +230,8 @@ the host.
 | `F.unique(x, returnInverse, returnCounts)` | the sorted distinct values, and optionally each element's index among them and the counts |
 | `F.nonzero(x, size, fill)` | `torch.nonzero_static`: a fixed number of rows, padded with `fill` |
 
-The results whose size depends on the data read one count back to the host, as PyTorch does.
-`F.nonzero(x, size, fill)` has a fixed size and needs no host read, so it stays inside a compiled
-plan. Kernels: `CompactKernels` (block scans and compaction).
+Data-dependent sizes read one count back to the host, as in PyTorch; `F.nonzero(x, size, fill)`
+needs no host read and stays inside a compiled plan. Kernels: `CompactKernels`.
 
 ## FP8
 
@@ -266,8 +245,7 @@ scale. `ops.Fp8` uses them as PyTorch uses its float8 types with `torch._scaled_
 | `Fp8.fakeQuantize(x, type)` | quantise and dequantise with a straight-through (identity) gradient, for training that simulates FP8 |
 | `Fp8.linear(a, sa, w, sw, bias)` | a W^T (+ bias) with an FP8 weight and either an FP32 input (`sa` null) or an FP8 input with its scale; FP32 accumulation; the gradient reaches an FP32 input and the bias |
 
-FP8 values are decoded in portable code on every backend (`Fp8Kernels`); FP8 tensor-core
-instructions are not used.
+FP8 values are decoded in portable code (`Fp8Kernels`); FP8 tensor-core instructions are not used.
 
 ## Collectives and data-parallel training
 
@@ -283,32 +261,30 @@ instructions are not used.
 | `Engine.onDevice(spec, body)` | runs a block with this thread's plans on one device |
 | `nn.DataParallel(model, rank, collective)` | `broadcastParameters()` once, then `averageGradients()` after each backward pass (one collective for all gradients), as PyTorch's `DistributedDataParallel` |
 
-The ranks' plans run concurrently. Limitation: the gradient all-reduce does not overlap the
-backward pass (a rank's plan runs on one stream).
+The ranks' plans run concurrently; the gradient all-reduce does not overlap the backward pass.
 
 ## ONNX models (`jitnn-onnx`)
 
-`OnnxSession.load(path)` reads an ONNX model and `run(Map<String, Tensor>)` runs it on jitNN's
-operators: every node becomes jitNN operations, so a call records one trace that is compiled on
-the first run and replayed while the input shapes stay the same. The module has no third-party
-dependencies: it has its own protobuf reader, and external weight data are memory-mapped.
+`OnnxSession.load(path)` reads a model and `run(Map<String, Tensor>)` runs it as jitNN operations:
+one trace, compiled on the first run and replayed while input shapes stay the same. The module has
+its own protobuf reader and no third-party dependencies; external weight data are memory-mapped.
 
-About 110 ONNX operators are supported:
+119 ONNX operators are supported (plus `Constant`):
 
 | Family | Operators |
 |---|---|
-| Element-wise and activations | arithmetic, math functions, comparisons, logic, `Where`, `IsNaN`, `IsInf`, the common activations |
+| Element-wise and activations | arithmetic, `Mod`, math functions, comparisons, logic, `BitShift`, `BitwiseAnd`, `BitwiseOr`, `BitwiseXor`, `BitwiseNot`, `Where`, `IsNaN`, `IsInf`, the common activations |
 | Products | `MatMul`, `Gemm`, `Einsum` (one or two operands, no ellipsis or diagonals) |
 | Convolution | `Conv` 1-D, 2-D and 3-D, grouped, sizes per axis, `ConvTranspose`; asymmetric and `SAME` padding |
 | Pooling | `MaxPool`, `AveragePool`, `LpPool` (sizes per axis, asymmetric pads, dilation, ceil mode, padding excluded or counted), `GlobalAveragePool`, `GlobalMaxPool` |
-| Normalisation | `BatchNormalization`, `LayerNormalization`, `InstanceNormalization`, `GroupNormalization`, `LRN` |
-| Softmax and reductions | `Softmax`, `LogSoftmax`, `ReduceSum`/`Mean`/`Max`/`Min`/`SumSquare`, `ArgMax`, `ArgMin`, `CumSum`, `TopK` |
+| Normalisation | `BatchNormalization`, `LayerNormalization`, `InstanceNormalization`, `GroupNormalization`, `LRN`, `LpNormalization` |
+| Softmax and reductions | `Softmax`, `LogSoftmax`, `ReduceSum`/`Mean`/`Max`/`Min`/`Prod`/`SumSquare`/`L2`, `ArgMax`, `ArgMin`, `CumSum`, `TopK` |
 | Quantisation | `QuantizeLinear`, `DequantizeLinear`, `DynamicQuantizeLinear`, `MatMulInteger`, `ConvInteger`, `QLinearMatMul`, `QLinearConv` |
-| Shapes and indexing | `Reshape`, `Transpose`, `Squeeze`, `Unsqueeze`, `Flatten`, `Concat`, `Split`, `Slice`, `Gather`, `GatherND` (first axis), `Expand`, `Tile`, `Cast`, `Range`, `ConstantOfShape`, `Shape`, `Size`, `Pad`, `Resize`, `NonZero` |
+| Shapes and indexing | `Reshape`, `Transpose`, `Squeeze`, `Unsqueeze`, `Flatten`, `Concat`, `Split`, `Slice`, `Gather`, `GatherND` (first axis), `ScatterND`, `Expand`, `Tile`, `Cast`, `Range`, `ConstantOfShape`, `EyeLike`, `Shape`, `Size`, `Pad`, `Resize`, `DepthToSpace`, `SpaceToDepth`, `Col2Im`, `NonZero`, `Identity`, `Dropout` |
 
-Integer shape arithmetic (for example `Shape` -> `Gather` -> `Concat` -> `Reshape`) is folded on
-the host. Unsupported operators are reported by name when the model is loaded. Integer tensors
-become INT32 on the device and booleans FP32 0/1; FP16, BF16 and FP64 weights are held in FP32.
+Integer shape arithmetic (`Shape` -> `Gather` -> `Concat` -> `Reshape`) is folded on the host.
+Unsupported operators are reported by name at load. Integer tensors become INT32 on the device,
+booleans FP32 0/1; FP16, BF16 and FP64 weights are held in FP32.
 
 At load, exported patterns are rewritten into jitNN's fused forms:
 
@@ -318,82 +294,49 @@ At load, exported patterns are rewritten into jitNN's fused forms:
 | the erf form of GELU | one GELU, which the inference fusion moves into the GEMM epilogue |
 | `MatMul(q, k^T)` [-> `Add` mask] -> `Softmax` -> `MatMul(., v)`, with constant scalings and the exporter's reshapes of k | one attention operator |
 
-The attention operator uses the fused attention kernel when batch x heads is at most 32
-(`-Djitnn.onnx.fusedAttentionRows`), and batched GEMMs with a fused scale-softmax above that.
-`-Djitnn.onnx.rewrite=false` turns the rewrites off.
-
-`OnnxSession.load(path, true)` runs in half precision: the matrix products (linear layers and
-attention) take FP16 operands with FP32 accumulation and the linear weights are stored in FP16;
-convolutions stay FP32.
+Attention uses the fused kernel when batch x heads is at most `jitnn.onnx.fusedAttentionRows` (32),
+else batched GEMMs and a fused scale-softmax. `-Djitnn.onnx.rewrite=false` turns the rewrites off.
+`OnnxSession.load(path, true)` runs linear layers and attention with FP16 operands (FP32
+accumulation) and FP16 linear weights; convolutions stay FP32.
 
 ### Quantised models
 
-INT8 models from ONNX Runtime's quantisation tools run as they are:
-
-- the QDQ format (`QuantizeLinear` and `DequantizeLinear` around float operators, what
-  `quantize_static` writes), per-tensor or per-channel;
-- dynamic quantisation (`DynamicQuantizeLinear`, `MatMulInteger`, `ConvInteger`, what
-  `quantize_dynamic` writes);
-- `QLinearMatMul` and `QLinearConv`.
+INT8 models from ONNX Runtime's quantisation tools run as they are: the QDQ format (`quantize_static`,
+per-tensor or per-channel), dynamic quantisation (`DynamicQuantizeLinear`, `MatMulInteger`,
+`ConvInteger`, from `quantize_dynamic`), and `QLinearMatMul` and `QLinearConv`.
 
 Products with a constant INT8 weight (zero point 0, per-tensor or per-output scale) run in INT8:
-`MatMul` between dequantised activations and such a weight, `MatMulInteger`, `QLinearMatMul`, and
-2-D `Conv` with group 1 (as an implicit GEMM: the input is quantised once into NHWC INT8 and the
-product gathers each output pixel's window from it, the padding reading the zero point).
-The activations are quantised as the model says (or as `DynamicQuantizeLinear` found), the
-products accumulate exactly in INT32 (on CUDA on the tensor cores, `mma.sync` m16n8k32), and one
-epilogue dequantises them and adds the bias: the `Cast`, `Mul` by the scales and bias `Add` that
-dynamic quantisation writes after `MatMulInteger` are folded in, and `DynamicQuantizeLinear` then
-only finds the scale and zero point. The weights stay INT8. `-Djitnn.onnx.int8=false` runs these
-products in FP32 instead.
+`MatMul` of dequantised activations by such a weight, `MatMulInteger`, `QLinearMatMul`, and 2-D
+`Conv` with group 1 (an implicit GEMM over the input quantised once into NHWC INT8, padding reading
+the zero point). Activations are quantised as the model says, products accumulate exactly in INT32
+(tensor cores on CUDA, `mma.sync` m16n8k32), and one epilogue dequantises and adds the bias; the
+`Cast`, scale `Mul` and bias `Add` after `MatMulInteger` are folded in. Weights stay INT8.
+`-Djitnn.onnx.int8=false` runs these products in FP32.
 
-Everything else is rewritten at load into dequantise, the float operator and quantise. Every
-dequantisation of another constant (grouped convolutions' weights, INT32 biases) is folded into an
-FP32 weight. A quantise followed by a dequantise of an activation with the same
-per-tensor scale and zero point becomes one fake-quantise operator, which the element-wise fusion
-merges with the residual add and ReLU before it. The quantisation of activations is applied exactly: scale, round half to
-even, zero point and saturation for UINT8, INT8, UINT16 and INT16. `ConvInteger`, grouped and
-non-2-D convolutions are computed in FP32. Blocked quantisation (`block_size`) and FP8/INT4 targets are not supported.
-
-On the RTX 5070 Ti, jitNN's outputs differ from ONNX Runtime's integer CPU kernels by 0.75-1.2% of
-the largest value, which is the size of the INT8 model's own difference from the FP32 model.
-ResNet-50's top-1 class agrees with FP32 on every image. Times (ms, median):
-
-| Model | jitNN INT8 | jitNN INT8 file, FP32 products | jitNN FP32 | ONNX Runtime CUDA, INT8 file |
-|---|---|---|---|---|
-| BERT-base b1 s128, dynamic | 4.5 | 7.8 | 5.5 | 13.2 |
-| BERT-base b32 s128, dynamic | 27.2 | 103.6 | 81 | 288 |
-| ResNet-50 b1, QDQ | 1.8 | 1.9 | 1.6 | 3.4 |
-| ResNet-50 b32, QDQ | 23.3 | 23.4 | 22.9 | 23.5 |
-
-The ResNet-50 rows above predate the INT8 convolutions. On an A100 (ms, median):
-
-| Model | jitNN INT8 | jitNN INT8 file, FP32 products |
-|---|---|---|
-| BERT-base b1 s128, dynamic | 10.5 | 13.9 |
-| BERT-base b32 s128, dynamic | 32.5 | 98.3 |
-| ResNet-50 b1, QDQ | 3.6 | 2.8 |
-| ResNet-50 b32, QDQ | 12.8 | 22.1 |
-
-At batch 1 the INT8 convolutions are slower: their outputs are too small for the 128 x 128 tiles,
-and the quantisation of each input is a launch of its own.
-`scripts/onnx/int8_onnx.py` makes these files and ONNX Runtime's references.
+Everything else becomes dequantise, the float operator and quantise. Dequantised constants (grouped
+convolutions' weights, INT32 biases) are folded into FP32 weights. A quantise-dequantise pair on an
+activation with one per-tensor scale and zero point becomes a fake-quantise operator, fused with a
+preceding residual add and ReLU. Activation quantisation is exact (scale, round half to even, zero
+point, saturation) for UINT8, INT8, UINT16 and INT16. `ConvInteger`, grouped and non-2-D
+convolutions are computed in FP32. Blocked quantisation (`block_size`) and FP8/INT4 targets are not
+supported. Outputs differ from ONNX Runtime's integer CPU kernels by about 1% of the largest value,
+the size of the INT8 model's own difference from FP32; ResNet-50's top-1 class matches FP32. `scripts/onnx/int8_onnx.py` makes test
+models and ONNX Runtime's references.
 
 ### Export
 
-`OnnxExport` writes jitNN models as ONNX files (see USAGE.md, "Exporting to ONNX"). It maps
-linear, matmul, convolution, pooling, BatchNorm, LayerNorm and RMSNorm, attention (fused and
-softmax forms), RoPE, embedding, element-wise, reduction, softmax, slicing, concatenation,
-transposition, cast, dropout and fake-quantisation operators.
+`OnnxExport` writes jitNN models as ONNX files (see USAGE.md, "Exporting to ONNX"): linear,
+matmul, convolution, pooling, BatchNorm, LayerNorm, RMSNorm, attention (fused and softmax forms),
+RoPE, embedding, element-wise, reduction, softmax, slicing, concatenation, transposition, cast,
+dropout and fake-quantisation operators.
 
 ## TensorFlow models (`jitnn-tf`)
 
 `TfModel.load(path)` reads a SavedModel directory (TensorFlow 2, Keras `export` or
-`tf.saved_model.save`; its `serving_default` signature) or a frozen GraphDef file, and
-`run(Map<String, Tensor>)` runs it. The importer inlines the graph's function calls, reads the
-variables from the checkpoint (found through the SavedModel's restore graph), and translates the
-TensorFlow operations into the ONNX importer's operators, so both share their kernels, host shape
-folding and rewrites. Only the operations the signature's outputs need are translated.
+`tf.saved_model.save`; the `serving_default` signature) or a frozen GraphDef, and
+`run(Map<String, Tensor>)` runs it. The importer inlines function calls, reads variables from the
+checkpoint and translates the operations the outputs need into the ONNX importer's operators,
+sharing its kernels, shape folding and rewrites.
 
 | Family | TensorFlow operations |
 |---|---|
@@ -403,28 +346,26 @@ folding and rewrites. Only the operations the signature's outputs need are trans
 | Reductions | `Mean`, `Sum`, `Max`, `Min`, `Prod`, `ArgMax`, `ArgMin`, `Cumsum`, `TopKV2`, `Softmax`, `LogSoftmax` |
 | Shapes and indexing | `Reshape`, `Shape`, `Size`, `ExpandDims`, `Squeeze`, `Transpose`, `ConcatV2`, `Pack`, `Unpack`, `Split`, `SplitV`, `Slice`, `StridedSlice` (all masks), `GatherV2`, `ResourceGather`, `GatherNd`, `Tile`, `Fill`, `ZerosLike`, `OnesLike`, `Range`, `OneHot`, `Pad(V2)`, `MirrorPad`, `ResizeBilinear`, `ResizeNearestNeighbor`, `DepthToSpace`, `SpaceToDepth` |
 
-NHWC convolutions, pooling and resizes are wrapped in transposes to and from NCHW. Constant
-operands that ONNX takes as attributes (permutations, reduction axes, slice bounds, convolution
-filters) must be constants in the graph, as they are in exported models. Control flow (`While`,
-`If`) and training-mode batch normalisation are not supported; a model that uses them is
-rejected at load with the list of operations.
+NHWC convolutions, pooling and resizes are wrapped in transposes. Operands ONNX takes as
+attributes (permutations, reduction axes, slice bounds, convolution filters) must be graph
+constants, as in exported models. Control flow (`While`, `If`) and training-mode batch
+normalisation are not supported; such a model is rejected at load with the list of operations.
 
 ## DJL (`jitnn-djl`)
 
-With `jitnn-djl` on the class path, jitNN is the Deep Java Library's default engine (named `jitNN`, rank 0;
+With `jitnn-djl` on the class path, jitNN is DJL's default engine (`jitNN`, rank 0;
 `-Dai.djl.default_engine=...` picks another). NDArrays are jitNN tensors, recorded lazily and
-compiled per step like any jitNN code. DJL's blocks (`Linear`, `Conv1d`/`2d`/`3d`, `Conv2dTranspose`,
+compiled per step. DJL's blocks (`Linear`, `Conv1d`/`2d`/`3d`, `Conv2dTranspose`,
 `BatchNorm`, `LayerNorm`, `Dropout`, the pooling blocks, `Embedding`, `PReLU`, `LSTM`, `GRU`,
 `RNN`), losses, optimisers (`Sgd` with momentum, `Nag`, `Adam`/AdamW, `Adagrad`, `RmsProp`,
 `Adadelta`, all as jitNN's fused in-place updates) and `Trainer` work; `Model.load` reads ONNX
 files through jitnn-onnx.
 
-Every numeric DJL type is held in FP32 (integers exactly up to 2^24) and tagged with its DJL type,
-which arithmetic results and host copies follow: integer division truncates, and an integer array
-with a floating scalar gives FLOAT32, as in PyTorch (so `uint8` pixels divided by `255.0` are not
-truncated). Pooling and convolution take sizes per axis, ceil mode and LP pooling. Not supported:
-DJL's random image augmentation (jitNN's `DataLoader` has its own), the multibox operators,
-sparse arrays and strings. Operators jitNN lacks run on the engine named by
+Every numeric DJL type is held in FP32 (integers exact up to 2^24) and tagged with its DJL type,
+which results and host copies follow: integer division truncates, and an integer array with a
+floating scalar gives FLOAT32, as in PyTorch. Pooling and convolution take sizes per axis, ceil
+mode and LP pooling. Not supported: DJL's random image augmentation (`DataLoader` has its own),
+multibox operators, sparse arrays and strings. Operators jitNN lacks run on the engine named by
 `-Djitnn.djl.fallback` (for example `PyTorch`) when it is on the class path, else throw.
 
 ## Not yet supported

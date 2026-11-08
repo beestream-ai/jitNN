@@ -4,27 +4,23 @@
 
 | What | Version | Notes |
 |---|---|---|
-| JDK | 22 or newer | jitNN compiles with `--release 22`; tested on Temurin 25.0.3 and JDK 25.0.2 |
-| TornadoVM | `develop`, 8.0.1-jdk22plus-dev or newer | needs the on-demand `TornadoExecutionPlan.transferToDevice(Object...)`, `withDynamicShapes()` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), which every `develop` build installs; earlier versions lack the library tasks |
+| JDK | 22 or newer | compiled with `--release 22`; tested on JDK 25 |
+| TornadoVM | `develop` (8.1.1-dev) | needs `TornadoExecutionPlan.transferToDevice(Object...)`, `withDynamicShapes()` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), which every `develop` build installs |
 | A device | CUDA, OpenCL or Metal | optional: the reference backend runs on any CPU |
-| CUDA toolkit | 12 or 13; 13 for Blackwell GPUs (RTX 50 series) | optional: only for the CUDA backend; vendor libraries on Blackwell need a TornadoVM that loads the CUDA 13 libraries first (beehive-lab/TornadoVM#1280) |
-| cuDNN, MLX | cuDNN 9; MLX from `brew install mlx` | optional: only for `-Djitnn.native` (see [NATIVE.md](NATIVE.md)); cuBLAS, cuFFT and cuSPARSE come with the CUDA toolkit |
-| Python, `torch`, `numpy` | any recent | optional: only to regenerate the PyTorch references |
-| `gguf` (llama.cpp's Python package) | any recent | optional: only to regenerate the goldens for GGUF's quantised formats |
-| `scikit-learn` | 1.9.1 for the committed references | optional: only to regenerate the classical machine-learning references |
-| `onnx`, `onnxruntime` | any recent | optional: only to regenerate the ONNX goldens and for the inference comparison |
-| `tensorflow` 2.x with Keras 3 | any recent | optional: only to regenerate the TensorFlow goldens |
+| CUDA toolkit | 12 or 13; 13 for Blackwell GPUs (RTX 50 series) | optional, for the CUDA backend; vendor libraries on Blackwell need a TornadoVM that loads the CUDA 13 libraries first (beehive-lab/TornadoVM#1280) |
+| cuDNN, MLX | cuDNN 9; MLX from `brew install mlx` | optional, for `-Djitnn.native` (see [NATIVE.md](NATIVE.md)); cuBLAS, cuFFT and cuSPARSE come with the CUDA toolkit |
+| Python packages | `torch`, `numpy`, `gguf` (llama.cpp's), `onnx`, `onnxruntime`: any recent; `scikit-learn` 1.9.1; `tensorflow` 2.x with Keras 3 | optional, only to regenerate the [references](#regenerating-the-references) |
 
-jitNN itself has no dependencies besides TornadoVM's `tornado-api` and its library modules, all
-provided by the TornadoVM SDK at run time. `jitnn-onnx` reads ONNX files with its own protobuf reader,
-which `jitnn-tf` also uses for TensorFlow models, and `jitnn-gguf` reads GGUF files with its own reader. The optional `jitnn-llm`
-(`./mvnw -Pllm ...`) depends on jitllm built against the same TornadoVM SDK: run `./mvnw install`
-in a jitllm checkout first. `jitnn-djl` depends on DJL's `ai.djl:api` (0.38.0).
+jitNN depends only on TornadoVM's `tornado-api` and library modules, provided by the TornadoVM SDK
+at run time. `jitnn-onnx` and `jitnn-tf` use their own protobuf reader, `jitnn-gguf` its own GGUF
+reader. `jitnn-djl` depends on DJL's `ai.djl:api` (0.38.0). The optional `jitnn-llm`
+(`./mvnw -Pllm ...`) needs jitllm built against the same TornadoVM SDK: run `./mvnw install` in a
+jitllm checkout first.
 
 ## TornadoVM
 
-Build TornadoVM from `develop` with the backends you want and install its artifacts into the local
-Maven repository, which jitNN resolves `tornado-api` and the library modules from:
+Build TornadoVM from `develop` with the backends you want and install it into the local Maven
+repository, from which jitNN resolves `tornado-api` and the library modules:
 
 ```bash
 git clone -b develop https://github.com/beehive-lab/TornadoVM && cd TornadoVM
@@ -33,24 +29,28 @@ source setvars.sh                        # JAVA_HOME, TORNADOVM_HOME, PATH
 tornado --devices                        # device ids, as <driver>:<device>
 ```
 
-`source setvars.sh` is needed in every shell that builds or runs jitNN.
+Run `source setvars.sh` in every shell that builds or runs jitNN.
 
 ## jitNN
 
+The pom's `tornadovm.version` is `8.0.1-jdk22plus-dev`. To build against a newer `develop`
+install, pass its version on every Maven command, for example
+`-Dtornadovm.version=8.1.1-jdk22plus-dev`:
+
 ```bash
 git clone https://github.com/beestream-ai/jitnn && cd jitnn
-./mvnw install -DskipTests
+./mvnw install -DskipTests -Dtornadovm.version=8.1.1-jdk22plus-dev
 ./mvnw test                                          # reference backend only
 ./mvnw test -Paccel-tests -Djitnn.test.device=0:0    # plus the device tests
 ```
 
-The Maven wrapper downloads Maven 3.9.6 on first use. Offline builds work with `./mvnw -o` once the
+The Maven wrapper downloads Maven 3.9.6 on first use; `./mvnw -o` builds offline once the
 dependencies are in `~/.m2`.
 
 ## Test data
 
-The MNIST gate needs the four MNIST IDX files (gzipped is fine) and, for the PyTorch comparison, a
-reference run in the same directory:
+The MNIST gate needs the four MNIST IDX files (gzipped is fine) and a PyTorch reference run in the
+same directory:
 
 ```bash
 mkdir -p ~/jitnn-data/mnist && cd ~/jitnn-data/mnist
@@ -61,8 +61,8 @@ python <jitnn>/scripts/pytorch/mnist_mlp.py ~/jitnn-data/mnist ~/jitnn-data/mnis
 ./mvnw test -Paccel-tests -Djitnn.mnist=$HOME/jitnn-data/mnist
 ```
 
-The CIFAR-10 gates need the binary version of CIFAR-10 (170 MB) and the PyTorch references, which
-take a while on a CPU (a GPU is much faster: set `JITNN_TORCH_DEVICE=cuda` or `mps`):
+The CIFAR-10 gates need the binary CIFAR-10 (170 MB) and PyTorch references (set
+`JITNN_TORCH_DEVICE=cuda` or `mps` to make them on a GPU):
 
 ```bash
 mkdir -p ~/jitnn-data/cifar10 && cd ~/jitnn-data/cifar10
@@ -74,8 +74,8 @@ done
 ./mvnw test -Paccel-tests -Djitnn.cifar10=$HOME/jitnn-data/cifar10 -Dtest='CnnAccelTest#*Cifar10*'
 ```
 
-The transformer gates train on a byte-level corpus; any text works, and the results in the docs
-use TornadoVM's documentation (`docs/source/*.rst` concatenated, 307 KB):
+The transformer gates train on a byte-level corpus. Any text works; the documented results use
+TornadoVM's documentation (`docs/source/*.rst` concatenated):
 
 ```bash
 mkdir -p ~/jitnn-data/text && cat <TornadoVM>/docs/source/*.rst > ~/jitnn-data/text/corpus.txt
@@ -95,22 +95,16 @@ python <jitnn>/scripts/hf/hf_reference.py ~/jitnn-data/hf
 ./mvnw test -Paccel-tests -Djitnn.hf=$HOME/jitnn-data/hf -Dtest=HfAccelTest
 ```
 
-## PyTorch environment
+## Regenerating the references
+
+All references are committed; regenerate them only to change or extend them:
 
 ```bash
 python3 -m venv ~/jitnn-data/torch-venv
-~/jitnn-data/torch-venv/bin/pip install torch numpy
+~/jitnn-data/torch-venv/bin/pip install torch numpy scikit-learn onnx onnxruntime gguf
 ~/jitnn-data/torch-venv/bin/python scripts/pytorch/goldens.py jitnn-core/src/test/resources/golden
-```
-
-The golden set is committed, so this is only needed to change or extend it. The other references
-are committed too and are regenerated the same way:
-
-```bash
-~/jitnn-data/torch-venv/bin/pip install scikit-learn onnx onnxruntime
 ~/jitnn-data/torch-venv/bin/python scripts/sklearn/ml_goldens.py jitnn-nn/src/test/resources/ml
 ~/jitnn-data/torch-venv/bin/python scripts/onnx/onnx_goldens.py jitnn-onnx/src/test/resources/onnx
-~/jitnn-data/torch-venv/bin/pip install gguf
 ~/jitnn-data/torch-venv/bin/python scripts/gguf/gguf_fixture.py jitnn-gguf/src/test/resources/gguf/fixture.gguf
 ```
 
