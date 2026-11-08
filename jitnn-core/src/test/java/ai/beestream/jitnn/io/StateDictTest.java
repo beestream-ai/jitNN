@@ -107,7 +107,7 @@ class StateDictTest {
     void rejectsBadFiles() throws IOException {
         Path file = dir.resolve("bad.safetensors");
         Files.write(file, new byte[] { 1, 2, 3 });
-        assertThrows(RuntimeException.class, () -> StateDict.load(file));
+        assertThrows(IOException.class, () -> StateDict.load(file));
         assertThrows(IllegalArgumentException.class, () -> new StateDict().put("q", Tensor.quantized(DType.Q8_0, new byte[34], 32)));
         assertThrows(IllegalArgumentException.class, () -> new StateDict().put("x", "1").put("x", "2"));
     }
