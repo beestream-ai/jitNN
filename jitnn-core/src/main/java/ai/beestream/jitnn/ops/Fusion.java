@@ -55,17 +55,23 @@ public final class Fusion {
 
     static final FoldBatchNorm FOLD_BN = new FoldBatchNorm();
 
-    /** Folded weights by the identity of their sources. */
-    private static final Map<List<Long>, Folded> FOLDED = new HashMap<>();
+    /**
+     * Folded weights by the identity of their sources, per convolution weight (held weakly: a
+     * model's folded weights go with the model). Synchronised: the CPU executor rewrites traces
+     * without the TornadoVM executor's lock.
+     */
+    private static final Map<Storage, Map<List<Long>, Folded>> FOLDED = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
     private Fusion() {
     }
 
-    private record Folded(Tensor w, Tensor b, Storage[] sources, long[] versions) {
+    /** Folded weights and the versions of the weights they were folded from (held weakly: the map's key is one of them). */
+    private record Folded(Tensor w, Tensor b, java.lang.ref.WeakReference<Storage>[] sources, long[] versions) {
 
         boolean current() {
             for (int i = 0; i < sources.length; i++) {
-                if (sources[i].version() != versions[i]) {
+                Storage s = sources[i] == null ? null : sources[i].get();
+                if (s == null || s.version() != versions[i]) {
                     return false;
                 }
             }
@@ -459,18 +465,28 @@ public final class Fusion {
             key.add(s.id());
         }
         key.add((long) Float.floatToRawIntBits(bn.fattr[0]));
-        Folded f = FOLDED.get(key);
+        Map<List<Long>, Folded> forWeight;
+        synchronized (FOLDED) {
+            forWeight = FOLDED.computeIfAbsent(w.storage(), x -> new HashMap<>());
+        }
+        Folded f;
+        synchronized (forWeight) {
+            f = forWeight.get(key);
+        }
         if (f == null || !f.current()) {
             if (f == null) {
                 // host arrays: nothing may be recorded while the executor runs
                 // an FP16 weight (half-precision inference) folds into an FP16 weight
                 Tensor wf = w.dtype() == DType.F16 ? Tensor.persistentHalf(new float[w.numel()], w.shape().dims()) : Tensor.persistent(Tensor.of(new float[w.numel()], w.shape().dims()));
-                f = new Folded(wf, Tensor.persistent(Tensor.of(new float[a[4]], a[4])),
-                        new Storage[sources.length], new long[sources.length]);
-                FOLDED.put(key, f);
+                @SuppressWarnings("unchecked")
+                java.lang.ref.WeakReference<Storage>[] refs = new java.lang.ref.WeakReference[sources.length];
+                f = new Folded(wf, Tensor.persistent(Tensor.of(new float[a[4]], a[4])), refs, new long[sources.length]);
+                synchronized (forWeight) {
+                    forWeight.put(key, f);
+                }
             }
             for (int i = 0; i < sources.length; i++) {
-                f.sources()[i] = sources[i].storage();
+                f.sources()[i] = new java.lang.ref.WeakReference<>(sources[i].storage());
                 f.versions()[i] = sources[i].storage().version();
             }
             Tensor[] ins = bias == null ? new Tensor[] { w, bn.in(1), bn.in(2), bn.in(3), bn.in(4) } : new Tensor[] { w, bias, bn.in(1), bn.in(2), bn.in(3), bn.in(4) };

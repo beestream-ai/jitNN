@@ -138,9 +138,30 @@ final class TornadoExecutor {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, CompiledTrace> eldest) {
             // every concurrency slot compiles its own plans, so the cache holds CACHE_SIZE per slot
-            if (size() > Math.max(CACHE_SIZE, RESERVED.get()) * Math.max(1, Integer.getInteger("jitnn.concurrency", 1)) && !eldest.getValue().busy && local(eldest.getValue())) {
-                close(eldest.getValue());
-                return true;
+            // and device: the least recently used plan of this device that no thread is running is
+            // closed (another device's plans are closed by its own threads)
+            int limit = Math.max(CACHE_SIZE, RESERVED.get()) * SLOTS;
+            int local = 0;
+            for (CompiledTrace c : values()) {
+                if (local(c)) {
+                    local++;
+                }
+            }
+            if (local <= limit) {
+                return false;
+            }
+            // never the plan just added (the last entry), which its caller is about to run
+            CompiledTrace victim = null;
+            CompiledTrace newest = null;
+            for (CompiledTrace c : values()) {
+                if (victim == null && local(c) && !c.busy) {
+                    victim = c;
+                }
+                newest = c;
+            }
+            if (victim != null && victim != newest) {
+                values().remove(victim);
+                close(victim);
             }
             return false;
         }
@@ -178,8 +199,8 @@ final class TornadoExecutor {
      * at the same time. A plan that writes persistent storages marks them ({@link Storage#writer})
      * first; other threads wait on {@link #WRITTEN} before touching a marked storage.
      */
-    private static final java.util.concurrent.locks.ReentrantLock LOCK = new java.util.concurrent.locks.ReentrantLock();
-    private static final java.util.concurrent.locks.Condition WRITTEN = LOCK.newCondition();
+    private static final java.util.concurrent.locks.ReentrantLock LOCK = Storage.LOCK;
+    private static final java.util.concurrent.locks.Condition WRITTEN = Storage.WRITTEN;
 
     /**
      * Concurrent executions ({@code -Djitnn.concurrency}, default 1): threads are spread over this
@@ -201,6 +222,11 @@ final class TornadoExecutor {
             try {
                 runLocked(recorded, wanted, slot);
             } finally {
+                // the signature's storages are not kept past the trace (weights of a closed model, inputs)
+                Signed sg = MEMO ? SIGNED.get() : null;
+                if (sg != null) {
+                    Arrays.fill(sg.locals, null);
+                }
                 LOCK.unlock();
             }
         } finally {
@@ -398,56 +424,61 @@ final class TornadoExecutor {
         lastIntermediateBytes = ct.intermediateBytes;
         evictIdle(ct);
         try {
-            execute(ct, slots);
-        } catch (uk.ac.manchester.tornado.api.exceptions.TornadoOutOfMemoryException oom) {
-            // Device memory is shared by every cached plan. WORKAROUND(TornadoVM): a plan
-            // whose execution failed is not safe to execute again, so it is dropped, the other
-            // plans are closed (persistent storages saved to the host first), and the trace is
-            // compiled afresh.
-            if (CACHE.size() <= 1) {
-                throw oom;
+            try {
+                execute(ct, slots);
+            } catch (uk.ac.manchester.tornado.api.exceptions.TornadoOutOfMemoryException oom) {
+                // Device memory is shared by every cached plan. WORKAROUND(TornadoVM): a plan
+                // whose execution failed is not safe to execute again, so it is closed (what only
+                // it holds saved to the host first), this device's other plans are closed too, and
+                // the trace is compiled afresh; with nothing else to free, the error stands.
+                CACHE.remove(k);
+                closeFailed(ct);
+                if (replaced != null) {
+                    // its carried values go to the host before the retry, which compiles without them
+                    closeFailed(replaced);
+                    replaced = null;
+                }
+                if (!evictAllExcept(null)) {
+                    throw oom;
+                }
+                if (VERBOSE) {
+                    System.err.printf("[jitnn] out of device memory in %s: closed this device's cached plans and recompiled%n", ct.name);
+                }
+                stable = false;
+                ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
+                ct.structure = structure;
+                BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
+                CACHE.put(k, ct);
+                compiles++;
+                executeOrDrop(ct, k, slots);
+            } catch (RuntimeException failure) {
+                if (ct.executions > 0 || ct.libraries.isEmpty()) {
+                    // a plan whose execution failed is not run again
+                    CACHE.remove(k);
+                    closeFailed(ct);
+                    throw failure;
+                }
+                // a vendor library failed on its first call (missing at run time, or an argument form it
+                // does not take): stop using it and compile the trace with jitNN's kernels
+                CACHE.remove(k);
+                closeFailed(ct);
+                Native.disable(ct.libraries, failure);
+                String tag = Native.keyTag();
+                structure = Devices.key() + "|" + slotTag + tag + structure.substring(Devices.key().length() + 1 + slotTag.length() + nativeTag.length());
+                k = structure + "|P" + ids;
+                stable = false;
+                ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
+                ct.structure = structure;
+                BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
+                CACHE.put(k, ct);
+                compiles++;
+                executeOrDrop(ct, k, slots);
             }
-            CACHE.remove(k);
-            forget(ct);
-            evictAllExcept(null);
-            if (VERBOSE) {
-                System.err.printf("[jitnn] out of device memory in %s: closed every cached plan and recompiled%n", ct.name);
+        } finally {
+            // the plan this one replaced (carrying values across steps) goes, whether or not this one ran
+            if (replaced != null && !replaced.closed) {
+                closeFailed(replaced);
             }
-            if (replaced != null) {
-                // no longer in the cache: closed here (its carried values were read before the failure)
-                close(replaced);
-                replaced = null;
-            }
-            stable = false;
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
-            ct.structure = structure;
-            BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
-            CACHE.put(k, ct);
-            compiles++;
-            execute(ct, slots);
-        } catch (RuntimeException failure) {
-            if (ct.executions > 0 || ct.libraries.isEmpty()) {
-                throw failure;
-            }
-            // a vendor library failed on its first call (missing at run time, or an argument form it
-            // does not take): stop using it and compile the trace with jitNN's kernels
-            CACHE.remove(k);
-            forget(ct);
-            closeQuietly(ct);
-            Native.disable(ct.libraries, failure);
-            String tag = Native.keyTag();
-            structure = Devices.key() + "|" + slotTag + tag + structure.substring(Devices.key().length() + 1 + slotTag.length() + nativeTag.length());
-            k = structure + "|P" + ids;
-            stable = false;
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
-            ct.structure = structure;
-            BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
-            CACHE.put(k, ct);
-            compiles++;
-            execute(ct, slots);
-        }
-        if (replaced != null && !replaced.closed) {
-            close(replaced);
         }
         for (Node n : nodes) {
             n.executed = true;
@@ -583,6 +614,17 @@ final class TornadoExecutor {
                 Storage s = wanted[i].storage();
                 fetches[i] = s.memoStamp == sg.stamp && m.localInSlots()[s.memoLocal] ? s : null;
             }
+            // weights another thread's plan is writing are waited for, then the versions checked again
+            boolean waited = false;
+            for (Storage p : m.persistent()) {
+                if (p != null && p.writer != null && p.writer != ct) {
+                    awaitWritten(p, ct);
+                    waited = true;
+                }
+            }
+            if (waited && (!matches(sg, m, global, recorded.size()) || ct.closed || CACHE.get(m.key()) != ct)) {
+                return false;
+            }
             replays++;
             memoReplays++;
             ct.lastUsed = ++executionsTotal;
@@ -591,7 +633,10 @@ final class TornadoExecutor {
             try {
                 execute(ct, slots);
             } catch (RuntimeException failure) {
-                // out of device memory, or a library failing: the full path handles it
+                // out of device memory, or a library failing: the plan is not run again; the full
+                // path compiles the trace afresh and handles the failure
+                CACHE.remove(m.key());
+                closeFailed(ct);
                 MEMOS.clear();
                 memoCount = 0;
                 return false;
@@ -741,6 +786,39 @@ final class TornadoExecutor {
             sum += Long.parseLong(m.group(1));
         }
         return sum;
+    }
+
+    /**
+     * Closes a plan whose execution failed: what only it holds (persistent storages, unread
+     * outputs) is saved to the host when TornadoVM still can, and no storage refers to it after.
+     */
+    private static void closeFailed(CompiledTrace ct) {
+        try {
+            close(ct);
+        } catch (RuntimeException e) {
+            forget(ct);
+            closeQuietly(ct);
+            for (Storage s : ct.bound) {
+                if (s != null) {
+                    s.validOn.remove(ct);
+                    if (s.boundTrace == ct && !s.hostValid) {
+                        s.stale = true;
+                        s.boundTrace = null;
+                    }
+                }
+            }
+        }
+    }
+
+    /** Executes a plan just compiled for a retry; if it fails as well it is closed and the error stands. */
+    private static void executeOrDrop(CompiledTrace ct, String key, List<Storage> slots) {
+        try {
+            execute(ct, slots);
+        } catch (RuntimeException failure) {
+            CACHE.remove(key);
+            closeFailed(ct);
+            throw failure;
+        }
     }
 
     /** Releases a plan that failed before it ran (nothing of it is on the host to save). */
@@ -1085,7 +1163,7 @@ final class TornadoExecutor {
     }
 
     /** The plan this thread executed last (Autotune times it again). */
-    private static final ThreadLocal<CompiledTrace> LAST = new ThreadLocal<>();
+    private static final ThreadLocal<java.lang.ref.WeakReference<CompiledTrace>> LAST = new ThreadLocal<>();
 
     /**
      * Runs the plan this thread executed last {@code runs} more times, as it is (no recording, no
@@ -1093,13 +1171,34 @@ final class TornadoExecutor {
      * the plan's launch. For Autotune, on its measurement plans.
      */
     static double timeLast(int runs) {
-        CompiledTrace ct = LAST.get();
+        java.lang.ref.WeakReference<CompiledTrace> ref = LAST.get();
+        CompiledTrace ct = ref == null ? null : ref.get();
+        if (ct == null || ct.closed) {
+            throw new IllegalStateException("no plan to time: this thread's last plan was closed");
+        }
+        // marked as running, so no other thread closes it meanwhile
+        LOCK.lock();
+        try {
+            ct.busy = true;
+        } finally {
+            LOCK.unlock();
+        }
         double[] t = new double[runs];
-        for (int r = -2; r < runs; r++) {
-            long t0 = System.nanoTime();
-            ct.plan.execute();
-            if (r >= 0) {
-                t[r] = (System.nanoTime() - t0) / 1e9;
+        try {
+            for (int r = -2; r < runs; r++) {
+                long t0 = System.nanoTime();
+                ct.plan.execute();
+                if (r >= 0) {
+                    t[r] = (System.nanoTime() - t0) / 1e9;
+                }
+            }
+        } finally {
+            LOCK.lock();
+            try {
+                ct.busy = false;
+                WRITTEN.signalAll();
+            } finally {
+                LOCK.unlock();
             }
         }
         java.util.Arrays.sort(t);
@@ -1107,7 +1206,7 @@ final class TornadoExecutor {
     }
 
     private static void execute(CompiledTrace ct, List<Storage> slots) {
-        LAST.set(ct);
+        LAST.set(new java.lang.ref.WeakReference<>(ct));
         // persistent storages another thread's plan is writing are read or written only after it
         for (int i = 0; i < slots.size(); i++) {
             if (ct.kinds[i] == CompiledTrace.PERSISTENT) {
@@ -1192,6 +1291,7 @@ final class TornadoExecutor {
         for (boolean w : ct.written) {
             writes |= w;
         }
+        long[] readVersions = null;
         if (ct.printHeader != null) {
             ct.last = executePrinting(ct);
         } else {
@@ -1205,6 +1305,14 @@ final class TornadoExecutor {
                     if (ct.written[i]) {
                         slots.get(i).writer = ct;
                     }
+                }
+            }
+            // versions of the persistent storages this plan only reads: another thread's plan may
+            // write one while the lock is released, and then this plan's copy is not the newest
+            readVersions = new long[slots.size()];
+            for (int i = 0; i < slots.size(); i++) {
+                if (ct.kinds[i] == CompiledTrace.PERSISTENT && !ct.written[i]) {
+                    readVersions[i] = slots.get(i).version;
                 }
             }
             int holds = LOCK.getHoldCount();
@@ -1224,8 +1332,9 @@ final class TornadoExecutor {
                             slots.get(i).writer = null;
                         }
                     }
-                    WRITTEN.signalAll();
                 }
+                // threads waiting for a plan to finish: writers, fetch() and closeAll()
+                WRITTEN.signalAll();
             }
         }
         executeNanos += System.nanoTime() - t0;
@@ -1262,8 +1371,10 @@ final class TornadoExecutor {
                 if (ct.written[i]) {
                     s.validOn.clear();
                     s.hostValid = false;
+                    s.validOn.add(ct);
+                } else if (readVersions == null || s.version == readVersions[i]) {
+                    s.validOn.add(ct);
                 }
-                s.validOn.add(ct);
             } else if (ct.kinds[i] == CompiledTrace.INTERMEDIATE) {
                 s.boundTrace = ct;
                 s.boundExec = ct.executions;
@@ -1272,6 +1383,15 @@ final class TornadoExecutor {
                 s.stale = ct.recyclable != null && ct.recyclable[i];
             }
         }
+    }
+
+    private static CompiledTrace idleCopy(Storage s) {
+        for (CompiledTrace c : s.validOn) {
+            if (!c.busy) {
+                return c;
+            }
+        }
+        return null;
     }
 
     /** Brings the newest device contents of {@code s} to its host array. */
@@ -1288,12 +1408,15 @@ final class TornadoExecutor {
                 if (s.validOn.isEmpty()) {
                     throw new IllegalStateException("persistent storage " + s.id + " has no valid copy");
                 }
-                CompiledTrace ct = s.validOn.iterator().next();
-                for (CompiledTrace c : s.validOn) {
-                    // a plan another thread is running is not read from
-                    if (!c.busy) {
-                        ct = c;
-                        break;
+                // a plan another thread is running is not read from: wait until one of the copies is idle
+                CompiledTrace ct;
+                while ((ct = idleCopy(s)) == null) {
+                    WRITTEN.awaitUninterruptibly();
+                    if (s.hostValid) {
+                        return;
+                    }
+                    if (s.validOn.isEmpty()) {
+                        throw new IllegalStateException("persistent storage " + s.id + " has no valid copy");
                     }
                 }
                 ct.last.transferToHost(s.array);
@@ -1459,6 +1582,10 @@ final class TornadoExecutor {
     static void closeAll() {
         LOCK.lock();
         try {
+            // a plan another thread is running is closed once it has finished
+            while (CACHE.values().stream().anyMatch(c -> c.busy)) {
+                WRITTEN.awaitUninterruptibly();
+            }
             for (CompiledTrace ct : CACHE.values()) {
                 close(ct);
             }

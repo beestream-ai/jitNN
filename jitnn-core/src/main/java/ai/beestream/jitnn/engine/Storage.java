@@ -37,6 +37,14 @@ import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
  */
 public final class Storage {
 
+    /**
+     * The lock over storage bookkeeping (valid copies, host state, versions) and the TornadoVM
+     * executor's plan cache. It is released while a plan runs; {@link #WRITTEN} wakes the threads
+     * waiting for a plan to finish.
+     */
+    static final java.util.concurrent.locks.ReentrantLock LOCK = new java.util.concurrent.locks.ReentrantLock();
+    static final java.util.concurrent.locks.Condition WRITTEN = LOCK.newCondition();
+
     private static final AtomicLong IDS = new AtomicLong();
 
     final long id = IDS.incrementAndGet();
@@ -268,13 +276,21 @@ public final class Storage {
         if (Engine.pending() > 0) {
             Engine.sync();
         }
-        dropped = true;
-        hostValid = false;
-        heap = null;
-        array = null;
-        if (lease != null) {
-            lease.run();
-            lease = null;
+        LOCK.lock();
+        try {
+            if (dropped) {
+                return;
+            }
+            dropped = true;
+            hostValid = false;
+            heap = null;
+            array = null;
+            if (lease != null) {
+                lease.run();
+                lease = null;
+            }
+        } finally {
+            LOCK.unlock();
         }
     }
 
@@ -283,9 +299,14 @@ public final class Storage {
         if (stale) {
             throw new IllegalStateException("storage was reused by a later execution");
         }
-        hostValid = true;
-        validOn.clear();
-        boundTrace = null;
-        version++;
+        LOCK.lock();
+        try {
+            hostValid = true;
+            validOn.clear();
+            boundTrace = null;
+            version++;
+        } finally {
+            LOCK.unlock();
+        }
     }
 }
