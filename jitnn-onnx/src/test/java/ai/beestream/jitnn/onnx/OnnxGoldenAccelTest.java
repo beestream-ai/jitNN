@@ -18,7 +18,8 @@ package ai.beestream.jitnn.onnx;
 import java.io.IOException;
 import java.util.List;
 
-import ai.beestream.jitnn.engine.Engine;
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
@@ -28,11 +29,11 @@ class OnnxGoldenAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @TestFactory
     List<DynamicTest> deviceMatchesOnnxRuntime() throws IOException {
-        return OnnxGolden.tests(Engine.Backend.TORNADO);
+        return OnnxGolden.tests(Backend.TORNADO);
     }
 }

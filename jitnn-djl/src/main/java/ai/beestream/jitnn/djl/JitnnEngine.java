@@ -29,7 +29,7 @@ import ai.djl.nn.SymbolBlock;
 import ai.djl.training.GradientCollector;
 
 import ai.beestream.jitnn.JitnnConfig;
-import ai.beestream.jitnn.engine.Engine.Backend;
+import ai.beestream.jitnn.Backend;
 
 /**
  * A DJL engine that runs DJL code on jitNN: NDArray operators become lazy jitNN operators,
@@ -110,7 +110,7 @@ public final class JitnnEngine extends Engine {
 
     /** True when jitNN runs operators on a TornadoVM device (else on the host reference). */
     static boolean onDevice() {
-        return ai.beestream.jitnn.engine.Engine.backend() == Backend.TORNADO;
+        return ai.beestream.jitnn.JitnnRuntime.backend() == Backend.TORNADO;
     }
 
     @Override

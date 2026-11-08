@@ -29,9 +29,9 @@ import ai.beestream.jitnn.Autocast;
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.F;
 import ai.beestream.jitnn.Grad;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.data.TextCorpus;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.Bert;
 import ai.beestream.jitnn.nn.models.GPT2;
 import ai.beestream.jitnn.nn.models.Llama;
@@ -71,7 +71,7 @@ class TransformerAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test
@@ -190,8 +190,8 @@ class TransformerAccelTest {
         int[] x = new int[BATCH * SEQ];
         int[] y = new int[BATCH * SEQ];
         List<Float> losses = new ArrayList<>();
-        long[] plans0 = Engine.planStats();
-        long[] split0 = Engine.timeSplit();
+        long[] plans0 = JitnnRuntime.planStats();
+        long[] split0 = JitnnRuntime.timeSplit();
         long t0 = System.nanoTime();
         long firstStep = 0;
         for (int b = 0; b < STEPS; b++) {
@@ -223,12 +223,12 @@ class TransformerAccelTest {
             }
         }
         double steady = (System.nanoTime() - t0 - firstStep) / 1e6 / (STEPS - 1);
-        long[] split1 = Engine.timeSplit();
-        long[] plans1 = Engine.planStats();
+        long[] split1 = JitnnRuntime.timeSplit();
+        long[] plans1 = JitnnRuntime.planStats();
 
         model.train(false);
         long evalStart = System.nanoTime();
-        long[] evalPlans0 = Engine.planStats();
+        long[] evalPlans0 = JitnnRuntime.planStats();
         int windows = corpus.evalWindows(SEQ);
         double evalLoss = 0;
         int batches = 0;
@@ -241,7 +241,7 @@ class TransformerAccelTest {
             batches++;
         }
         evalLoss /= batches;
-        System.out.printf("[jitnn] %s evaluation: %d batches in %.1f s, %d plans compiled%n", name, batches, (System.nanoTime() - evalStart) / 1e9, Engine.planStats()[0] - evalPlans0[0]);
+        System.out.printf("[jitnn] %s evaluation: %d batches in %.1f s, %d plans compiled%n", name, batches, (System.nanoTime() - evalStart) / 1e9, JitnnRuntime.planStats()[0] - evalPlans0[0]);
 
         ByteBuffer buf = ByteBuffer.wrap(Files.readAllBytes(reference)).order(ByteOrder.LITTLE_ENDIAN);
         float torchEval = buf.getFloat();

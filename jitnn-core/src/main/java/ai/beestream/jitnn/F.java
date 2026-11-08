@@ -507,6 +507,28 @@ public final class F {
     }
 
     /**
+     * softmax(scores * scale) over the last axis of attention scores [..., T, S], in one kernel;
+     * {@code causal}: query t sees keys 0 .. t, as PyTorch's {@code is_causal}.
+     */
+    public static Tensor attentionSoftmax(Tensor scores, float scale, boolean causal) {
+        return AttentionSoftmax.apply(scores, scale, causal);
+    }
+
+    /**
+     * Quantises x to {@code bits} (8 or 16) bits and back:
+     * clamp(round_half_even(x / scale), lowest, lowest + 2^bits - 1) * scale, {@code lowest} being
+     * the lowest code minus the zero point (ONNX QuantizeLinear followed by DequantizeLinear).
+     */
+    public static Tensor fakeQuantize(Tensor x, float scale, float lowest, int bits) {
+        ai.beestream.jitnn.ops.Unary.Kind kind = switch (bits) {
+            case 8 -> ai.beestream.jitnn.ops.Unary.Kind.FAKE_QUANT8;
+            case 16 -> ai.beestream.jitnn.ops.Unary.Kind.FAKE_QUANT16;
+            default -> throw new IllegalArgumentException("fakeQuantize: 8 or 16 bits, not " + bits);
+        };
+        return ai.beestream.jitnn.ops.Unary.apply(kind, x, scale, lowest);
+    }
+
+    /**
      * Scaled dot-product attention, PyTorch semantics: softmax(q k^T * scale + mask) v, for q
      * [..., T, E], k [..., S, E], v [..., S, Ev]. {@code mask} is an additive mask broadcast to
      * [..., T, S] (0 to keep, a large negative number to drop), or null; {@code causal} lets
@@ -607,7 +629,7 @@ public final class F {
     }
 
     /** {@link #ropeHeads} with the frequencies rescaled for longer contexts (Llama 3.1's rope_scaling; null for none). */
-    public static Tensor ropeHeads(Tensor x, float base, Rope.Scaling scaling, int offset, boolean interleaved) {
+    public static Tensor ropeHeads(Tensor x, float base, RopeScaling scaling, int offset, boolean interleaved) {
         return Rope.applyHeads(x, base, scaling, offset, interleaved);
     }
 

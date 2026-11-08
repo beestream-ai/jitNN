@@ -12,7 +12,7 @@ JitnnConfig.install(JitnnConfig.builder()
 
 The runtime reads its configuration once, the first time it needs an option, and keeps it.
 Options marked "can change at run time" may change afterwards with `JitnnConfig.change` or their
-setters (`Engine.setDeterministic`, `Autotune.setMode`); the others are fixed from then on. An
+setters (`JitnnRuntime.setDeterministic`, `JitnnRuntime.setAutotune`); the others are fixed from then on. An
 invalid value (a number that does not parse, a value outside an option's choices) fails with an
 error naming the property. Sizes are in bytes.
 
@@ -40,9 +40,9 @@ with `-Djitnn.docs.write=true` to rewrite them).
 | `jitnn.cpu.onednn` | `auto` | oneDNN (`libdnnl`) for the `cpu` backend's convolutions (forward with bias and ReLU, both gradients, grouped): `auto`, `off` or a library file. Use an OpenMP build, whose thread count jitNN sets; a TBB build takes every core |
 | `jitnn.cpu.bnns` | `auto` | on macOS, BNNS (Accelerate) for the same convolutions; `off` never |
 | `jitnn.cpu.native.choose` | `measure` | how the `cpu` backend picks between its kernel and `blas`, `onednn`, `bnns` per operator and shape: `measure` times each way for three calls, runs the fastest, and re-times after 64 more calls for the final choice; `kernel`, `blas`, `onednn` or `bnns` forces that way when available (tests) (can change at run time) |
-| `jitnn.cpu.reuse` | `true` | a `cpu` trace of the same structure as the last reuses its intermediates' arrays, as a compiled plan does; tensors not requested at that sync (`Engine.sync(t)`, `t.item()`) are then gone |
+| `jitnn.cpu.reuse` | `true` | a `cpu` trace of the same structure as the last reuses its intermediates' arrays, as a compiled plan does; tensors not requested at that sync (`JitnnRuntime.sync(t)`, `t.item()`) are then gone |
 | `jitnn.cpu.reuse.traces` | `32` | trace structures each thread remembers for that reuse |
-| `jitnn.cpu.stats` | `false` | time every `cpu` operator and print calls, time and reference fallbacks at exit; `Engine.cpuStats()` gives counts without it |
+| `jitnn.cpu.stats` | `false` | time every `cpu` operator and print calls, time and reference fallbacks at exit; `JitnnRuntime.cpuStats()` gives counts without it |
 | `jitnn.cpu.stats.shapes` | `false` | with `jitnn.cpu.stats`: one row per operator and shape |
 | `jitnn.plan.cache` | `16` (`64` under `jitnn-djl` when not set) | compiled plans kept; the least recently used is closed, saving parameters first |
 | `jitnn.plan.idleBytes` | `67108864` (64 MiB) | a plan holding at least this much intermediate memory is closed after `jitnn.plan.idleExecutions` executions without it, and recompiled if needed again |
@@ -60,10 +60,10 @@ with `-Djitnn.docs.write=true` to rewrite them).
 | `jitnn.verbose` | `false` | log every compiled plan (device, nodes, tasks, build time) and the vendor libraries found |
 | `jitnn.debugKeys` | `false` | print each new plan's cache key to standard error, to find what makes a trace recompile |
 | `jitnn.printKernels` | `false` | print each compiled plan's operators and kernel source: `true` for standard output, or a file name (appended); see [Printing the kernels](USAGE.md#printing-the-kernels) |
-| `jitnn.profile` | `false` | TornadoVM's profiler: `Engine.lastProfile()` gives the last step's kernel time, `Engine.kernelBreakdown()` device time per operator task. `Engine.startTrace`/`stopTrace` write a Chrome trace of plan runs and kernels. On CUDA also set `jitnn.cudaGraph=false`: the profiler reports no kernel time under CUDA graphs |
+| `jitnn.profile` | `false` | TornadoVM's profiler: `JitnnRuntime.lastProfile()` gives the last step's kernel time, `JitnnRuntime.kernelBreakdown()` device time per operator task. `JitnnRuntime.startTrace`/`stopTrace` write a Chrome trace of plan runs and kernels. On CUDA also set `jitnn.cudaGraph=false`: the profiler reports no kernel time under CUDA graphs |
 <!-- end generated -->
 
-`Engine.planStats()` (plans compiled, replayed, reused) and `Engine.transferStats()` (fetches,
+`JitnnRuntime.planStats()` (plans compiled, replayed, reused) and `JitnnRuntime.transferStats()` (fetches,
 re-uploads, input copies) need no option.
 
 ## Kernel variants
@@ -77,8 +77,8 @@ backend problem.
 | `jitnn.gemm` | `auto` | FP32 GEMM kernel (see [GEMM selection](#gemm-selection-auto)): `auto`, `simdgroup`, `128`, `64`, `16`, or padded `gemm64p`, `gemm64pd`, `gemm128p`, `gemm128pd`, `gemm128x64pd`, `gemm64x128pd`. A forced variant also disables forward split-K (can change at run time) |
 | `jitnn.tuning` | empty | GEMM tuning table: empty reads `tuning/<backend>-<device>.json` from the class path (tables ship for the A10 and A100 80GB PCIe), a path reads that file, `off` ignores tables. Used by `jitnn.gemm=auto` on CUDA and OpenCL |
 | `jitnn.fuse.program` | `true` | fused element-wise chains of up to six operations sharing the output's layout use a kernel specialised for the chain (`FusedKernels.fusedProgram1` to `6`); `false` uses the generic interpreter kernel |
-| `jitnn.deterministic` | `false` | reproducible runs: no autotuning measurements, deterministic cuDNN algorithms (`Engine.setDeterministic`) (can change at run time) |
-| `jitnn.autotune` | `off` | run-time autotuning (`engine.Autotune`): `on` measures the variants of each new GEMM, 1x1 and 3x3 convolution and row-norm shape on first use and keeps the fastest; `use` only applies saved decisions. Decisions override tuning tables and size rules (can change at run time) |
+| `jitnn.deterministic` | `false` | reproducible runs: no autotuning measurements, deterministic cuDNN algorithms (`JitnnRuntime.setDeterministic`) (can change at run time) |
+| `jitnn.autotune` | `off` | run-time autotuning: `on` measures the variants of each new GEMM, 1x1 and 3x3 convolution and row-norm shape on first use and keeps the fastest; `use` only applies saved decisions. Decisions override tuning tables and size rules (can change at run time) |
 | `jitnn.autotune.dir` | `~/.jitnn/autotune` | where decisions are saved, one `<backend>-<device>.properties` per device (can change at run time) |
 | `jitnn.autotune.margin` | `0.05` | how much faster a variant must be to replace the rule's choice |
 | `jitnn.autotune.reps` | `8` | operator copies per autotuning measurement plan |

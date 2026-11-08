@@ -161,7 +161,7 @@ Fusion, buffer reuse, channels-last inference, Winograd convolutions, CUDA graph
 sharing across shapes are on by default; their switches exist for debugging. In your own code, keep
 shapes stable between steps, read results (`item()`, `toFloatArray()`) once per step, since every
 read is a sync point, and release tensors you no longer need (`Tensor.release`). To see where time
-goes, run with `-Djitnn.profile=true` and print `Engine.kernelBreakdown()`; `-Djitnn.verbose=true`
+goes, run with `-Djitnn.profile=true` and print `JitnnRuntime.kernelBreakdown()`; `-Djitnn.verbose=true`
 logs every compiled plan and `-Djitnn.debugKeys=true` shows why a step recompiles.
 [CONFIGURATION.md](docs/CONFIGURATION.md) lists every option. Benchmarks and results are in
 [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking).

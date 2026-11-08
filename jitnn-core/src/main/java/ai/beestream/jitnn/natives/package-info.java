@@ -18,5 +18,7 @@
  * operators make when {@code -Djitnn.native} enables them (see {@link ai.beestream.jitnn.engine.Native}).
  * {@link ai.beestream.jitnn.natives.Libs} is the only class operators use; it loads the
  * library-specific classes only once a library is known to be available.
+ *
+ * <p><b>Internal: not part of the API</b>, and may change in any release.
  */
 package ai.beestream.jitnn.natives;

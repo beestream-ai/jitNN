@@ -21,8 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.function.Supplier;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -35,12 +33,12 @@ class GroupedConvNaNAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static float[][] both(Supplier<float[][]> f) {
-        float[][] dev = Engine.with(Backend.TORNADO, f);
-        float[][] ref = Engine.with(Backend.REFERENCE, f);
+        float[][] dev = JitnnRuntime.with(Backend.TORNADO, f);
+        float[][] ref = JitnnRuntime.with(Backend.REFERENCE, f);
         for (int i = 0; i < dev.length; i++) {
             close(ref[i], dev[i], "device vs reference, output " + i);
         }
@@ -132,6 +130,6 @@ class GroupedConvNaNAccelTest {
                 }
             }
         }
-        assertArrayEquals(new float[] { 2 }, Engine.with(Backend.TORNADO, () -> Tensor.of(new float[] { 1, 2, Float.NEGATIVE_INFINITY }, 3).max(0, false).reshape(1).toFloatArray()));
+        assertArrayEquals(new float[] { 2 }, JitnnRuntime.with(Backend.TORNADO, () -> Tensor.of(new float[] { 1, 2, Float.NEGATIVE_INFINITY }, 3).max(0, false).reshape(1).toFloatArray()));
     }
 }

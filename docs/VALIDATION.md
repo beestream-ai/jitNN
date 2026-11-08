@@ -3,7 +3,7 @@
 Five layers of checks run on the host and on every device.
 
 1. **Host reference.** Every operator has a double-precision Java implementation, written
-   independently of its kernel. `Engine.Backend.REFERENCE` runs it; it is the oracle the device
+   independently of its kernel. `Backend.REFERENCE` runs it; it is the oracle the device
    tests compare against.
 2. **Finite differences.** `GradientTest` compares every gradient with central differences:
    broadcasting binaries, every unary, reductions, all four GEMM transposes, permute, reshape,

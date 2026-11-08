@@ -30,8 +30,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.DynamicTest;
 
 /**
@@ -80,10 +81,10 @@ final class OnnxGolden {
         return cases;
     }
 
-    static List<DynamicTest> tests(Engine.Backend backend) throws IOException {
+    static List<DynamicTest> tests(Backend backend) throws IOException {
         List<DynamicTest> tests = new ArrayList<>();
         for (var c : load().entrySet()) {
-            tests.add(dynamicTest(c.getKey(), () -> Engine.with(backend, () -> {
+            tests.add(dynamicTest(c.getKey(), () -> JitnnRuntime.with(backend, () -> {
                 run(c.getKey(), c.getValue());
                 return null;
             })));

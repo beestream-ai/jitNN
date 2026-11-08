@@ -21,8 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.function.Supplier;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -40,7 +38,7 @@ class CpuOpenClAccelTest {
 
     @BeforeAll
     static void device() {
-        Assumptions.assumeTrue(Engine.cpuOpenClDevice() != null, "no OpenCL device on the host CPU");
+        Assumptions.assumeTrue(JitnnRuntime.cpuOpenClDevice() != null, "no OpenCL device on the host CPU");
         JitnnConfig.change(JitnnConfig.CPU_OPENCL_CHOOSE, "always");
     }
 
@@ -68,11 +66,11 @@ class CpuOpenClAccelTest {
             all[a.length] = y.sum().item();
             return all;
         };
-        float[] expected = Engine.with(Backend.REFERENCE, step::get);
+        float[] expected = JitnnRuntime.with(Backend.REFERENCE, step::get);
         long before = openClCalls();
         for (int i = 0; i < 3; i++) {
             // the same trace again: buffers of the previous step are reused on both sides
-            close(expected, Engine.with(Backend.CPU, step::get), 1e-5, 1e-5, "step " + i);
+            close(expected, JitnnRuntime.with(Backend.CPU, step::get), 1e-5, 1e-5, "step " + i);
         }
         assertTrue(openClCalls() > before, "upsampling and permute ran on the OpenCL device");
     }
@@ -81,9 +79,9 @@ class CpuOpenClAccelTest {
     void operatorsTheDeviceCannotCompileRunTheirReference() {
         // FP16 needs cl_khr_fp16, which some CPU drivers lack: the result is the same either way
         Supplier<float[]> step = () -> Tensor.uniform(3, -4, 4, 1000).half().to(DType.F32).mul(Tensor.uniform(4, -1, 1, 1000)).toFloatArray();
-        float[] expected = Engine.with(Backend.REFERENCE, step::get);
+        float[] expected = JitnnRuntime.with(Backend.REFERENCE, step::get);
         for (int i = 0; i < 2; i++) {
-            close(expected, Engine.with(Backend.CPU, step::get), 0, 0, "step " + i);
+            close(expected, JitnnRuntime.with(Backend.CPU, step::get), 0, 0, "step " + i);
         }
     }
 
@@ -91,11 +89,11 @@ class CpuOpenClAccelTest {
     void timedChoiceGivesTheSameResults() {
         // the default: the reference twice, the device three times, then the faster of the two
         Supplier<float[]> step = () -> F.interpolate(Tensor.uniform(5, -1, 1, 4, 8, 32, 32).relu(), 64, 64, false, false).permute(0, 3, 1, 2).sum(1, false).toFloatArray();
-        float[] expected = Engine.with(Backend.REFERENCE, step::get);
+        float[] expected = JitnnRuntime.with(Backend.REFERENCE, step::get);
         JitnnConfig.change(JitnnConfig.CPU_OPENCL_CHOOSE, null);
         try {
             for (int i = 0; i < 7; i++) {
-                close(expected, Engine.with(Backend.CPU, step::get), 1e-5, 1e-5, "step " + i);
+                close(expected, JitnnRuntime.with(Backend.CPU, step::get), 1e-5, 1e-5, "step " + i);
             }
         } finally {
             JitnnConfig.change(JitnnConfig.CPU_OPENCL_CHOOSE, "always");
@@ -104,7 +102,7 @@ class CpuOpenClAccelTest {
 
     private static long openClCalls() {
         long n = 0;
-        for (long[] v : Engine.cpuStats().values()) {
+        for (long[] v : JitnnRuntime.cpuStats().values()) {
             n += v[3];
         }
         return n;

@@ -20,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.function.Function;
 
-import ai.beestream.jitnn.engine.Engine;
 
 /** Shared assertions and the finite-difference gradient check. */
 public final class Checks {
@@ -64,7 +63,7 @@ public final class Checks {
      * derivative, hence the loose default tolerance.
      */
     public static void gradCheck(String what, Function<Tensor[], Tensor> f, float[][] values, int[][] shapes) {
-        Engine.with(Engine.Backend.REFERENCE, () -> {
+        JitnnRuntime.with(Backend.REFERENCE, () -> {
             Tensor[] xs = new Tensor[values.length];
             for (int i = 0; i < xs.length; i++) {
                 xs[i] = Tensor.of(values[i], shapes[i]).requiresGrad(true);

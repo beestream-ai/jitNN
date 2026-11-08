@@ -15,6 +15,7 @@
  */
 package ai.beestream.jitnn.ops;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
@@ -322,7 +323,7 @@ public final class RowNorm implements Op {
         // FP16 activations: x is read as FP16; the gradient and the weight are FP32
         Tensor dy = gy.dtype() == DType.F32 ? gy : gy.to(DType.F32);
         Tensor w = n.in(1).dtype() == DType.F32 ? n.in(1) : n.in(1).to(DType.F32);
-        boolean device = ai.beestream.jitnn.engine.Engine.backend() == ai.beestream.jitnn.engine.Engine.Backend.TORNADO;
+        boolean device = ai.beestream.jitnn.engine.Engine.backend() == ai.beestream.jitnn.Backend.TORNADO;
         Tensor xin = x.dtype() == DType.F32 || (x.dtype() == DType.F16 && device) ? x : x.to(DType.F32);
         Tensor.record(BACKWARD, new Tensor[] { dy, xin, w, n.out(1), n.out(2) }, outs, n.iattr.clone(), null, true);
         Tensor[] grads = new Tensor[n.inputs.length];

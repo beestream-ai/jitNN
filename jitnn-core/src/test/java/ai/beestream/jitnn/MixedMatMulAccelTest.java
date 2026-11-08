@@ -18,7 +18,6 @@ package ai.beestream.jitnn;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +30,7 @@ class MixedMatMulAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test

@@ -20,5 +20,10 @@
  * host with the double-precision reference ({@link ai.beestream.jitnn.engine.ReferenceExecutor}). Also the device
  * choice ({@link ai.beestream.jitnn.engine.Devices}), run-time autotuning, and the switch to vendor
  * libraries ({@link ai.beestream.jitnn.engine.Native}).
+ *
+ * <p><b>Internal: not part of the API</b>, and may change in any release. Use
+ * {@link ai.beestream.jitnn.JitnnRuntime} and {@link ai.beestream.jitnn.JitnnConfig}. The exceptions are
+ * the types a {@link ai.beestream.jitnn.CustomOp} works with: {@link ai.beestream.jitnn.engine.Emitter} and
+ * {@link ai.beestream.jitnn.engine.Node}.
  */
 package ai.beestream.jitnn.engine;

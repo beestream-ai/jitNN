@@ -31,7 +31,7 @@ import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
 
 /**
  * Runs the operators recorded since the last sync on the CPU backend: the trace is rewritten by the
- * same fusion pass as on a device ({@code Fusion.rewrite}), then each node runs in program order with
+ * same fusion pass as on a device (the {@link TracePass}es), then each node runs in program order with
  * its operator's CPU kernel ({@link Op#cpu}) or, when it has none, its host reference. Output arrays
  * come from the host pool; an internal intermediate (no user code holds it) that is not requested
  * goes back to the pool once its last reader has run, so a step's temporaries reuse each other's
@@ -93,7 +93,7 @@ final class CpuExecutor {
     });
 
     static void run(List<Node> recorded, Tensor[] wanted) {
-        List<Node> nodes = ai.beestream.jitnn.ops.Fusion.rewrite(recorded, wanted);
+        List<Node> nodes = TracePass.applyAll(recorded, wanted);
         Set<Storage> wantedSet = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Tensor t : wanted) {
             wantedSet.add(t.storage());

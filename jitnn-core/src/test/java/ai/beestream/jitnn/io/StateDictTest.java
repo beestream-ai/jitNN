@@ -27,9 +27,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,7 +45,7 @@ class StateDictTest {
 
     @BeforeAll
     static void reference() {
-        Engine.setBackend(Engine.Backend.REFERENCE);
+        JitnnRuntime.setBackend(Backend.REFERENCE);
     }
 
     @Test

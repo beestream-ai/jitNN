@@ -20,8 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.function.Supplier;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +33,7 @@ class HalfInferenceAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     /** A post-LayerNorm transformer encoder block, as BERT's, on x [b, t, dim]. */
@@ -57,7 +55,7 @@ class HalfInferenceAccelTest {
     }
 
     private static float[] run(Backend backend, boolean half, Supplier<Tensor> model) {
-        return Engine.with(backend, () -> Grad.inference(() -> {
+        return JitnnRuntime.with(backend, () -> Grad.inference(() -> {
             if (!half) {
                 return model.get();
             }
@@ -213,7 +211,7 @@ class HalfInferenceAccelTest {
 
     @Test
     void activationsStayHalf() {
-        Engine.with(Backend.TORNADO, () -> Grad.inference(() -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> Grad.inference(() -> {
             try (Grad.Scope ignored = Autocast.enableHalf()) {
                 Tensor x = Tensor.uniform(2, -1, 1, 64, 128);
                 Tensor y = F.linear(x, Tensor.persistent(Tensor.uniform(3, -0.1f, 0.1f, 96, 128)), Tensor.uniform(4, -1, 1, 96)).gelu();

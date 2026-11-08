@@ -21,9 +21,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import ai.beestream.jitnn.nn.optim.GradScaler;
 import ai.beestream.jitnn.nn.optim.SGD;
 import org.junit.jupiter.api.AfterAll;
@@ -34,7 +34,7 @@ class GradScalerAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     /** One scaled SGD step on loss = sum(p * c); returns [p after, overflow, scale after]. */
@@ -50,7 +50,7 @@ class GradScalerAccelTest {
     }
 
     private static void run(Backend backend) {
-        Engine.with(backend, () -> {
+        JitnnRuntime.with(backend, () -> {
             Tensor p = Tensor.parameter(Tensor.of(new float[] { 1.0f, 2.0f }, 2));
             SGD opt = new SGD(List.of(p), 0.5f);
             GradScaler scaler = new GradScaler(1024.0f, 2.0f, 0.5f, 2);
@@ -84,7 +84,7 @@ class GradScalerAccelTest {
 
     /** Gradients (3, 4): norm 5, clipped to 2.5 by a factor 0.5; with a loss scale the result is the same. */
     private static void clip(Backend backend, boolean scaled) {
-        Engine.with(backend, () -> {
+        JitnnRuntime.with(backend, () -> {
             Tensor p = Tensor.parameter(Tensor.of(new float[] { 1.0f, 2.0f }, 2));
             SGD opt = new SGD(List.of(p), 1.0f);
             GradScaler scaler = new GradScaler(1024.0f, 2.0f, 0.5f, 100);
@@ -126,7 +126,7 @@ class GradScalerAccelTest {
 
     /** Three steps of an optimiser over 6 parameters of mixed sizes (two multi-tensor launches); returns the parameters. */
     private static float[][] multiTensor(Backend backend, String kind) {
-        return Engine.with(backend, () -> {
+        return JitnnRuntime.with(backend, () -> {
             int[] sizes = { 1, 7, 300, 1000, 33, 2 };
             List<Tensor> params = new java.util.ArrayList<>();
             for (int i = 0; i < sizes.length; i++) {

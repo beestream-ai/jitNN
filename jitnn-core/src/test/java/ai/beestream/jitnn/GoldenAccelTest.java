@@ -17,7 +17,6 @@ package ai.beestream.jitnn;
 
 import java.util.List;
 
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
@@ -27,7 +26,7 @@ class GoldenAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @TestFactory

@@ -35,7 +35,7 @@ public abstract class Optimizer {
         this.params = List.copyOf(params);
         this.lr = lr;
         for (Tensor p : this.params) {
-            if (!p.storage().isPersistent()) {
+            if (!p.isPersistent()) {
                 throw new IllegalArgumentException("not a parameter: " + p);
             }
         }

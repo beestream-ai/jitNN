@@ -17,7 +17,6 @@ package ai.beestream.jitnn;
 
 import java.util.function.Supplier;
 
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.ops.Conv2dGrad;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -33,7 +32,7 @@ class ConvBenchAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     static Tensor persistent(int... dims) {
@@ -43,14 +42,14 @@ class ConvBenchAccelTest {
     static void time(String name, double work, String unit, Supplier<Tensor> op) {
         for (int i = 0; i < 3; i++) {
             op.get();
-            Engine.sync();
+            JitnnRuntime.sync();
         }
         long[] kernel = new long[REPS];
         long t0 = System.nanoTime();
         for (int i = 0; i < REPS; i++) {
             op.get();
-            Engine.sync();
-            kernel[i] = Engine.lastProfile()[0];
+            JitnnRuntime.sync();
+            kernel[i] = JitnnRuntime.lastProfile()[0];
         }
         double wall = (System.nanoTime() - t0) / 1e9 / REPS;
         java.util.Arrays.sort(kernel);

@@ -26,10 +26,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.data.Dataset;
 import ai.beestream.jitnn.data.Mnist;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.MobileNetV2;
 import ai.beestream.jitnn.nn.models.ResNet;
 import ai.beestream.jitnn.nn.optim.Adam;
@@ -51,13 +51,13 @@ class CnnAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @org.junit.jupiter.api.AfterEach
     void releasePlans() {
         if (!Boolean.getBoolean("jitnn.test.keepPlans")) {
-            Engine.reset();
+            JitnnRuntime.reset();
         }
     }
 
@@ -105,8 +105,8 @@ class CnnAccelTest {
         float[] xb = new float[BATCH * sample];
         int[] yb = new int[BATCH];
         List<Float> losses = new ArrayList<>();
-        long[] plans0 = Engine.planStats();
-        long[] split0 = Engine.timeSplit();
+        long[] plans0 = JitnnRuntime.planStats();
+        long[] split0 = JitnnRuntime.timeSplit();
         long t0 = System.nanoTime();
         long firstStep = 0;
         for (int b = 0; b < steps; b++) {
@@ -124,8 +124,8 @@ class CnnAccelTest {
             }
         }
         double steady = (System.nanoTime() - t0 - firstStep) / 1e6 / (steps - 1);
-        long[] plans1 = Engine.planStats();
-        long[] split1 = Engine.timeSplit();
+        long[] plans1 = JitnnRuntime.planStats();
+        long[] split1 = JitnnRuntime.timeSplit();
         System.out.printf("[jitnn] %s per step: jitNN executor %.1f ms, TornadoVM execute %.1f ms%n", name, (split1[0] - split0[0]) / 1e6 / steps, (split1[1] - split0[1]) / 1e6 / steps);
 
         model.train(false);

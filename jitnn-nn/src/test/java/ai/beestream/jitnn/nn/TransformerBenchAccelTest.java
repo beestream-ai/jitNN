@@ -23,8 +23,8 @@ import ai.beestream.jitnn.Autocast;
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.F;
 import ai.beestream.jitnn.Grad;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.GPT2;
 import ai.beestream.jitnn.nn.models.Llama;
 import ai.beestream.jitnn.nn.optim.Adam;
@@ -48,7 +48,7 @@ class TransformerBenchAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test
@@ -79,7 +79,7 @@ class TransformerBenchAccelTest {
         long t0 = 0;
         for (int s = 0; s < WARM + STEPS; s++) {
             if (s == WARM) {
-                Engine.kernelBreakdown();
+                JitnnRuntime.kernelBreakdown();
                 t0 = System.nanoTime();
             }
             for (int i = 0; i < x.length; i++) {
@@ -106,7 +106,7 @@ class TransformerBenchAccelTest {
             opt.zeroGrad();
         }
         double wall = (System.nanoTime() - t0) / 1e6 / STEPS;
-        Map<String, long[]> perTask = Engine.kernelBreakdown();
+        Map<String, long[]> perTask = JitnnRuntime.kernelBreakdown();
         Map<String, long[]> perOp = new TreeMap<>();
         long total = 0;
         long launches = 0;
@@ -119,7 +119,7 @@ class TransformerBenchAccelTest {
             launches += en.getValue()[0];
         }
         System.out.printf("[bench] %s (dim %d, %d layers, %d x %d tokens): %.1f ms/step wall, %.0f MB of intermediates", name, DIM, LAYERS, BATCH, SEQ, wall,
-                Engine.lastIntermediateBytes() / 1e6);
+                JitnnRuntime.lastIntermediateBytes() / 1e6);
         if (total > 0) {
             System.out.printf(", device kernels %.1f ms in %d launches (%.0f%%)%n", total / 1e6 / STEPS, launches / STEPS, 100.0 * total / 1e6 / STEPS / wall);
             long all = total;

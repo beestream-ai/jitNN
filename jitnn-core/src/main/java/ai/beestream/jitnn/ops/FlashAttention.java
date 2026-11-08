@@ -15,6 +15,7 @@
  */
 package ai.beestream.jitnn.ops;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
@@ -127,14 +128,14 @@ public final class FlashAttention implements Op {
      * converted to FP32.
      */
     private static boolean halfKernel(int d) {
-        return ai.beestream.jitnn.Autocast.halfActivations() && ai.beestream.jitnn.engine.Engine.backend() == ai.beestream.jitnn.engine.Engine.Backend.TORNADO
+        return ai.beestream.jitnn.Autocast.halfActivations() && ai.beestream.jitnn.engine.Engine.backend() == ai.beestream.jitnn.Backend.TORNADO
                 && (mmaKernels(d) || d <= FlashKernels64.D && TILED && ai.beestream.jitnn.engine.Engine.localMemoryFits(FlashTiled64.FORWARD_LOCAL_BYTES));
     }
 
     private static Tensor record(Tensor[] qkv, Shape outShape, int z, int t, int s, int d, int heads, Tensor mask, boolean causal, float scale, int layout) {
         // FP16 stays FP16 for the FP16 kernel, or for MLX's FP16 attention (Metal, where that kernel does not fit)
         boolean mlxHalf = qkv[0].dtype() == DType.F16 && mask == null && ai.beestream.jitnn.Autocast.halfActivations()
-                && ai.beestream.jitnn.engine.Engine.backend() == ai.beestream.jitnn.engine.Engine.Backend.TORNADO
+                && ai.beestream.jitnn.engine.Engine.backend() == ai.beestream.jitnn.Backend.TORNADO
                 && ai.beestream.jitnn.natives.Libs.mlxHalfAttentionAfterGather(z, t, s, d, causal);
         boolean half = qkv[0].dtype() == DType.F16 && (halfKernel(d) || mlxHalf);
         for (int i = 0; i < qkv.length; i++) {
@@ -638,7 +639,7 @@ public final class FlashAttention implements Op {
         in[n.inputs.length + 2] = gy.dtype() == DType.F32 ? gy : gy.to(DType.F32);
         // FP16 activations: the tiled and tensor-core backward kernels read FP16 q, k, v and o as they are; otherwise FP32 copies
         boolean halfIn = in[0].dtype() == DType.F16 && (tiledBackward(n.iattr[3]) || mmaKernels(n.iattr[3]))
-                && ai.beestream.jitnn.engine.Engine.backend() == ai.beestream.jitnn.engine.Engine.Backend.TORNADO;
+                && ai.beestream.jitnn.engine.Engine.backend() == ai.beestream.jitnn.Backend.TORNADO;
         for (int i = 0; i < in.length; i++) {
             boolean qkvOrO = i < qkvCount || i == n.inputs.length;
             if (in[i].dtype() == DType.F16 && !(halfIn && qkvOrO)) {

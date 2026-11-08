@@ -20,16 +20,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.function.Supplier;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.Test;
 
 /** The CPU backend's training kernels (convolution and BatchNorm gradients) against the reference. */
 class CpuTrainingTest {
 
     private static void same(String what, Supplier<float[]> f, double rtol, double atol) {
-        float[] expected = Engine.with(Backend.REFERENCE, f::get);
-        float[] actual = Engine.with(Backend.CPU, f::get);
+        float[] expected = JitnnRuntime.with(Backend.REFERENCE, f::get);
+        float[] actual = JitnnRuntime.with(Backend.CPU, f::get);
         close(expected, actual, rtol, atol, what);
     }
 
@@ -38,7 +36,7 @@ class CpuTrainingTest {
     }
 
     private static long fallbacks(String op) {
-        long[] v = Engine.cpuStats().get(op);
+        long[] v = JitnnRuntime.cpuStats().get(op);
         return v == null ? 0 : v[2];
     }
 

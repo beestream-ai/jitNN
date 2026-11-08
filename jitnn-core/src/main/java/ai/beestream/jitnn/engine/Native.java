@@ -23,6 +23,7 @@ import java.util.Set;
 
 import uk.ac.manchester.tornado.api.enums.TornadoVMBackendType;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.JitnnConfig;
 
 /**
@@ -126,7 +127,7 @@ public final class Native {
      * backend, not disabled, and available (probed once per device).
      */
     public static synchronized boolean use(String function, Lib lib) {
-        if (Engine.backend() != Engine.Backend.TORNADO || !WANTED.contains(lib) || DISABLED.contains(feature(lib, function)) || Devices.backend() != lib.backend) {
+        if (Engine.backend() != Backend.TORNADO || !WANTED.contains(lib) || DISABLED.contains(feature(lib, function)) || Devices.backend() != lib.backend) {
             return false;
         }
         if (!use(lib)) {
@@ -138,7 +139,7 @@ public final class Native {
         if (fn == null) {
             String why;
             try {
-                why = ai.beestream.jitnn.natives.Libs.probeFunction(lib, function);
+                why = LibraryProbe.get().probeFunction(lib, function);
             } catch (LinkageError | RuntimeException ex) {
                 why = ex.getClass().getSimpleName() + ": " + firstLine(ex);
             }
@@ -173,7 +174,7 @@ public final class Native {
         String why;
         try {
             why = java.util.Arrays.asList(UNAVAILABLE.split(",")).contains(lib.name().toLowerCase(Locale.ROOT)) ? "treated as missing (jitnn.native.unavailable)"
-                    : ai.beestream.jitnn.natives.Libs.probe(lib);
+                    : LibraryProbe.get().probe(lib);
         } catch (LinkageError | RuntimeException ex) {
             // the TornadoVM module is not loaded, or the probe plan failed
             why = ex.getClass().getSimpleName() + ": " + firstLine(ex);

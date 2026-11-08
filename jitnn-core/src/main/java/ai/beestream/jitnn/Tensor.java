@@ -333,14 +333,17 @@ public final class Tensor implements AutoCloseable {
         }
     }
 
-    /** The memory behind this tensor, shared with its views. */
+    /**
+     * The memory behind this tensor, shared with its views. Internal: for jitNN's operators and
+     * modules, not part of the API.
+     */
     public Storage storage() {
         return storage;
     }
 
     /** True when operators wait in a trace until a sync (every backend but REFERENCE). */
     private static boolean backendIsLazy() {
-        return ai.beestream.jitnn.engine.Engine.backend() != ai.beestream.jitnn.engine.Engine.Backend.REFERENCE;
+        return ai.beestream.jitnn.engine.Engine.backend() != ai.beestream.jitnn.Backend.REFERENCE;
     }
 
     /**
@@ -366,12 +369,27 @@ public final class Tensor implements AutoCloseable {
         release();
     }
 
-    /**
-     * The operator application that produced this tensor, for autograd; null for a leaf tensor or one that
-     * does not track gradients.
-     */
-    public Node gradFn() {
+    /** The operator application that produced this tensor, for autograd; null for a leaf tensor. */
+    Node gradFn() {
         return gradFn;
+    }
+
+    /** True unless the tensor is the output of an operator that tracks gradients (it is a leaf of autograd). */
+    public boolean isLeaf() {
+        return gradFn == null;
+    }
+
+    /** True for persistent device storage: weights ({@link #persistent}, {@link #parameter}) and their views. */
+    public boolean isPersistent() {
+        return storage.isPersistent();
+    }
+
+    /**
+     * Records a copy of {@code src} into this persistent FP32 tensor of the same size (a running
+     * statistic, an optimiser buffer): later operators see the new values.
+     */
+    public void assign(Tensor src) {
+        ai.beestream.jitnn.ops.Assign.into(src, this);
     }
 
     private java.util.function.Consumer<Tensor> gradReady;
@@ -716,6 +734,11 @@ public final class Tensor implements AutoCloseable {
     /** min(max(x, 0), 6). */
     public Tensor relu6() {
         return clamp(0.0f, 6.0f);
+    }
+
+    /** x^exponent, element-wise, with broadcasting. */
+    public Tensor pow(Tensor exponent) {
+        return Binary.apply(Binary.Kind.POW, this, exponent);
     }
 
     /** x^exponent, element-wise. */

@@ -19,7 +19,6 @@ import static ai.beestream.jitnn.Checks.gradCheck;
 import static ai.beestream.jitnn.Checks.seq;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.Test;
 
 /** Autograd against finite differences for every differentiable core operator. */
@@ -104,7 +103,7 @@ class GradientTest {
 
     @Test
     void reshapedParameterGetsItsGradient() {
-        Engine.with(Engine.Backend.REFERENCE, () -> {
+        JitnnRuntime.with(Backend.REFERENCE, () -> {
             Tensor p = Tensor.parameter(Tensor.of(new float[] { 1, -2, 3 }, 3));
             p.reshape(1, 3, 1).mul(Tensor.of(new float[] { 2, 4, 6 }, 1, 3, 1)).sum().backward();
             assertArrayEquals(new float[] { 2, 4, 6 }, p.grad().toFloatArray());
@@ -114,7 +113,7 @@ class GradientTest {
 
     @Test
     void seededRandomMatchesKeyedRandom() {
-        Engine.with(Engine.Backend.REFERENCE, () -> {
+        JitnnRuntime.with(Backend.REFERENCE, () -> {
             long seed = 0x1234_5678_9ABCL;
             assertArrayEquals(Tensor.uniform(seed, -1, 2, 7, 3).toFloatArray(), Tensor.uniform(Tensor.seed(seed), -1, 2, 7, 3).toFloatArray());
             assertArrayEquals(Tensor.normal(seed, 0.5f, 2, 9).toFloatArray(), Tensor.normal(Tensor.seed(seed), 0.5f, 2, 9).toFloatArray());

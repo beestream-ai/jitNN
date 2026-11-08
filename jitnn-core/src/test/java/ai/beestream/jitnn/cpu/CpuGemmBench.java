@@ -20,10 +20,10 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Locale;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -139,7 +139,7 @@ class CpuGemmBench {
     /** ResNet-50's global average pool at batch 32 ([32, 2048, 7, 7] to [32, 2048]). */
     @Test
     void globalAveragePool() {
-        Engine.with(Backend.CPU, () -> {
+        JitnnRuntime.with(Backend.CPU, () -> {
             Tensor x = Tensor.uniform(1, -1, 1, 32, 2048, 7, 7);
             x.toFloatArray();
             report("global avg pool 32x2048x7x7", 32.0 * 2048 * 49, () -> F.globalAvgPool2d(x).toFloatArray());
@@ -153,7 +153,7 @@ class CpuGemmBench {
         // ResNet-50 at batch 1 and 32: stem, a 3x3 of each stage, 1x1 expansions
         int[][] convs = { { 1, 3, 224, 64, 7, 2, 3 }, { 1, 64, 56, 64, 3, 1, 1 }, { 1, 128, 28, 128, 3, 1, 1 }, { 1, 256, 14, 256, 3, 1, 1 }, { 1, 512, 7, 512, 3, 1, 1 },
                 { 1, 64, 56, 256, 1, 1, 0 }, { 1, 1024, 14, 256, 1, 1, 0 }, { 32, 64, 56, 64, 3, 1, 1 }, { 32, 256, 14, 256, 3, 1, 1 }, { 32, 1024, 14, 256, 1, 1, 0 } };
-        Engine.with(Backend.CPU, () -> {
+        JitnnRuntime.with(Backend.CPU, () -> {
             for (int[] v : convs) {
                 int n = v[0], cin = v[1], hw = v[2], cout = v[3], r = v[4], stride = v[5], pad = v[6];
                 int out = (hw + 2 * pad - r) / stride + 1;

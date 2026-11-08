@@ -926,6 +926,14 @@ public final class ElementwiseKernels {
         }
     }
 
+    /** dst[i] = src[i] for i &lt; n. */
+    public static void copy(KernelContext kc, FloatArray src, FloatArray dst, int n) {
+        int i = kc.globalIdx;
+        if (i < n) {
+            dst.set(i, src.get(i));
+        }
+    }
+
     /**
      * Copies a block along one axis, with both tensors seen as [outer, length, inner]:
      * out[o, outOff + j, t] = x[o, inOff + j, t] for j &lt; len. {@code n} = outer * len * inner.

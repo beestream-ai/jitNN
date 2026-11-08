@@ -17,8 +17,6 @@ package ai.beestream.jitnn;
 
 import static ai.beestream.jitnn.Checks.close;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -31,11 +29,11 @@ class FlashMmaAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static float[] attention(Backend backend, int b, int h, int t, int s, int d, boolean causal, boolean masked) {
-        return Engine.with(backend, () -> Grad.inference(() -> {
+        return JitnnRuntime.with(backend, () -> Grad.inference(() -> {
             Tensor q = Tensor.uniform(1, -1, 1, b, h, t, d).to(DType.F16);
             Tensor k = Tensor.uniform(2, -1, 1, b, h, s, d).to(DType.F16);
             Tensor v = Tensor.uniform(3, -1, 1, b, h, s, d).to(DType.F16);
@@ -59,7 +57,7 @@ class FlashMmaAccelTest {
 
     /** dq, dk and dv (concatenated) of sum(attention * w), on FP16-rounded inputs. */
     private static float[] gradients(Backend backend, int b, int h, int t, int s, int d, boolean causal, boolean masked) {
-        return Engine.with(backend, () -> {
+        return JitnnRuntime.with(backend, () -> {
             Tensor q = Tensor.uniform(1, -1, 1, b, h, t, d).to(DType.F16).to(DType.F32).requiresGrad(true);
             Tensor k = Tensor.uniform(2, -1, 1, b, h, s, d).to(DType.F16).to(DType.F32).requiresGrad(true);
             Tensor v = Tensor.uniform(3, -1, 1, b, h, s, d).to(DType.F16).to(DType.F32).requiresGrad(true);

@@ -80,6 +80,14 @@ public final class Fusion {
         }
     }
 
+    /** Registers the fusion pass with the engine ({@code META-INF/services}). */
+    public static final class Pass implements ai.beestream.jitnn.engine.TracePass {
+        @Override
+        public List<Node> rewrite(List<Node> nodes, Tensor[] wanted) {
+            return Fusion.rewrite(nodes, wanted);
+        }
+    }
+
     public static List<Node> rewrite(List<Node> nodes, Tensor[] wanted) {
         if (!ENABLED) {
             return nodes;

@@ -26,8 +26,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 import ai.beestream.jitnn.cpu.Cpu;
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
@@ -42,11 +40,11 @@ class CpuBackendTest {
 
     @Test
     void operatorsWaitForASync() {
-        Engine.with(Backend.CPU, () -> {
+        JitnnRuntime.with(Backend.CPU, () -> {
             Tensor y = Tensor.of(new float[] { -1, 2, -3, 4 }, 4).relu().add(Tensor.of(new float[] { 1, 1, 1, 1 }, 4));
-            assertEquals(2, Engine.pending(), "relu and add are recorded, not run");
+            assertEquals(2, JitnnRuntime.pending(), "relu and add are recorded, not run");
             close(new float[] { 1, 3, 1, 5 }, y.toFloatArray(), 0, 0, "relu + 1");
-            assertEquals(0, Engine.pending(), "reading the result ran them");
+            assertEquals(0, JitnnRuntime.pending(), "reading the result ran them");
             return null;
         });
     }
@@ -69,7 +67,7 @@ class CpuBackendTest {
             all[all.length - 1] = loss.item();
             return all;
         };
-        close(Engine.with(Backend.REFERENCE, step::get), Engine.with(Backend.CPU, step::get), 1e-5, 1e-6, "MLP loss and gradients");
+        close(JitnnRuntime.with(Backend.REFERENCE, step::get), JitnnRuntime.with(Backend.CPU, step::get), 1e-5, 1e-6, "MLP loss and gradients");
     }
 
     @Test
@@ -81,9 +79,9 @@ class CpuBackendTest {
             }
             return h.sum();
         };
-        float[] expected = Engine.with(Backend.REFERENCE, () -> model.get().toFloatArray());
+        float[] expected = JitnnRuntime.with(Backend.REFERENCE, () -> model.get().toFloatArray());
         Tensor[] middle = new Tensor[1];
-        float[] actual = Engine.with(Backend.CPU, () -> Grad.inference(() -> {
+        float[] actual = JitnnRuntime.with(Backend.CPU, () -> Grad.inference(() -> {
             Tensor h = Tensor.uniform(7, -1, 1, 64, 256);
             for (int i = 0; i < 6; i++) {
                 h = F.linear(h, Tensor.uniform(10 + i, -0.1f, 0.1f, 256, 256), null).relu();
@@ -100,14 +98,14 @@ class CpuBackendTest {
     @Test
     void countsCallsAndReferenceFallbacks() {
         long before = calls("binary");
-        Engine.with(Backend.CPU, () -> Tensor.of(new float[] { 1, 2 }, 2).add(Tensor.of(new float[] { 3, 4 }, 2)).toFloatArray());
+        JitnnRuntime.with(Backend.CPU, () -> Tensor.of(new float[] { 1, 2 }, 2).add(Tensor.of(new float[] { 3, 4 }, 2)).toFloatArray());
         assertEquals(before + 1, calls("binary"), "one add");
-        long[] binary = Engine.cpuStats().get("binary");
+        long[] binary = JitnnRuntime.cpuStats().get("binary");
         assertTrue(binary[2] <= binary[0], "fallbacks are a subset of the calls");
     }
 
     private static long calls(String op) {
-        long[] v = Engine.cpuStats().get(op);
+        long[] v = JitnnRuntime.cpuStats().get(op);
         return v == null ? 0 : v[0];
     }
 

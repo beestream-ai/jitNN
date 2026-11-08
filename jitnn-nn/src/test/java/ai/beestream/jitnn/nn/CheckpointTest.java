@@ -17,7 +17,8 @@ package ai.beestream.jitnn.nn;
 
 import java.nio.file.Path;
 
-import ai.beestream.jitnn.engine.Engine;
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,7 +31,7 @@ class CheckpointTest {
 
     @BeforeAll
     static void reference() {
-        Engine.setBackend(Engine.Backend.REFERENCE);
+        JitnnRuntime.setBackend(Backend.REFERENCE);
     }
 
     @Test

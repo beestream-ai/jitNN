@@ -25,8 +25,8 @@ import java.util.Random;
 import ai.beestream.jitnn.Buckets;
 import ai.beestream.jitnn.F;
 import ai.beestream.jitnn.Grad;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.Bert;
 import ai.beestream.jitnn.nn.models.GPT2;
 import ai.beestream.jitnn.nn.models.ResNet;
@@ -55,7 +55,7 @@ class DynamicShapeBenchAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     /** One request: runs it and returns a result, read back so the call completes. */
@@ -67,13 +67,13 @@ class DynamicShapeBenchAccelTest {
         if (!name.contains(System.getProperty("jitnn.bench.dynamic.only", ""))) {
             return;
         }
-        long[] before = Engine.planStats();
+        long[] before = JitnnRuntime.planStats();
         List<Double> compiling = new ArrayList<>();
         List<Double> steady = new ArrayList<>();
         long peak = 0;
         long t0 = System.nanoTime();
         for (int i = 0; i < REQUESTS; i++) {
-            long c0 = Engine.planStats()[0];
+            long c0 = JitnnRuntime.planStats()[0];
             long r0 = System.nanoTime();
             try {
                 request.run(i);
@@ -81,16 +81,16 @@ class DynamicShapeBenchAccelTest {
                 throw new IllegalStateException(name + ": request " + i + " failed", e);
             }
             double ms = (System.nanoTime() - r0) / 1e6;
-            (Engine.planStats()[0] > c0 ? compiling : steady).add(ms);
-            peak = Math.max(peak, Engine.lastIntermediateBytes());
+            (JitnnRuntime.planStats()[0] > c0 ? compiling : steady).add(ms);
+            peak = Math.max(peak, JitnnRuntime.lastIntermediateBytes());
         }
         double total = (System.nanoTime() - t0) / 1e9;
-        long[] after = Engine.planStats();
+        long[] after = JitnnRuntime.planStats();
         double[] s = steady.stream().mapToDouble(Double::doubleValue).sorted().toArray();
         System.out.printf("[dynamic] %-47s %3d requests: %3d plans compiled, %3d replayed; %6.1f s total, %6.1f s in compiling calls, steady median %7.2f ms (%d calls), peak intermediates %.0f MB%n",
                 name, REQUESTS, after[0] - before[0], after[1] - before[1], total, compiling.stream().mapToDouble(Double::doubleValue).sum() / 1e3,
                 s.length == 0 ? Double.NaN : s[s.length / 2], s.length, peak / 1e6);
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static Tensor tokens(Random r, int b, int t, int vocab) {
@@ -118,7 +118,7 @@ class DynamicShapeBenchAccelTest {
     void changingShapes() {
         assumeTrue(Boolean.getBoolean("jitnn.bench.dynamic"), "set -Djitnn.bench.dynamic=true");
         // room for every bucket of a scenario (GPT-2 and BERT: 5 batch x 4 sequence sizes)
-        Engine.reservePlans(32);
+        JitnnRuntime.reservePlans(32);
         int vocab = 1000, dim = 256, heads = 4, layers = 4, context = 256;
         Buckets batch16 = Buckets.powersOfTwo(1, 16), seq = Buckets.multiplesOf(64, context);
 
@@ -219,7 +219,7 @@ class DynamicShapeBenchAccelTest {
     @Test
     void paddingCost() {
         assumeTrue(Boolean.getBoolean("jitnn.bench.padding"), "set -Djitnn.bench.padding=true");
-        Engine.reservePlans(32);
+        JitnnRuntime.reservePlans(32);
         int vocab = 1000, dim = 256, heads = 4, layers = 4, context = 256, reps = 15;
         Buckets batch16 = Buckets.powersOfTwo(1, 16), seq = Buckets.multiplesOf(64, context);
         int[][] tokenShapes = { { 1, 40 }, { 3, 100 }, { 5, 130 }, { 9, 70 }, { 12, 200 }, { 16, 250 } };
@@ -233,7 +233,7 @@ class DynamicShapeBenchAccelTest {
             p[k] = median(reps, i -> Grad.inference(() -> Bucketing.causal(batch16, seq, idx, 0, gpt2::forward)).toFloatArray());
         }
         cost("GPT-2 " + Arrays.deepToString(tokenShapes), e, p);
-        Engine.reset();
+        JitnnRuntime.reset();
 
         Bert bert = new Bert(vocab, context, dim, heads, layers, 2);
         for (int k = 0; k < tokenShapes.length; k++) {
@@ -243,7 +243,7 @@ class DynamicShapeBenchAccelTest {
             p[k] = median(reps, i -> Grad.inference(() -> Bucketing.masked(batch16, seq, idx, m, 0, bert::encode)).toFloatArray());
         }
         cost("BERT", e, p);
-        Engine.reset();
+        JitnnRuntime.reset();
 
         Module resnet = ResNet.resnet18(3, 10, true, 3).train(false);
         Buckets batch64 = Buckets.powersOfTwo(1, 64);
@@ -255,7 +255,7 @@ class DynamicShapeBenchAccelTest {
             pr[k] = median(reps, i -> Grad.inference(() -> Bucketing.rows(batch64, x, resnet::forward)).toFloatArray());
         }
         cost("ResNet-18 " + Arrays.toString(batches), er, pr);
-        Engine.reset();
+        JitnnRuntime.reset();
     }
     /**
      * Device time per operator task of ResNet-18 at batch 17 over 10 runs, largest first. Runs with
@@ -274,18 +274,18 @@ class DynamicShapeBenchAccelTest {
         for (int i = 0; i < 3; i++) {
             Grad.inference(() -> resnet.forward(x)).toFloatArray();
         }
-        Engine.kernelBreakdown();
+        JitnnRuntime.kernelBreakdown();
         for (int i = 0; i < 10; i++) {
             Grad.inference(() -> resnet.forward(x)).toFloatArray();
         }
-        var rows = new ArrayList<>(Engine.kernelBreakdown().entrySet());
+        var rows = new ArrayList<>(JitnnRuntime.kernelBreakdown().entrySet());
         rows.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
         long total = rows.stream().mapToLong(r -> r.getValue()[1]).sum();
         System.out.printf("[profile] total %.3f ms per run%n", total / 1e7);
         for (var r : rows.subList(0, Math.min(25, rows.size()))) {
             System.out.printf("[profile] %-24s %6d launches %8.3f ms per run%n", r.getKey(), r.getValue()[0], r.getValue()[1] / 1e7);
         }
-        Engine.reset();
+        JitnnRuntime.reset();
     }
     /** Steady ResNet-18 wall time per batch: 20 warm-up runs, then the median of 50. Runs with {@code -Djitnn.bench.steady=true}. */
     @Test
@@ -306,6 +306,6 @@ class DynamicShapeBenchAccelTest {
             Arrays.sort(t);
             System.out.printf("[steady] ResNet-18 batch %2d: median %.3f ms, min %.3f ms%n", b, t[25], t[0]);
         }
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 }

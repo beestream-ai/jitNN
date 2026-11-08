@@ -20,12 +20,12 @@ import java.util.List;
 
 import ai.beestream.jitnn.F;
 import ai.beestream.jitnn.Grad;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.data.Cifar10;
 import ai.beestream.jitnn.dist.Collective;
 import ai.beestream.jitnn.dist.NcclCollective;
 import ai.beestream.jitnn.dist.ProcessGroup;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.DataParallel;
 import ai.beestream.jitnn.nn.Sequential;
 import ai.beestream.jitnn.nn.models.ResNet;
@@ -56,7 +56,7 @@ public final class DataParallelCifar10 {
         Cifar10 test = Cifar10.load(Examples.cifar10(), false);
 
         double all = run(devices, nccl, train, test);
-        Engine.reset();                             // frees the plans and host buffers of the run on all devices
+        JitnnRuntime.reset();                             // frees the plans and host buffers of the run on all devices
         double one = run(new String[] { devices[0] }, false, train, test);
         System.out.printf("%n%d devices: %.2fx the throughput of one%n", devices.length, one / all);
     }
@@ -72,7 +72,7 @@ public final class DataParallelCifar10 {
         if (nccl) {
             try (NcclCollective c = new NcclCollective(devices)) {
                 results = ProcessGroup.run(devices, c, (rank, collective) -> train(rank, collective, share, train, test));
-                Engine.reset();                     // the plans go before the communicator
+                JitnnRuntime.reset();                     // the plans go before the communicator
             }
         } else {
             results = ProcessGroup.run(devices, (rank, collective) -> train(rank, collective, share, train, test));

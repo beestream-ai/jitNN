@@ -17,7 +17,7 @@ package ai.beestream.jitnn.nn;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.beestream.jitnn.engine.Engine;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -29,7 +29,7 @@ class ActivationCheckpointAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test
@@ -37,7 +37,7 @@ class ActivationCheckpointAccelTest {
         for (ActivationCheckpointRun.Case c : ActivationCheckpointRun.cases(2, 16, 32, 2)) {
             ActivationCheckpointRun.same(c, () -> ActivationCheckpointRun.step(c.model().apply(false), c.loss()),
                     () -> ActivationCheckpointRun.step(c.model().apply(true), c.loss()), 1e-5);
-            Engine.reset();
+            JitnnRuntime.reset();
         }
     }
 
@@ -62,8 +62,8 @@ class ActivationCheckpointAccelTest {
                 m.zeroGrad();
             }
             ms[ck] = (System.nanoTime() - t0) / 5e6;
-            bytes[ck] = Engine.lastIntermediateBytes();
-            Engine.reset();
+            bytes[ck] = JitnnRuntime.lastIntermediateBytes();
+            JitnnRuntime.reset();
         }
         System.out.printf("[checkpoint] GPT-2 (dim %d, %d layers, %d x %d tokens): intermediates %.1f MB -> %.1f MB, step %.1f ms -> %.1f ms%n", dim, layers, b, t,
                 bytes[0] / 1e6, bytes[1] / 1e6, ms[0], ms[1]);

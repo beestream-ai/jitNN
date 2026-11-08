@@ -257,7 +257,7 @@ public final class Emitter {
     void carry(FloatArray src, FloatArray dst, int n) {
         use(src);
         use(dst);
-        task(grid1D(n), (g, id) -> g.task(id, ai.beestream.jitnn.ops.Assign::copy, context(), src, dst, n));
+        task(grid1D(n), (g, id) -> g.task(id, ai.beestream.jitnn.kernels.ElementwiseKernels::copy, context(), src, dst, n));
     }
 
     /** The vendor-library functions this plan's library tasks call ("cudnn.conv", see {@link Native}). */

@@ -23,8 +23,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +36,7 @@ class ConcurrencyAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static final Tensor W1 = Tensor.persistent(Tensor.uniform(1, -0.05f, 0.05f, 512, 256));
@@ -59,7 +57,7 @@ class ConcurrencyAccelTest {
         int threads = 4;
         int calls = 25;
         float[][] expected = new float[threads * calls][];
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             for (int i = 0; i < expected.length; i++) {
                 expected[i] = forward(i + 1);
             }
@@ -70,7 +68,7 @@ class ConcurrencyAccelTest {
             List<Future<float[][]>> results = new ArrayList<>();
             for (int t = 0; t < threads; t++) {
                 int first = t * calls;
-                results.add(pool.submit(() -> Engine.with(Backend.TORNADO, () -> {
+                results.add(pool.submit(() -> JitnnRuntime.with(Backend.TORNADO, () -> {
                     float[][] out = new float[calls][];
                     for (int c = 0; c < calls; c++) {
                         out[c] = forward(first + c + 1);

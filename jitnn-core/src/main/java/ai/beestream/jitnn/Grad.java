@@ -156,6 +156,31 @@ public final class Grad {
     }
 
     /**
+     * The scope form of {@link #inference}, for code that computes several outputs: no gradients,
+     * and intermediates are internal (their buffers are reused and inference fusions apply). Pass
+     * each output to {@link #keep} before the scope closes, or its buffer may be reused.
+     */
+    public static Scope inferenceScope() {
+        Scope noGrad = disabled();
+        AutoCloseable internal = ai.beestream.jitnn.engine.Storage.internalScope();
+        return () -> {
+            try {
+                internal.close();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            } finally {
+                noGrad.close();
+            }
+        };
+    }
+
+    /** Marks {@code t} as read by the caller: its buffer is never reused. Returns {@code t}. */
+    public static Tensor keep(Tensor t) {
+        t.storage().markVisible();
+        return t;
+    }
+
+    /**
      * Runs a forward pass for inference: no gradient recording, and every tensor created inside
      * except the returned one is internal, so its buffer is reused as soon as the computation no
      * longer needs it. Reading those intermediates after the call is not supported.

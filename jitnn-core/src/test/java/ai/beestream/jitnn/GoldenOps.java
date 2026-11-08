@@ -22,7 +22,6 @@ import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 import java.util.ArrayList;
 import java.util.List;
 
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.DynamicTest;
 
 /** Runs every golden operator case on one backend: forward values and input gradients against PyTorch. */
@@ -31,13 +30,13 @@ final class GoldenOps {
     private GoldenOps() {
     }
 
-    static List<DynamicTest> tests(Engine.Backend backend) {
+    static List<DynamicTest> tests(Backend backend) {
         List<DynamicTest> tests = new ArrayList<>();
         for (Golden.Case c : Golden.cases()) {
             if (c.op().equals("optim")) {
                 continue;
             }
-            tests.add(dynamicTest(c.name(), () -> Engine.with(backend, () -> {
+            tests.add(dynamicTest(c.name(), () -> JitnnRuntime.with(backend, () -> {
                 run(c);
                 return null;
             })));

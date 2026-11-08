@@ -18,8 +18,6 @@ package ai.beestream.jitnn;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +31,7 @@ class ReleaseAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static float[] input(int call) {
@@ -55,13 +53,13 @@ class ReleaseAccelTest {
     /** The same plan each call: x * 2 + 1 over a host input. */
     private static Tensor run(int call) {
         Tensor y = Tensor.of(input(call), 64, 64).mul(2).add(1);
-        Engine.sync(y);
+        JitnnRuntime.sync(y);
         return y;
     }
 
     @Test
     void earlierOutputsKeepTheirValues() {
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             Tensor[] kept = new Tensor[4];
             for (int c = 0; c < kept.length; c++) {
                 kept[c] = run(c);
@@ -85,7 +83,7 @@ class ReleaseAccelTest {
 
     @Test
     void releasedOutputsCannotBeRead() {
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             Tensor y;
             try (Tensor out = run(1)) {
                 assertArrayEquals(expected(1), out.toFloatArray());
@@ -102,7 +100,7 @@ class ReleaseAccelTest {
 
     @Test
     void releasingAWeightKeepsItsMeaning() {
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             Tensor w = Tensor.persistent(Tensor.of(input(3), 64, 64));
             Tensor y = w.mul(2).add(1);
             assertArrayEquals(expected(3), y.toFloatArray());

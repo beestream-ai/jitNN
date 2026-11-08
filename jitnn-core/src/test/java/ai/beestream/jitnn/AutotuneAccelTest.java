@@ -26,7 +26,6 @@ import java.util.Properties;
 import java.util.function.Supplier;
 
 import ai.beestream.jitnn.engine.Autotune;
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -50,7 +49,7 @@ class AutotuneAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static float[] random(int n, long seed) {
@@ -71,7 +70,7 @@ class AutotuneAccelTest {
         String key = decided.keySet().stream().filter(k -> k.startsWith(family + ":")).findFirst().orElse(null);
         assertNotNull(key, "no " + family + " decision among " + decided);
         float[] second = body.get().toFloatArray();
-        float[] reference = Engine.with(Engine.Backend.REFERENCE, () -> body.get().toFloatArray());
+        float[] reference = JitnnRuntime.with(Backend.REFERENCE, () -> body.get().toFloatArray());
         float scale = 1e-6f;
         for (float v : reference) {
             scale = Math.max(scale, Math.abs(v));
@@ -116,6 +115,6 @@ class AutotuneAccelTest {
     }
 
     private static void assumeCuda() {
-        org.junit.jupiter.api.Assumptions.assumeTrue(Engine.onCuda(), "the row-norm variants are chosen on CUDA");
+        org.junit.jupiter.api.Assumptions.assumeTrue(JitnnRuntime.onCuda(), "the row-norm variants are chosen on CUDA");
     }
 }

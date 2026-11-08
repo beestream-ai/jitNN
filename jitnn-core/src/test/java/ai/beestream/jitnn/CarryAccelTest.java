@@ -18,8 +18,6 @@ package ai.beestream.jitnn;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +33,7 @@ class CarryAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static float[] input(int call) {
@@ -48,23 +46,23 @@ class CarryAccelTest {
 
     @Test
     void runningSumStaysOnTheDevice() {
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             float[] expected = new float[N];
             Tensor acc = Tensor.of(new float[N], 64, 64);
             long fetches = 0;
             for (int c = 0; c < 10; c++) {
                 acc = acc.add(Tensor.of(input(c), 64, 64));
-                Engine.sync();
+                JitnnRuntime.sync();
                 float[] x = input(c);
                 for (int i = 0; i < N; i++) {
                     expected[i] += x[i];
                 }
                 if (c == 4) {
                     // by now the plan carries the sum: later steps fetch nothing to the host
-                    fetches = Engine.transferStats()[0];
+                    fetches = JitnnRuntime.transferStats()[0];
                 }
             }
-            assertEquals(fetches, Engine.transferStats()[0], "fetches to the host once the sum is carried");
+            assertEquals(fetches, JitnnRuntime.transferStats()[0], "fetches to the host once the sum is carried");
             assertArrayEquals(expected, acc.toFloatArray(), 1e-3f);
             return null;
         });
@@ -72,7 +70,7 @@ class CarryAccelTest {
 
     @Test
     void aHostValueInBetweenReachesThePlan() {
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             float[] expected = new float[N];
             Tensor acc = Tensor.of(new float[N], 64, 64);
             for (int c = 0; c < 10; c++) {
@@ -82,7 +80,7 @@ class CarryAccelTest {
                     expected = input(100);
                 }
                 acc = acc.add(Tensor.of(input(c), 64, 64));
-                Engine.sync();
+                JitnnRuntime.sync();
                 float[] x = input(c);
                 for (int i = 0; i < N; i++) {
                     expected[i] += x[i];
@@ -95,14 +93,14 @@ class CarryAccelTest {
 
     @Test
     void gradientsAccumulatedOverSteps() {
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             Tensor w = Tensor.parameter(Tensor.of(input(1), 64, 64));
             float[] x = input(2);
             int steps = 8;
             for (int s = 0; s < steps; s++) {
                 // d/dw sum(w * x) = x, added to the gradient of the earlier steps
                 w.mul(Tensor.of(x, 64, 64)).sum().backward();
-                Engine.sync();
+                JitnnRuntime.sync();
             }
             float[] expected = new float[N];
             for (int i = 0; i < N; i++) {

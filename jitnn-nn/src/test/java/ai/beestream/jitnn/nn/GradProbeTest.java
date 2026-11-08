@@ -22,10 +22,11 @@ import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.data.Mnist;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.MobileNetV2;
 import org.junit.jupiter.api.Test;
 
@@ -39,7 +40,7 @@ class GradProbeTest {
     void mobileNetReferenceGradients() throws Exception {
         assumeTrue(Boolean.getBoolean("jitnn.probe"));
         String dir = System.getProperty("jitnn.mnist", "");
-        Engine.setBackend(Engine.Backend.REFERENCE);
+        JitnnRuntime.setBackend(Backend.REFERENCE);
         Mnist train = Mnist.load(Path.of(dir), true);
         float[] xb = new float[64 * Mnist.PIXELS];
         int[] yb = new int[64];

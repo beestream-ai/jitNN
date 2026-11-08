@@ -19,8 +19,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 import java.util.Random;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import ai.beestream.jitnn.ops.Int8;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -35,7 +33,7 @@ class Int8AccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static float[] run(Backend backend, int m, int n, int k, boolean unsigned, boolean bias) {
@@ -52,7 +50,7 @@ class Int8AccelTest {
         for (int i = 0; i < n; i++) {
             b[i] = r.nextFloat() - 0.5f;
         }
-        return Engine.with(backend, () -> {
+        return JitnnRuntime.with(backend, () -> {
             Int8.Weights w = Int8.Weights.ofColumns(q, k, n, scales);
             Tensor x = Tensor.uniform(3, -2, 2, m, k);
             Tensor scale = Tensor.of(new float[] { 4.0f / 255 }, 1);
@@ -98,7 +96,7 @@ class Int8AccelTest {
         }
         float s = 4.0f / 255;
         float z = unsigned ? 128 : 3;
-        return Engine.with(backend, () -> {
+        return JitnnRuntime.with(backend, () -> {
             Tensor x = Tensor.uniform(5, -2, 2, n, ch, h, wd);
             int[] stride = { c[6], c[6] };
             int[] pads = { c[7], c[7], c[7], c[7] };

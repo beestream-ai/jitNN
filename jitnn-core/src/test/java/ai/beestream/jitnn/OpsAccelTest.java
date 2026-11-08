@@ -23,8 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Arrays;
 import java.util.function.Supplier;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -43,11 +41,11 @@ class OpsAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     static float[] on(Backend backend, Supplier<Tensor> f) {
-        return Engine.with(backend, () -> f.get().toFloatArray());
+        return JitnnRuntime.with(backend, () -> f.get().toFloatArray());
     }
 
     static void same(String what, Supplier<Tensor> f, double rtol, double atol) {
@@ -88,10 +86,10 @@ class OpsAccelTest {
             int seed = 200 + 10 * m;
             expected[m] = on(Backend.REFERENCE, () -> model.apply(load.apply(seed), x.get()));
         }
-        Engine.with(TARGET, () -> {
+        JitnnRuntime.with(TARGET, () -> {
             Tensor[] first = load.apply(200);
             close(expected[0], model.apply(first, x.get()).toFloatArray(), RTOL, ATOL, "first model");
-            long[] before = Engine.planStats();
+            long[] before = JitnnRuntime.planStats();
             for (Tensor w : first) {
                 w.release();
             }
@@ -103,7 +101,7 @@ class OpsAccelTest {
                     w.release();
                 }
             }
-            long[] after = Engine.planStats();
+            long[] after = JitnnRuntime.planStats();
             org.junit.jupiter.api.Assertions.assertEquals(before[0], after[0], "plans compiled for the reloaded models");
             org.junit.jupiter.api.Assertions.assertEquals(before[2] + 2, after[2], "plans reused");
             org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> model.apply(first, x.get()).toFloatArray());
@@ -269,7 +267,7 @@ class OpsAccelTest {
         same("q8 round trip", () -> F.dequantize(F.quantizeQ8(x.get())), 0, 1.0 / 127 + 1e-6);
         // the products from the same Q8_0 bytes (quantised once on the device: a value on a rounding
         // boundary can land one step apart between devices)
-        Tensor qw = Engine.with(TARGET, () -> {
+        Tensor qw = JitnnRuntime.with(TARGET, () -> {
             Tensor q = F.quantizeQ8(w.get());
             q.toFloatArray();
             return q;
@@ -389,8 +387,8 @@ class OpsAccelTest {
             all[all.length - 1] = loss.item();
             return all;
         };
-        float[] expected = Engine.with(Backend.REFERENCE, grads::get);
-        float[] actual = Engine.with(TARGET, grads::get);
+        float[] expected = JitnnRuntime.with(Backend.REFERENCE, grads::get);
+        float[] actual = JitnnRuntime.with(TARGET, grads::get);
         close(expected, actual, 1e-4, 1e-6, "mlp gradients");
     }
 
@@ -405,7 +403,7 @@ class OpsAccelTest {
             zeros += v == 0 ? 1 : 0;
         }
         org.junit.jupiter.api.Assertions.assertEquals(0.3, zeros / 10_000.0, 0.02, "drop rate");
-        float[] grad = Engine.with(TARGET, () -> {
+        float[] grad = JitnnRuntime.with(TARGET, () -> {
             Tensor x = t(10_000, 1, 2, 10_000).requiresGrad(true);
             F.dropout(x, 0.3f, Tensor.of(new int[] { 1234, 77 }, 2), 5).sum().backward();
             return x.grad().toFloatArray();
@@ -418,8 +416,8 @@ class OpsAccelTest {
     @Test
     void topkIndicesMatchReference() {
         Supplier<int[]> f = () -> Tensor.uniform(5, -1.0f, 1.0f, 3, 700).topk(10)[1].toIntArray();
-        int[] expected = Engine.with(Backend.REFERENCE, f::get);
-        int[] actual = Engine.with(TARGET, f::get);
+        int[] expected = JitnnRuntime.with(Backend.REFERENCE, f::get);
+        int[] actual = JitnnRuntime.with(TARGET, f::get);
         assertArrayEquals(expected, actual, "top-k indices");
     }
 
@@ -431,8 +429,8 @@ class OpsAccelTest {
             System.arraycopy(new float[] { 0.1f, 0.0f, 0.2f, 0.3f, 0.4f }, 0, w, r * 5, 5);
         }
         Supplier<int[]> f = () -> F.multinomial(Tensor.of(w, rows, 5), Tensor.of(new int[] { 1234, 99 }, 2), 7).toIntArray();
-        int[] expected = Engine.with(Backend.REFERENCE, f::get);
-        int[] actual = Engine.with(TARGET, f::get);
+        int[] expected = JitnnRuntime.with(Backend.REFERENCE, f::get);
+        int[] actual = JitnnRuntime.with(TARGET, f::get);
         int differ = 0;
         int[] counts = new int[5];
         for (int r = 0; r < rows; r++) {
@@ -453,8 +451,8 @@ class OpsAccelTest {
         float[] v = { 70000f, -65520f, 65519f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NaN, 3.4e38f, -1e-40f, 1e-8f, 0.1f, -0.0f, 1 + 0x1p-8f, 1 + 0x3p-8f };
         for (DType d : new DType[] { DType.F16, DType.BF16 }) {
             Supplier<float[]> f = () -> Tensor.of(v, v.length).to(d).toFloat().toFloatArray();
-            float[] expected = Engine.with(Backend.REFERENCE, f::get);
-            float[] actual = Engine.with(TARGET, f::get);
+            float[] expected = JitnnRuntime.with(Backend.REFERENCE, f::get);
+            float[] actual = JitnnRuntime.with(TARGET, f::get);
             for (int i = 0; i < v.length; i++) {
                 org.junit.jupiter.api.Assertions.assertEquals(Float.floatToIntBits(expected[i]), Float.floatToIntBits(actual[i]), d + " cast of " + v[i] + ": " + expected[i] + " vs " + actual[i]);
             }

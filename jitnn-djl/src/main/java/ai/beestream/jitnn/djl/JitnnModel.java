@@ -77,7 +77,7 @@ public final class JitnnModel extends BaseModel {
             symbol.session().close();
         } else if (block != null) {
             for (Pair<String, Parameter> p : block.getParameters()) {
-                if (p.getValue().isInitialized() && p.getValue().getArray() instanceof JitnnNDArray a && a.tensor().storage().isPersistent()) {
+                if (p.getValue().isInitialized() && p.getValue().getArray() instanceof JitnnNDArray a && a.tensor().isPersistent()) {
                     a.tensor().release();
                 }
             }

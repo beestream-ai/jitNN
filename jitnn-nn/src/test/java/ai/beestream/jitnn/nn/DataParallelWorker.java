@@ -20,9 +20,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.dist.NcclCollective;
 import ai.beestream.jitnn.dist.ProcessGroup;
-import ai.beestream.jitnn.engine.Engine;
 
 /**
  * One rank of {@link DataParallelMultiProcessAccelTest} in its own JVM: joins the NCCL
@@ -43,7 +43,7 @@ public final class DataParallelWorker {
         List<Object[]> out;
         try (NcclCollective nccl = new NcclCollective(id, world, rank, device)) {
             out = ProcessGroup.run(new String[] { device }, nccl, (r, c) -> DataParallelAccelTest.train(r, c, world));
-            Engine.reset();
+            JitnnRuntime.reset();
         }
         List<float[]> params = (List<float[]>) out.get(0)[1];
         try (DataOutputStream o = new DataOutputStream(new FileOutputStream(args[4]))) {

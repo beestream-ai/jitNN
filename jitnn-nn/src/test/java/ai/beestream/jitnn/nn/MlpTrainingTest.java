@@ -17,7 +17,8 @@ package ai.beestream.jitnn.nn;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.beestream.jitnn.engine.Engine;
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -26,7 +27,7 @@ class MlpTrainingTest {
 
     @BeforeAll
     static void reference() {
-        Engine.setBackend(Engine.Backend.REFERENCE);
+        JitnnRuntime.setBackend(Backend.REFERENCE);
     }
 
     @Test

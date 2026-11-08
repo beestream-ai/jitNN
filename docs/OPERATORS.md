@@ -258,7 +258,7 @@ FP8 values are decoded in portable code (`Fp8Kernels`); FP8 tensor-core instruct
 | `NcclCollective` | NCCL on CUDA GPUs, one rank per GPU, in one process or several (`uniqueId()`, then `new NcclCollective(id, worldSize, firstRank, devices)` in each): collectives recorded into the ranks' plans and CUDA graphs, no host round trip; in place on persistent tensors, or new tensors from `allReduced` (differentiable for a SUM or AVG of one tensor); FP32 |
 | `nn.SyncBatchNorm2d(channels, collective, rank)` | batch normalisation with the statistics of the batch over all ranks (needs `NcclCollective`) |
 | `ProcessGroup.run(devices, body)` | one thread per rank, rank r on `devices[r]` (several ranks may share a device); returns the ranks' results in rank order |
-| `Engine.onDevice(spec, body)` | runs a block with this thread's plans on one device |
+| `JitnnRuntime.onDevice(spec, body)` | runs a block with this thread's plans on one device |
 | `nn.DataParallel(model, rank, collective)` | `broadcastParameters()` once, then `averageGradients()` after each backward pass (one collective for all gradients), as PyTorch's `DistributedDataParallel` |
 
 The ranks' plans run concurrently; the gradient all-reduce does not overlap the backward pass.

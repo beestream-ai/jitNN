@@ -22,8 +22,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine.Backend;
 
 /**
  * The TornadoVM executor's parts, through their effects: the plan cache stays within its bound,
@@ -34,7 +35,7 @@ class ExecutorAccelTest {
 
     @AfterEach
     void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static float[] ramp(int n) {
@@ -57,7 +58,7 @@ class ExecutorAccelTest {
     @Test
     void planCacheStaysWithinItsBound() {
         int limit = Math.max(TornadoExecutor.CACHE_SIZE, PlanCache.RESERVED.get()) * TornadoExecutor.SLOTS;
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             for (int k = 1; k <= 3 * TornadoExecutor.CACHE_SIZE; k++) {
                 int n = 64 * k; // a new size every time: a new plan
                 float[] x = ramp(n);
@@ -73,7 +74,7 @@ class ExecutorAccelTest {
 
     @Test
     void closingAFailedPlanKeepsItsOutputsAndTheTraceCompilesAgain() {
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             int n = 1000;
             float[] x = ramp(n);
             Tensor y = Tensor.of(x, n).mul(3);
@@ -107,7 +108,7 @@ class ExecutorAccelTest {
 
     @Test
     void rememberedTraceSeesHostWrittenWeights() {
-        Engine.with(Backend.TORNADO, () -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> {
             int n = 256;
             Tensor w = Tensor.persistent(Tensor.of(ramp(n), n));
             float[] x = new float[n];

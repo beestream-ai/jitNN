@@ -22,7 +22,7 @@ java --add-modules jdk.incubator.vector -Djitnn.backend=cpu ...
 
 ## How it runs
 
-Operators are recorded lazily, as on the TornadoVM backend. At each sync point (`Engine.sync`,
+Operators are recorded lazily, as on the TornadoVM backend. At each sync point (`JitnnRuntime.sync`,
 `t.item()`, ...) the backend:
 
 1. rewrites the trace with the same fusion pass as on a GPU (for example convolution, BatchNorm and
@@ -44,7 +44,7 @@ its device buffers. Tensors not requested at that sync are then gone, as on a de
 | Reference implementation | everything else |
 
 `-Djitnn.cpu.stats=true` prints at exit the calls, time and reference fallbacks per operator, so
-missing kernels are visible. `Engine.cpuStats()` returns the counts; `Engine.cpuReport()` returns
+missing kernels are visible. `JitnnRuntime.cpuStats()` returns the counts; `JitnnRuntime.cpuReport()` returns
 the table since its last call.
 
 ### Native libraries
@@ -94,7 +94,7 @@ runtime), operators without a CPU kernel can run there with jitNN's GPU kernels.
   the backend's: `POCL_MAX_PTHREAD_COUNT` (PoCL 3), `POCL_CPU_MAX_CU_COUNT` (later PoCL),
   `CL_CONFIG_CPU_TBB_NUM_WORKERS` (Intel runtime).
 
-`Engine.cpuOpenClDevice()` returns the device in use, or null.
+`JitnnRuntime.cpuOpenClDevice()` returns the device in use, or null.
 
 ## Threads
 

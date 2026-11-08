@@ -15,7 +15,7 @@
  */
 package ai.beestream.jitnn.nn;
 
-import ai.beestream.jitnn.engine.Engine;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +27,7 @@ class MnistAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test

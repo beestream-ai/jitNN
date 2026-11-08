@@ -171,7 +171,7 @@ public final class OnnxSession implements AutoCloseable {
     @Override
     public void close() {
         for (Value v : constants.values()) {
-            if (v.tensor != null && v.tensor.storage().isPersistent()) {
+            if (v.tensor != null && v.tensor.isPersistent()) {
                 v.tensor.release();
             }
         }
@@ -231,7 +231,7 @@ public final class OnnxSession implements AutoCloseable {
         Map<String, Tensor> out = runExact(in);
         // the bucket's plan runs as it is (one plan per bucket); the outputs are cut back on the host
         // as they are read out, so no operator depends on the request's own sizes
-        ai.beestream.jitnn.engine.Engine.sync(out.values().toArray(new Tensor[0]));
+        ai.beestream.jitnn.JitnnRuntime.sync(out.values().toArray(new Tensor[0]));
         for (OnnxModel.ValueInfo vo : model.graph().outputs()) {
             Tensor t = out.get(vo.name());
             if (t == null) {
@@ -305,7 +305,7 @@ public final class OnnxSession implements AutoCloseable {
         for (int i = 0; i < paddable.size(); i++) {
             combos = Math.min(combos * b.length, 1024);
         }
-        ai.beestream.jitnn.engine.Engine.reservePlans((int) combos);
+        ai.beestream.jitnn.JitnnRuntime.reservePlans((int) combos);
         return this;
     }
 
@@ -394,7 +394,7 @@ public final class OnnxSession implements AutoCloseable {
         }
         Map<String, Tensor> result = new LinkedHashMap<>();
         // intermediates are internal (their buffers are reused, and jitNN's inference fusions apply), as in Grad.inference
-        try (Grad.Scope ignored = Grad.disabled(); AutoCloseable internal = ai.beestream.jitnn.engine.Storage.internalScope();
+        try (Grad.Scope ignored = Grad.inferenceScope();
                 Grad.Scope cast = !half ? null : HALF_ACTIVATIONS ? Autocast.enableHalf() : Autocast.enable(DType.F16)) {
             for (Node n : nodes) {
                 if (n.opType().equals("Constant")) {
@@ -440,7 +440,7 @@ public final class OnnxSession implements AutoCloseable {
             throw new IllegalStateException(e);
         }
         for (Tensor t : result.values()) {
-            t.storage().markVisible();
+            Grad.keep(t);
         }
         return result;
     }

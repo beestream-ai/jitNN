@@ -17,7 +17,7 @@ package ai.beestream.jitnn.nn;
 
 import java.nio.file.Path;
 
-import ai.beestream.jitnn.engine.Engine;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -33,7 +33,7 @@ class CheckpointAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test

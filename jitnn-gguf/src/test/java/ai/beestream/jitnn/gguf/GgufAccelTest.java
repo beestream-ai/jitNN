@@ -18,7 +18,8 @@ package ai.beestream.jitnn.gguf;
 import java.io.IOException;
 import java.util.List;
 
-import ai.beestream.jitnn.engine.Engine;
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
@@ -28,11 +29,11 @@ class GgufAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @TestFactory
     List<DynamicTest> weightsOnDevice() throws IOException {
-        return GgufChecks.weights(Engine.Backend.TORNADO);
+        return GgufChecks.weights(Backend.TORNADO);
     }
 }

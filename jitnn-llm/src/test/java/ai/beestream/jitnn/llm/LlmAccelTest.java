@@ -22,8 +22,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.nio.file.Path;
 
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +37,7 @@ class LlmAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test

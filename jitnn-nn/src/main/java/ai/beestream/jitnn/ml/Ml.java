@@ -19,8 +19,8 @@ import java.util.Arrays;
 import java.util.TreeSet;
 
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 
 /** Shared pieces of the estimators: label encoding, distances, and running a step. */
 final class Ml {
@@ -77,6 +77,6 @@ final class Ml {
 
     /** Runs what is recorded so far, so that iterative estimators replay one cached plan per step. */
     static void step() {
-        Engine.sync();
+        JitnnRuntime.sync();
     }
 }

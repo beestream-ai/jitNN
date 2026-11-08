@@ -26,8 +26,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.Test;
 
 /** Custom operators on the reference backend: values, attributes, several outputs, gradients and errors. */
@@ -35,7 +33,7 @@ class CustomOpTest {
 
     @Test
     void unaryAndBinary() {
-        Engine.with(Backend.REFERENCE, () -> {
+        JitnnRuntime.with(Backend.REFERENCE, () -> {
             float[] x = seq(6, 1.3f, -2f);
             float[] y = SWISH.apply(Tensor.of(x, 2, 3)).toFloatArray();
             float[] expected = new float[6];
@@ -51,7 +49,7 @@ class CustomOpTest {
 
     @Test
     void severalOutputsAndAttributes() {
-        Engine.with(Backend.REFERENCE, () -> {
+        JitnnRuntime.with(Backend.REFERENCE, () -> {
             Tensor[] mm = MIN_MAX.applyAll(null, null, Tensor.of(new float[] { 3, -1, 2, 7, 0, 5 }, 2, 3));
             assertArrayEquals(new float[] { -1, 0 }, mm[0].toFloatArray());
             assertArrayEquals(new float[] { 3, 7 }, mm[1].toFloatArray());
@@ -78,11 +76,11 @@ class CustomOpTest {
         Exception reserved = assertThrows(IllegalArgumentException.class, () -> CustomOp.unary("test.exp", CustomOpFixtures::exp, Math::exp));
         assertTrue(reserved.getMessage().contains("rename"), reserved.getMessage());
         CustomOp noHost = CustomOp.unary("test.deviceOnly", CustomOpFixtures::swish, null);
-        Exception e = assertThrows(UnsupportedOperationException.class, () -> Engine.with(Backend.REFERENCE, () -> noHost.apply(Tensor.zeros(2)).toFloatArray()));
+        Exception e = assertThrows(UnsupportedOperationException.class, () -> JitnnRuntime.with(Backend.REFERENCE, () -> noHost.apply(Tensor.zeros(2)).toFloatArray()));
         assertTrue(e.getMessage().contains("no host reference"));
         CustomOp noGrad = CustomOp.unary("test.noGradient", CustomOpFixtures::swish, v -> v);
         assertThrows(UnsupportedOperationException.class,
-                () -> Engine.with(Backend.REFERENCE, () -> {
+                () -> JitnnRuntime.with(Backend.REFERENCE, () -> {
                     Tensor x = Tensor.zeros(2).requiresGrad(true);
                     noGrad.apply(x).sum().backward();
                     return null;

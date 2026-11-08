@@ -175,7 +175,7 @@ final class TornadoExecutor {
                 return;
             }
         }
-        List<Node> nodes = ai.beestream.jitnn.ops.Fusion.rewrite(recorded, wanted);
+        List<Node> nodes = TracePass.applyAll(recorded, wanted);
         String prefix = Devices.key() + '|' + slotTag + nativeTag + Autotune.keyTag();
         TraceLayout layout = TraceLayout.of(nodes, wanted, prefix);
         List<Storage> slots = layout.slots();

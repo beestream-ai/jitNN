@@ -36,6 +36,19 @@ public final class Libs {
     private Libs() {
     }
 
+    /** Registers the probes with the engine ({@code META-INF/services}). */
+    public static final class Probe implements ai.beestream.jitnn.engine.LibraryProbe {
+        @Override
+        public String probe(Lib lib) {
+            return Libs.probe(lib);
+        }
+
+        @Override
+        public String probeFunction(Lib lib, String function) {
+            return Libs.probeFunction(lib, function);
+        }
+    }
+
     /** A probe of one library function on the current device (null when it works or has no probe of its own). */
     public static String probeFunction(Lib lib, String function) {
         if (lib == Lib.CUDNN && function.equals("sdpa")) {

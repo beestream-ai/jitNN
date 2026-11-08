@@ -22,8 +22,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.SplittableRandom;
 
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.Doc2Vec;
 import ai.beestream.jitnn.nn.models.GloVe;
 import ai.beestream.jitnn.nn.models.Word2Vec;
@@ -53,7 +53,7 @@ class EmbeddingModelsAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     /** Sentences, and the topic of each sentence. */

@@ -21,7 +21,7 @@ operators broadcast like NumPy. [OPERATORS.md](OPERATORS.md) lists every operato
 ## Lazy execution and sync points
 
 On a TornadoVM device, operators are recorded, not run. A **sync point** (`item()`,
-`toFloatArray()`, `toIntArray()` or `Engine.sync()`) compiles everything recorded on the thread
+`toFloatArray()`, `toIntArray()` or `JitnnRuntime.sync()`) compiles everything recorded on the thread
 into one TornadoVM task graph. The plan is cached under the trace's structure (operators, shapes,
 parameters) and replayed without compiling when that structure recurs, as on every training step.
 
@@ -132,7 +132,7 @@ Tensor h = Grad.checkpoint(in -> block.forward(in[0]), x);     // or any segment
 Gradients reach the segment's inputs and the parameters it uses, and equal those without
 checkpointing (bit for bit on the reference backend, within 1e-5 on CUDA). Dropout draws the same
 masks on the rerun; BatchNorm in training mode updates its running statistics twice, as in
-PyTorch. `Engine.lastIntermediateBytes()` reports the intermediate memory of the last plan.
+PyTorch. `JitnnRuntime.lastIntermediateBytes()` reports the intermediate memory of the last plan.
 
 ## Checkpoints
 
@@ -271,29 +271,29 @@ float[] out = logits.toFloatArray();                  // FP16 results read as fl
 
 ## Kernels and memory traffic
 
-`Engine.trafficStats()` returns running totals `[executions, kernel launches, library calls,
+`JitnnRuntime.trafficStats()` returns running totals `[executions, kernel launches, library calls,
 bytes]`, the bytes counting each operator's inputs and outputs once. Subtract two calls around a
 step to get its counts, for example to see what fusion (`-Djitnn.fuse`) saves.
 
 ### Timeline
 
-With `-Djitnn.profile=true` (and `-Djitnn.cudaGraph=false` on CUDA), `Engine.startTrace()` and
-`Engine.stopTrace(file)` record Chrome trace events for [Perfetto](https://ui.perfetto.dev) or
+With `-Djitnn.profile=true` (and `-Djitnn.cudaGraph=false` on CUDA), `JitnnRuntime.startTrace()` and
+`JitnnRuntime.stopTrace(file)` record Chrome trace events for [Perfetto](https://ui.perfetto.dev) or
 `chrome://tracing`:
 
 ```java
-Engine.startTrace();
-try (AutoCloseable r = Engine.traceRange("step " + step)) { ... }
-Engine.stopTrace(Path.of("trace.json"));
+JitnnRuntime.startTrace();
+try (AutoCloseable r = JitnnRuntime.traceRange("step " + step)) { ... }
+JitnnRuntime.stopTrace(Path.of("trace.json"));
 ```
 
-Tracks show `Engine.traceRange` spans, host plan runs (first runs, which compile, are marked) and
+Tracks show `JitnnRuntime.traceRange` spans, host plan runs (first runs, which compile, are marked) and
 device kernels named after their operators. TornadoVM reports durations, not start times, so
 kernels are drawn back to back in launch order from the start of their plan's run.
 
 ### Determinism
 
-`Engine.setDeterministic(true)` (or `-Djitnn.deterministic=true`) makes runs reproducible bit for
+`JitnnRuntime.setDeterministic(true)` (or `-Djitnn.deterministic=true`) makes runs reproducible bit for
 bit on the same device, library versions and inputs, like PyTorch's `use_deterministic_algorithms`.
 jitNN's own kernels are already deterministic (no atomics, fixed reduction order). The switch also
 stops autotuning from measuring and asks cuDNN for deterministic algorithms only; set it before the
@@ -306,7 +306,7 @@ measures instead: the first time a shape runs, each variant of its GEMMs, 1x1 an
 and row norms is timed on random inputs, checked against the rule's result, and kept only if more
 than 5% faster than the rule's choice. Decisions are saved per device in `~/.jitnn/autotune`, so
 the cost (mostly compiling the variants) is paid once. `-Djitnn.autotune=use` applies saved
-decisions without measuring. `Autotune.setMode` and `Autotune.setDirectory` do the same from code.
+decisions without measuring. `JitnnRuntime.setAutotune` and `JitnnRuntime.setAutotuneDirectory` do the same from code.
 
 ## Serving
 
@@ -343,7 +343,7 @@ model on padded inputs and returns only the real rows and positions:
 
 ```java
 Buckets batch = Buckets.powersOfTwo(1, 16), seq = Buckets.multiplesOf(64, 256);
-Engine.reservePlans(20);   // 5 batch x 4 sequence sizes
+JitnnRuntime.reservePlans(20);   // 5 batch x 4 sequence sizes
 Tensor logits = Grad.inference(() -> Bucketing.causal(batch, seq, idx, 0, gpt2::forward));      // GPT-2, Llama
 Tensor hidden = Grad.inference(() -> Bucketing.masked(batch, seq, idx, mask, 0, bert::encode)); // BERT
 Tensor scores = Grad.inference(() -> Bucketing.rows(batch, images, resnet::forward));           // CNNs
@@ -519,7 +519,7 @@ With NCCL, results are new tensors (`allReduced`) or persistent tensors written 
 ```java
 try (NcclCollective nccl = new NcclCollective(devices)) {        // distinct CUDA GPUs
     ProcessGroup.run(devices, nccl, (rank, collective) -> train(rank, collective));
-    Engine.reset();                                              // release the plans before the communicator
+    JitnnRuntime.reset();                                              // release the plans before the communicator
 }
 ```
 
@@ -537,7 +537,7 @@ statistics across ranks (one differentiable NCCL all-reduce per layer).
 Ranks may span processes and machines: one process calls `NcclCollective.uniqueId()` and passes
 the id on; each process creates `new NcclCollective(id, worldSize, firstRank, "0:0")` and calls
 `ProcessGroup.run` for its own ranks. Tensors belong to the device they were computed on, so pass
-them between ranks only through the collective. `Engine.onDevice(spec, body)` runs a block on
+them between ranks only through the collective. `JitnnRuntime.onDevice(spec, body)` runs a block on
 another device from any thread.
 
 ## ONNX models
@@ -635,11 +635,11 @@ after the Java method, so a kernel method must not be named like a CUDA or OpenC
 
 ## Printing the kernels
 
-`Engine.printKernels(System.out)` prints every plan compiled from then on: its operators with
+`JitnnRuntime.printKernels(System.out)` prints every plan compiled from then on: its operators with
 shapes and task numbers, then the CUDA, OpenCL or Metal source of each kernel, custom ones
-included. `Engine.printKernels(null)` stops it; `-Djitnn.printKernels=true` (standard output) or
+included. `JitnnRuntime.printKernels(null)` stops it; `-Djitnn.printKernels=true` (standard output) or
 `-Djitnn.printKernels=<file>` turns it on at start-up. Compiled plans are not printed again;
-`Engine.reset()` drops them.
+`JitnnRuntime.reset()` drops them.
 
 ```
 // ==== jitNN plan trace on CUDA NVIDIA A100 80GB PCIe: 2 operators, 2 kernels in 1 graph(s)
@@ -660,8 +660,8 @@ convolutions use TF32 on Ampere unless `NVIDIA_TF32_OVERRIDE=0`) and its require
 
 ## Backends
 
-`Engine.backend()` is `TORNADO` when a TornadoVM runtime is on the class path, else `REFERENCE`,
-where the host runs each operator eagerly in double precision. `Engine.with(Backend.REFERENCE, ...)`
+`JitnnRuntime.backend()` is `TORNADO` when a TornadoVM runtime is on the class path, else `REFERENCE`,
+where the host runs each operator eagerly in double precision. `JitnnRuntime.with(Backend.REFERENCE, ...)`
 runs a block on the reference, which is how the tests compare the two.
 
 ## Tests

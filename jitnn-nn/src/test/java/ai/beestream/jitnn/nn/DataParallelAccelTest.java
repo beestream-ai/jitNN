@@ -24,12 +24,12 @@ import java.util.Arrays;
 import java.util.List;
 
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.data.Blobs;
 import ai.beestream.jitnn.dist.Collective;
 import ai.beestream.jitnn.dist.NcclCollective;
 import ai.beestream.jitnn.dist.ProcessGroup;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.optim.SGD;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -47,7 +47,7 @@ class DataParallelAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     static String[] devices() {
@@ -170,7 +170,7 @@ class DataParallelAccelTest {
                 c.barrier(rank);
                 return new float[][] { x.toFloatArray(), y.toFloatArray(), rs.toFloatArray(), ag.toFloatArray(), m[0].toFloatArray(), m[1].toFloatArray() };
             });
-            Engine.reset();
+            JitnnRuntime.reset();
         }
         float sum = world * (world + 1) / 2.0f;
         for (int r = 0; r < world; r++) {
@@ -199,7 +199,7 @@ class DataParallelAccelTest {
         assumeTrue(Boolean.getBoolean("jitnn.dist.nccl"), "no -Djitnn.dist.nccl=true");
         try (NcclCollective nccl = new NcclCollective(devices())) {
             checkDataParallel(nccl);
-            Engine.reset();
+            JitnnRuntime.reset();
         }
     }
 
@@ -217,7 +217,7 @@ class DataParallelAccelTest {
         try (NcclCollective nccl = new NcclCollective(devices)) {
             overlapBytes = 0;
             List<Object[]> plain = ProcessGroup.run(devices, nccl, (rank, c) -> train(rank, c, world));
-            Engine.reset();
+            JitnnRuntime.reset();
             overlapBytes = 600;
             List<Object[]> overlapped;
             try {
@@ -232,14 +232,14 @@ class DataParallelAccelTest {
                     assertTrue(Arrays.equals(a.get(i), b.get(i)), "rank " + r + " parameter " + i + " differs with the overlapped all-reduce");
                 }
             }
-            Engine.reset();
+            JitnnRuntime.reset();
             overlapBytes = 600;
             try {
                 checkDataParallel(nccl);
             } finally {
                 overlapBytes = 0;
             }
-            Engine.reset();
+            JitnnRuntime.reset();
         }
     }
 
@@ -289,11 +289,11 @@ class DataParallelAccelTest {
         assumeTrue(Boolean.getBoolean("jitnn.dist.nccl"), "no -Djitnn.dist.nccl=true");
         String[] devices = devices();
         int world = devices.length;
-        List<float[]> single = Engine.onDevice(devices[0], () -> trainSync(0, null, 1));
+        List<float[]> single = JitnnRuntime.onDevice(devices[0], () -> trainSync(0, null, 1));
         List<List<float[]>> ranks;
         try (NcclCollective nccl = new NcclCollective(devices)) {
             ranks = ProcessGroup.run(devices, nccl, (rank, c) -> trainSync(rank, c, world));
-            Engine.reset();
+            JitnnRuntime.reset();
         }
         for (int r = 0; r < world; r++) {
             for (int i = 0; i < single.size(); i++) {
@@ -311,7 +311,7 @@ class DataParallelAccelTest {
     private static void checkDataParallel(Collective collective) {
         String[] devices = devices();
         int world = devices.length;
-        Object[] single = Engine.onDevice(devices[0], () -> train(0, null, 1));
+        Object[] single = JitnnRuntime.onDevice(devices[0], () -> train(0, null, 1));
         List<Object[]> ranks = collective == null ? ProcessGroup.run(devices, (rank, c) -> train(rank, c, world))
                 : ProcessGroup.run(devices, collective, (rank, c) -> train(rank, c, world));
         List<float[]> ref = (List<float[]>) single[1];

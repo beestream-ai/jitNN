@@ -27,8 +27,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.Linear;
 import ai.beestream.jitnn.nn.Module;
 import ai.beestream.jitnn.nn.ReLU;
@@ -54,7 +55,7 @@ class OnnxExportTest {
 
     @BeforeAll
     static void reference() {
-        Engine.setBackend(Engine.Backend.REFERENCE);
+        JitnnRuntime.setBackend(Backend.REFERENCE);
     }
 
     @Test

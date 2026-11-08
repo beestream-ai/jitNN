@@ -18,38 +18,15 @@ package ai.beestream.jitnn.engine;
 import java.util.List;
 import java.util.function.Supplier;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 
 /**
- * Where operators run.
- *
- * <ul>
- * <li>{@link Backend#TORNADO}: operators are recorded lazily; a sync point compiles everything
- * recorded since the last one into one TornadoVM task graph, caches the compiled plan by the
- * trace's structure, and replays it when the same structure comes back (a training step).</li>
- * <li>{@link Backend#CPU}: operators are recorded lazily as on TORNADO; a sync point rewrites the
- * trace with the same fusion pass and runs it on the host, each operator with its multithreaded,
- * vectorised CPU kernel (Java Vector API) or, when it has none, its reference implementation. It
- * needs no TornadoVM runtime, but the JVM needs {@code --add-modules jdk.incubator.vector}.</li>
- * <li>{@link Backend#REFERENCE}: operators run eagerly on the host with the Java reference
- * implementations. Tests use it as the oracle; it needs no TornadoVM runtime.</li>
- * </ul>
- *
- * <p>The default is TORNADO when a TornadoVM runtime is on the class path, else CPU when the JVM has
- * the Vector API module, else REFERENCE; the {@code jitnn.backend} system property ({@code tornado},
- * {@code cpu} or {@code reference}) overrides it.
+ * The runtime's internals: recording, sync points and the executors. Not part of the API: use
+ * {@link ai.beestream.jitnn.JitnnRuntime}, which delegates here.
  */
 public final class Engine {
-
-    /** Where operators run: see the class description. */
-    public enum Backend {
-        /** Lazily, through compiled TornadoVM plans on the selected device. */
-        TORNADO,
-        CPU,
-        /** Eagerly, on the host, with the Java reference implementations. */
-        REFERENCE
-    }
 
     private static final ThreadLocal<Backend> BACKEND = ThreadLocal.withInitial(Engine::defaultBackend);
 
@@ -242,7 +219,7 @@ public final class Engine {
         }
         if (s.stale) {
             throw new IllegalStateException("tensor data is gone: its buffer was reused, by a later execution of the same trace or by a later "
-                    + "tensor of the same trace once nothing needed it; pass the tensor to the sync that runs it (Engine.sync(t), t.item()) or read it before "
+                    + "tensor of the same trace once nothing needed it; pass the tensor to the sync that runs it (JitnnRuntime.sync(t), t.item()) or read it before "
                     + "the next step");
         }
         if (s.hostValid) {

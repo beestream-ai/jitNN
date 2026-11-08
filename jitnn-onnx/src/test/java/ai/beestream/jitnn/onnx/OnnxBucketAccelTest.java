@@ -22,8 +22,8 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Random;
 
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -47,7 +47,7 @@ class OnnxBucketAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static void close(float[] e, float[] a, double tol, String what) {
@@ -81,10 +81,10 @@ class OnnxBucketAccelTest {
             assertEquals(t, got.dim(1), "sequence cut back");
             close(e, got.toFloatArray(), 2e-4, "request " + req + " [" + b + ", " + t + "]");
             if (req == 0) {
-                before = Engine.planStats();
+                before = JitnnRuntime.planStats();
             }
         }
-        long[] after = Engine.planStats();
+        long[] after = JitnnRuntime.planStats();
         System.out.println("[bucket] plans compiled over 12 requests: " + (after[0] - before[0]));
     }
 
@@ -124,13 +124,13 @@ class OnnxBucketAccelTest {
             reqs[i] = new int[] { 1 + r.nextInt(8), 4 + r.nextInt(120) };
         }
         for (OnnxSession s : new OnnxSession[] { exact, bucketed }) {
-            long[] p0 = Engine.planStats();
+            long[] p0 = JitnnRuntime.planStats();
             long t0 = System.nanoTime();
             for (int[] q : reqs) {
                 run(s, q[0], q[1], q[0] * 131 + q[1]);
             }
             double sec = (System.nanoTime() - t0) / 1e9;
-            long[] p1 = Engine.planStats();
+            long[] p1 = JitnnRuntime.planStats();
             System.out.printf("[bucket] %s: 40 requests of random shapes in %.2f s, %d plans compiled%n", s == exact ? "unpadded" : "bucketed", sec, p1[0] - p0[0]);
         }
     }

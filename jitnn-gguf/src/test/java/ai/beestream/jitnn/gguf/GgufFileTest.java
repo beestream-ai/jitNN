@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Engine;
@@ -178,6 +179,6 @@ class GgufFileTest {
 
     @TestFactory
     List<DynamicTest> weightsOnReference() throws IOException {
-        return GgufChecks.weights(Engine.Backend.REFERENCE);
+        return GgufChecks.weights(Backend.REFERENCE);
     }
 }

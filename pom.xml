@@ -271,8 +271,8 @@
                     </additionalOptions>
                     <groups>
                         <group>
-                            <title>Core: tensors and autograd; operators and kernels</title>
-                            <packages>ai.beestream.jitnn:ai.beestream.jitnn.engine*:ai.beestream.jitnn.ops*:ai.beestream.jitnn.kernels*:ai.beestream.jitnn.natives*:ai.beestream.jitnn.dist*:ai.beestream.jitnn.io*</packages>
+                            <title>Core: tensors, autograd, runtime and configuration; several devices; checkpoints</title>
+                            <packages>ai.beestream.jitnn:ai.beestream.jitnn.dist*:ai.beestream.jitnn.io*</packages>
                         </group>
                         <group>
                             <title>Neural networks and models; classical machine learning</title>
@@ -281,6 +281,10 @@
                         <group>
                             <title>Importers and integrations</title>
                             <packages>ai.beestream.jitnn.onnx*:ai.beestream.jitnn.gguf*:ai.beestream.jitnn.tf*:ai.beestream.jitnn.djl*:ai.beestream.jitnn.llm*</packages>
+                        </group>
+                        <group>
+                            <title>Internals (not part of the API): engine, operators, kernels, CPU backend, vendor libraries</title>
+                            <packages>ai.beestream.jitnn.engine*:ai.beestream.jitnn.ops*:ai.beestream.jitnn.kernels*:ai.beestream.jitnn.cpu*:ai.beestream.jitnn.natives*</packages>
                         </group>
                     </groups>
                 </configuration>

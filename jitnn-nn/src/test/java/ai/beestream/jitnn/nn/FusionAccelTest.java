@@ -20,10 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.function.Supplier;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.Grad;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +37,7 @@ class FusionAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static void close(float[] expected, float[] actual, double rtol, double atol, String what) {
@@ -51,7 +51,7 @@ class FusionAccelTest {
     }
 
     private static float[] on(Backend b, Supplier<Tensor> f) {
-        return Engine.with(b, () -> f.get().toFloatArray());
+        return JitnnRuntime.with(b, () -> f.get().toFloatArray());
     }
 
     /** A residual block with a projection shortcut, then global pooling and a linear + GELU head. */
@@ -76,7 +76,7 @@ class FusionAccelTest {
         // give the BatchNorms non-trivial running statistics with a few training steps
         for (int s = 0; s < 3; s++) {
             Tensor xb = Tensor.uniform(10 + s, -2, 2, 2, 4, 9, 7);
-            Engine.with(Backend.TORNADO, () -> net.forward(xb).sum().item());
+            JitnnRuntime.with(Backend.TORNADO, () -> net.forward(xb).sum().item());
         }
         net.train(false);
         Supplier<Tensor> infer = () -> Grad.inference(() -> net.forward(Tensor.of(xs, 2, 4, 9, 7)));
@@ -84,16 +84,16 @@ class FusionAccelTest {
         close(on(Backend.REFERENCE, infer), on(Backend.TORNADO, infer), 1e-5, 1e-5, "fused inference, replayed");
         // the trace is remembered once its plan is settled (the folded weights cached): later calls
         // replay the plan without rewriting the trace
-        long remembered = Engine.planStats()[3];
-        for (int i = 0; i < 4 && Engine.planStats()[3] == remembered; i++) {
+        long remembered = JitnnRuntime.planStats()[3];
+        for (int i = 0; i < 4 && JitnnRuntime.planStats()[3] == remembered; i++) {
             close(on(Backend.REFERENCE, infer), on(Backend.TORNADO, infer), 1e-5, 1e-5, "fused inference, settling");
         }
-        remembered = Engine.planStats()[3];
+        remembered = JitnnRuntime.planStats()[3];
         close(on(Backend.REFERENCE, infer), on(Backend.TORNADO, infer), 1e-5, 1e-5, "fused inference, remembered");
-        assertEquals(remembered + 1, Engine.planStats()[3], "a remembered replay");
+        assertEquals(remembered + 1, JitnnRuntime.planStats()[3], "a remembered replay");
         // training changes the statistics: the folded weights must follow
         net.train(true);
-        Engine.with(Backend.TORNADO, () -> net.forward(Tensor.uniform(20, -3, 3, 2, 4, 9, 7)).sum().item());
+        JitnnRuntime.with(Backend.TORNADO, () -> net.forward(Tensor.uniform(20, -3, 3, 2, 4, 9, 7)).sum().item());
         net.train(false);
         close(on(Backend.REFERENCE, infer), on(Backend.TORNADO, infer), 1e-5, 1e-5, "fused inference after the statistics changed");
     }
@@ -104,7 +104,7 @@ class FusionAccelTest {
         BatchNorm2d bn = new BatchNorm2d(5);
         bn.train(false);
         Tensor[] mid = new Tensor[1];
-        Engine.with(Backend.TORNADO, () -> Grad.inference(() -> {
+        JitnnRuntime.with(Backend.TORNADO, () -> Grad.inference(() -> {
             mid[0] = conv.forward(Tensor.uniform(8, -1, 1, 1, 3, 6, 6));
             return bn.forward(mid[0]);
         }).toFloatArray());

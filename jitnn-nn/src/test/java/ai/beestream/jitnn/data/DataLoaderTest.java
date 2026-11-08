@@ -25,7 +25,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.SplittableRandom;
 
-import ai.beestream.jitnn.engine.Engine;
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +34,7 @@ class DataLoaderTest {
 
     @BeforeAll
     static void reference() {
-        Engine.setBackend(Engine.Backend.REFERENCE);
+        JitnnRuntime.setBackend(Backend.REFERENCE);
     }
 
     /** 50 samples of shape [2, 4, 4]: sample i holds i * 1000 + position, label i. */

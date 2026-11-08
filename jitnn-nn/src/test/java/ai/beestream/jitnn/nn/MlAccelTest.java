@@ -27,8 +27,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.ml.GradientBoosting;
 import ai.beestream.jitnn.ml.KMeans;
 import ai.beestream.jitnn.ml.KNeighbors;
@@ -89,7 +89,7 @@ class MlAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     static Arr get(String c, String name) {

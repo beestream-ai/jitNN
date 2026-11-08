@@ -20,8 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.function.Supplier;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.Test;
 
 /** The CPU backend's GEMM-based operators (matmul, linear, conv2d) against the reference, edge tiles and epilogues included. */
@@ -32,8 +30,8 @@ class CpuGemmTest {
     }
 
     private static void same(String what, Supplier<Tensor> f, double rtol, double atol) {
-        float[] expected = Engine.with(Backend.REFERENCE, () -> f.get().toFloatArray());
-        float[] actual = Engine.with(Backend.CPU, () -> f.get().toFloatArray());
+        float[] expected = JitnnRuntime.with(Backend.REFERENCE, () -> f.get().toFloatArray());
+        float[] actual = JitnnRuntime.with(Backend.CPU, () -> f.get().toFloatArray());
         close(expected, actual, rtol, atol, what);
     }
 
@@ -42,7 +40,7 @@ class CpuGemmTest {
     }
 
     private static long fallbacks(String op) {
-        long[] v = Engine.cpuStats().get(op);
+        long[] v = JitnnRuntime.cpuStats().get(op);
         return v == null ? 0 : v[2];
     }
 

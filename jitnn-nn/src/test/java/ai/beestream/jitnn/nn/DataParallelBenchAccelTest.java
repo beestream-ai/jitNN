@@ -22,12 +22,12 @@ import java.util.List;
 import java.util.Random;
 
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.dist.Collective;
 import ai.beestream.jitnn.dist.HostCollective;
 import ai.beestream.jitnn.dist.NcclCollective;
 import ai.beestream.jitnn.dist.ProcessGroup;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.ResNet;
 import ai.beestream.jitnn.nn.optim.SGD;
 import org.junit.jupiter.api.AfterAll;
@@ -45,7 +45,7 @@ class DataParallelBenchAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static final String MODEL = System.getProperty("jitnn.bench.dist.model", "resnet18");
@@ -82,9 +82,9 @@ class DataParallelBenchAccelTest {
         long[] before = null;
         for (int step = 0; step < WARMUP + STEPS; step++) {
             if (step == WARMUP) {
-                before = Engine.trafficStats();
+                before = JitnnRuntime.trafficStats();
                 if (Boolean.getBoolean("jitnn.profile")) {
-                    Engine.kernelBreakdown();
+                    JitnnRuntime.kernelBreakdown();
                 }
             }
             long t0 = System.nanoTime();
@@ -105,12 +105,12 @@ class DataParallelBenchAccelTest {
         }
         if (c == null && Boolean.getBoolean("jitnn.profile")) {
             // device time per operator task over the timed steps, largest first
-            java.util.Map<String, long[]> k = Engine.kernelBreakdown();
+            java.util.Map<String, long[]> k = JitnnRuntime.kernelBreakdown();
             k.entrySet().stream().sorted((p1, p2) -> Long.compare(p2.getValue()[1], p1.getValue()[1])).limit(25)
                     .forEach(en -> System.out.printf("[profile] %-40s %8.3f ms per step, %d launches%n", en.getKey(), en.getValue()[1] / 1e6 / STEPS, en.getValue()[0] / STEPS));
         }
         if (c == null) {
-            long[] after = Engine.trafficStats();
+            long[] after = JitnnRuntime.trafficStats();
             System.out.printf("[traffic] %s training step, batch %d: %.0f kernels %.0f library calls %.1f MB%n", MODEL, BATCH, (after[1] - before[1]) / (double) STEPS,
                     (after[2] - before[2]) / (double) STEPS, (after[3] - before[3]) / 1e6 / STEPS);
         }
@@ -128,14 +128,14 @@ class DataParallelBenchAccelTest {
         assumeTrue(!devices[0].isEmpty() && (!ranks || world >= 2), "needs -Djitnn.dist.devices with two or more devices");
         double one = Double.NaN;
         if (MODES.contains("one")) {
-            one = Engine.onDevice(devices[0], () -> train(0, null));
+            one = JitnnRuntime.onDevice(devices[0], () -> train(0, null));
             report("1 device", 1, one);
-            Engine.reset();
+            JitnnRuntime.reset();
         }
         if (MODES.contains("host")) {
             List<Double> host = ProcessGroup.run(devices, new HostCollective(world), DataParallelBenchAccelTest::train);
             report(world + " devices, host collective", world, max(host));
-            Engine.reset();
+            JitnnRuntime.reset();
         }
         if (MODES.contains("nccl-overlap")) {
             try (NcclCollective nccl = new NcclCollective(devices)) {
@@ -146,7 +146,7 @@ class DataParallelBenchAccelTest {
                 if (!Double.isNaN(one)) {
                     System.out.printf("[dist-bench] NCCL overlapped scaling: %.2fx the samples/s of 1 device%n", world * one / max(n));
                 }
-                Engine.reset();
+                JitnnRuntime.reset();
             }
         }
         if (MODES.contains("nccl")) {
@@ -156,7 +156,7 @@ class DataParallelBenchAccelTest {
                 if (!Double.isNaN(one)) {
                     System.out.printf("[dist-bench] NCCL scaling: %.2fx the samples/s of 1 device%n", world * one / max(n));
                 }
-                Engine.reset();
+                JitnnRuntime.reset();
             }
         }
     }

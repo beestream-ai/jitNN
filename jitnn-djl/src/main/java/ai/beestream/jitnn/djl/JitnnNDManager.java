@@ -32,6 +32,7 @@ import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 
@@ -203,7 +204,7 @@ public class JitnnNDManager extends BaseNDManager {
     private static Tensor onHost(java.util.function.Supplier<Tensor> f) {
         float[][] out = new float[1][];
         int[][] dims = new int[1][];
-        ai.beestream.jitnn.engine.Engine.with(ai.beestream.jitnn.engine.Engine.Backend.REFERENCE, () -> {
+        ai.beestream.jitnn.JitnnRuntime.with(ai.beestream.jitnn.Backend.REFERENCE, () -> {
             Tensor t = f.get();
             out[0] = t.toFloatArray();
             dims[0] = t.shape().dims();

@@ -25,8 +25,6 @@ import ai.beestream.jitnn.cpu.Blas;
 import ai.beestream.jitnn.cpu.Bnns;
 import ai.beestream.jitnn.cpu.Dnnl;
 import ai.beestream.jitnn.cpu.Race;
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DynamicTest;
@@ -109,15 +107,15 @@ class CpuNativeTest {
             return concat(parts);
         };
         JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, "kernel");
-        float[] kernels = Engine.with(Backend.CPU, step::get);
+        float[] kernels = JitnnRuntime.with(Backend.CPU, step::get);
         JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, library);
         for (int i = 0; i < 2; i++) {
-            close(kernels, Engine.with(Backend.CPU, step::get), 1e-4, 1e-4, library + " step " + i);
+            close(kernels, JitnnRuntime.with(Backend.CPU, step::get), 1e-4, 1e-4, library + " step " + i);
         }
         // timed: whichever way wins, the results stay the same
         JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, "measure");
         for (int i = 0; i < 10; i++) {
-            close(kernels, Engine.with(Backend.CPU, step::get), 1e-4, 1e-4, "timed step " + i);
+            close(kernels, JitnnRuntime.with(Backend.CPU, step::get), 1e-4, 1e-4, "timed step " + i);
         }
     }
 

@@ -26,6 +26,6 @@ class GoldenTest {
 
     @TestFactory
     List<DynamicTest> referenceMatchesPyTorch() {
-        return GoldenOps.tests(Engine.Backend.REFERENCE);
+        return GoldenOps.tests(Backend.REFERENCE);
     }
 }

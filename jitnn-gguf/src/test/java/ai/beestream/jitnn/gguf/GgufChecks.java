@@ -25,9 +25,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.ops.Gguf;
 import ai.beestream.jitnn.ops.Quant;
 import org.junit.jupiter.api.DynamicTest;
@@ -53,12 +54,12 @@ final class GgufChecks {
     }
 
     /** One test per weight type and load mode: values, and y = x W^T + b for 1, 5 and 40 rows of x. */
-    static List<DynamicTest> weights(Engine.Backend backend) throws IOException {
+    static List<DynamicTest> weights(Backend backend) throws IOException {
         GgufFile f = fixture();
         List<DynamicTest> tests = new ArrayList<>();
         for (String type : TYPES) {
             for (boolean copy : new boolean[] { false, true }) {
-                tests.add(DynamicTest.dynamicTest(type + (copy ? " copied" : " mapped"), () -> Engine.with(backend, () -> {
+                tests.add(DynamicTest.dynamicTest(type + (copy ? " copied" : " mapped"), () -> JitnnRuntime.with(backend, () -> {
                     check(f, type, copy);
                     return null;
                 })));

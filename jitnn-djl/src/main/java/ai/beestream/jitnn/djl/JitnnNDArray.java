@@ -33,7 +33,6 @@ import ai.djl.ndarray.types.Shape;
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.F;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.ops.Binary;
 
 /**
  * A DJL NDArray backed by a lazy jitNN tensor. Operators record jitNN operators and return new
@@ -154,8 +153,8 @@ public final class JitnnNDArray extends NDArrayAdapter {
      * place): for optimiser states, running statistics and parameters.
      */
     Tensor makePersistent() {
-        if (!tensor.storage().isPersistent()) {
-            tensor = tensor.requiresGrad() && tensor.gradFn() == null ? Tensor.parameter(tensor) : Tensor.persistent(tensor);
+        if (!tensor.isPersistent()) {
+            tensor = tensor.requiresGrad() && tensor.isLeaf() ? Tensor.parameter(tensor) : Tensor.persistent(tensor);
         }
         return tensor;
     }
@@ -241,7 +240,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray duplicate() {
-        return wrap(tensor.storage().isPersistent() ? tensor.mul(1f) : tensor, dataType);
+        return wrap(tensor.isPersistent() ? tensor.mul(1f) : tensor, dataType);
     }
 
     @Override
@@ -262,13 +261,13 @@ public final class JitnnNDArray extends NDArrayAdapter {
     @Override
     public void setRequiresGradient(boolean requiresGrad) {
         if (requiresGrad) {
-            if (!tensor.storage().isPersistent()) {
+            if (!tensor.isPersistent()) {
                 tensor = Tensor.parameter(tensor);
             } else {
                 tensor.requiresGrad(true);
             }
             JitnnEngine.getInstance().track(this);
-        } else if (tensor.gradFn() == null) {
+        } else if (tensor.isLeaf()) {
             tensor.requiresGrad(false);
         }
     }
@@ -290,7 +289,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
         if (gradBuffer == null) {
             gradBuffer = Tensor.persistent(Tensor.of(new float[Math.toIntExact(shape.size())], dims(shape)));
         }
-        ai.beestream.jitnn.ops.Assign.into(g, gradBuffer);
+        gradBuffer.assign(g);
     }
 
     @Override
@@ -481,7 +480,7 @@ public final class JitnnNDArray extends NDArrayAdapter {
 
     @Override
     public NDArray pow(NDArray other) {
-        return arith(other, Binary.apply(Binary.Kind.POW, tensor, of(other)));
+        return arith(other, tensor.pow(of(other)));
     }
 
     @Override

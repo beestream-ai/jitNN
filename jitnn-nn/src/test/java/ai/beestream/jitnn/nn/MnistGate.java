@@ -26,9 +26,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.data.Mnist;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.optim.Adam;
 
 /**
@@ -55,7 +55,7 @@ final class MnistGate {
         int[] yb = new int[batch];
         int[] shape = shape(batch, inputShape);
         List<Float> losses = new ArrayList<>();
-        long[] split0 = Engine.timeSplit();
+        long[] split0 = JitnnRuntime.timeSplit();
         long t0 = System.nanoTime();
         for (int epoch = 0; epoch < epochs; epoch++) {
             for (int b = 0; b < train.count / batch; b++) {
@@ -68,7 +68,7 @@ final class MnistGate {
             }
         }
         double seconds = (System.nanoTime() - t0) / 1e9;
-        long[] split1 = Engine.timeSplit();
+        long[] split1 = JitnnRuntime.timeSplit();
         int steps = losses.size();
         System.out.printf("[jitnn] %s per step: %.3f ms total, %.3f ms jitNN executor, %.3f ms TornadoVM execute%n", name, seconds * 1e3 / steps,
                 (split1[0] - split0[0]) / 1e6 / steps, (split1[1] - split0[1]) / 1e6 / steps);

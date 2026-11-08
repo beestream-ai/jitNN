@@ -18,8 +18,8 @@ package ai.beestream.jitnn.nn;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -32,16 +32,16 @@ class MlpTrainingAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test
     void deviceMatchesReference() {
         for (boolean adam : new boolean[] { true, false }) {
-            MlpRun expected = Engine.with(Backend.REFERENCE, () -> MlpRun.train(adam, 4));
-            long[] before = Engine.planStats();
-            MlpRun actual = Engine.with(Backend.TORNADO, () -> MlpRun.train(adam, 4));
-            long[] after = Engine.planStats();
+            MlpRun expected = JitnnRuntime.with(Backend.REFERENCE, () -> MlpRun.train(adam, 4));
+            long[] before = JitnnRuntime.planStats();
+            MlpRun actual = JitnnRuntime.with(Backend.TORNADO, () -> MlpRun.train(adam, 4));
+            long[] after = JitnnRuntime.planStats();
 
             String name = adam ? "adam" : "sgd";
             assertEquals(expected.losses.size(), actual.losses.size());

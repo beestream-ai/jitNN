@@ -789,8 +789,8 @@ final class OnnxOps {
                 return one(F.scaledDotProductAttention(q, k, v, mask, false, scale));
             }
             Tensor scores = q.matmul(k, false, true);
-            Tensor p = mask == null ? ai.beestream.jitnn.ops.AttentionSoftmax.apply(scores, scale, false)
-                    : ai.beestream.jitnn.ops.AttentionSoftmax.apply(scores.mul(scale).add(mask), 1.0f, false);
+            Tensor p = mask == null ? F.attentionSoftmax(scores, scale, false)
+                    : F.attentionSoftmax(scores.mul(scale).add(mask), 1.0f, false);
             return one(p.matmul(v));
         });
         HANDLERS.put(Rewrites.LINEAR, (n, in) -> one(F.linear(t(in, 0), t(in, 1), present(in, 2) ? t(in, 2) : null)));

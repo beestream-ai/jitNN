@@ -23,8 +23,8 @@ import java.util.function.Supplier;
 import ai.djl.training.optimizer.Optimizer;
 import ai.djl.training.tracker.Tracker;
 
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -33,12 +33,12 @@ class DjlEngineAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static void same(String what, Supplier<List<Float>> program, double tol) {
-        List<Float> expected = Engine.with(Backend.REFERENCE, program);
-        List<Float> actual = Engine.with(Backend.TORNADO, program);
+        List<Float> expected = JitnnRuntime.with(Backend.REFERENCE, program);
+        List<Float> actual = JitnnRuntime.with(Backend.TORNADO, program);
         assertEquals(expected.size(), actual.size());
         for (int i = 0; i < expected.size(); i++) {
             double e = expected.get(i);

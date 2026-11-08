@@ -24,8 +24,8 @@ import java.util.List;
 import java.util.Map;
 
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.io.Json;
 import ai.beestream.jitnn.nn.optim.Adam;
 import org.junit.jupiter.api.AfterAll;
@@ -44,7 +44,7 @@ class TraceAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test
@@ -58,20 +58,20 @@ class TraceAccelTest {
             labels[i] = i % 10;
         }
         Tensor y = Tensor.of(labels, 128);
-        Engine.startTrace();
+        JitnnRuntime.startTrace();
         long deviceNs = 0;
         for (int step = 0; step < 4; step++) {
-            try (AutoCloseable r = Engine.traceRange("step " + step)) {
+            try (AutoCloseable r = JitnnRuntime.traceRange("step " + step)) {
                 Tensor loss = F.crossEntropy(model.forward(x), y);
                 loss.backward();
                 opt.step();
                 loss.item();
                 opt.zeroGrad();
             }
-            deviceNs += Engine.lastProfile()[0];
+            deviceNs += JitnnRuntime.lastProfile()[0];
         }
         Path file = dir.resolve("trace.json");
-        Engine.stopTrace(file);
+        JitnnRuntime.stopTrace(file);
 
         Map<?, ?> trace = (Map<?, ?>) Json.parse(file);
         List<?> events = (List<?>) trace.get("traceEvents");

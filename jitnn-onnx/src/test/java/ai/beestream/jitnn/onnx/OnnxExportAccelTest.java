@@ -21,8 +21,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.Module;
 import ai.beestream.jitnn.nn.models.Bert;
 import ai.beestream.jitnn.nn.models.GPT2;
@@ -43,7 +43,7 @@ class OnnxExportAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test

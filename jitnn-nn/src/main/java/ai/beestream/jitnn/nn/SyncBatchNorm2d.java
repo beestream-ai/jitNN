@@ -20,7 +20,6 @@ import ai.beestream.jitnn.Grad;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.dist.Collective;
 import ai.beestream.jitnn.dist.NcclCollective;
-import ai.beestream.jitnn.ops.Assign;
 
 /**
  * Batch normalisation whose training statistics are those of the batch over all data-parallel
@@ -104,8 +103,8 @@ public final class SyncBatchNorm2d extends Module {
         Tensor y = x.sub(mean.reshape(1, c, 1, 1)).div(inv.reshape(1, c, 1, 1)).mul(weight.reshape(1, c, 1, 1)).add(bias.reshape(1, c, 1, 1));
         try (Grad.Scope off = Grad.disabled()) {
             // the running variance is the unbiased one, as in PyTorch
-            Assign.into(runningMean.mul(1 - momentum).add(mean.detach().mul(momentum)), runningMean);
-            Assign.into(runningVar.mul(1 - momentum).add(var.detach().mul(momentum * count / Math.max(count - 1, 1))), runningVar);
+            runningMean.assign(runningMean.mul(1 - momentum).add(mean.detach().mul(momentum)));
+            runningVar.assign(runningVar.mul(1 - momentum).add(var.detach().mul(momentum * count / Math.max(count - 1, 1))));
         }
         return y;
     }

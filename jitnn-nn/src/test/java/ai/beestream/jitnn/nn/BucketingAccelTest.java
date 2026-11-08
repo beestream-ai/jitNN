@@ -27,8 +27,8 @@ import java.util.function.Supplier;
 import ai.beestream.jitnn.Buckets;
 import ai.beestream.jitnn.F;
 import ai.beestream.jitnn.Grad;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.Bert;
 import ai.beestream.jitnn.nn.models.GPT2;
 import ai.beestream.jitnn.nn.models.ResNet;
@@ -44,7 +44,7 @@ class BucketingAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static void close(String what, float[] expected, float[] actual, float tolerance) {
@@ -63,9 +63,9 @@ class BucketingAccelTest {
 
     /** The plans compiled by {@code run}. */
     private static long compiles(Supplier<?> run) {
-        long c = Engine.planStats()[0];
+        long c = JitnnRuntime.planStats()[0];
         run.get();
-        return Engine.planStats()[0] - c;
+        return JitnnRuntime.planStats()[0] - c;
     }
 
     private static Tensor tokens(Random r, int b, int t, int vocab) {

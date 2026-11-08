@@ -25,7 +25,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +33,7 @@ class CustomOpAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test
@@ -56,13 +55,13 @@ class CustomOpAccelTest {
 
     @Test
     void printsKernels() {
-        Engine.reset();
+        JitnnRuntime.reset();
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        Engine.printKernels(new PrintStream(out, true));
+        JitnnRuntime.printKernels(new PrintStream(out, true));
         try {
             SWISH.apply(Tensor.uniform(11, -1, 1, 77, 3)).add(2).toFloatArray();
         } finally {
-            Engine.printKernels(null);
+            JitnnRuntime.printKernels(null);
         }
         String dump = out.toString();
         assertTrue(dump.contains("jitNN plan"), dump);

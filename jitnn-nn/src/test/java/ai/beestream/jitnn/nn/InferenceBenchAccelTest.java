@@ -27,8 +27,8 @@ import java.util.function.Supplier;
 import ai.beestream.jitnn.Autocast;
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.Grad;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.Bert;
 import ai.beestream.jitnn.nn.models.ResNet;
 import org.junit.jupiter.api.AfterAll;
@@ -52,7 +52,7 @@ class InferenceBenchAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private static boolean enabled(String model) {
@@ -108,7 +108,7 @@ class InferenceBenchAccelTest {
         // as a serving loop does: the output is fetched to the host, read, and released
         Supplier<Object> call = () -> {
             Tensor y = forward.get();
-            Engine.sync(y);
+            JitnnRuntime.sync(y);
             y.release();
             return y;
         };
@@ -121,36 +121,36 @@ class InferenceBenchAccelTest {
         }
         boolean profile = Boolean.getBoolean("jitnn.profile");
         if (profile) {
-            Engine.kernelBreakdown();
+            JitnnRuntime.kernelBreakdown();
         }
         boolean cpuStats = Boolean.getBoolean("jitnn.cpu.stats");
         if (cpuStats) {
-            Engine.cpuReport();
+            JitnnRuntime.cpuReport();
         }
         double[] ms = new double[RUNS];
-        long[] before = Engine.trafficStats();
-        long[] plans = Engine.planStats();
+        long[] before = JitnnRuntime.trafficStats();
+        long[] plans = JitnnRuntime.planStats();
         for (int i = 0; i < RUNS; i++) {
             long t0 = System.nanoTime();
             call.get();
             ms[i] = (System.nanoTime() - t0) / 1e6;
         }
-        long[] after = Engine.trafficStats();
+        long[] after = JitnnRuntime.trafficStats();
         Arrays.sort(ms);
         double median = ms[RUNS / 2];
         System.out.printf("[inference] jitnn %-28s median %8.3f ms  p10 %8.3f  p90 %8.3f  %10.1f samples/s  (first call %.0f ms)%n", name, median, ms[RUNS / 10], ms[RUNS * 9 / 10],
                 samples * 1000 / median, compile);
         if (cpuStats) {
-            System.out.print(Engine.cpuReport());
+            System.out.print(JitnnRuntime.cpuReport());
         }
-        long[] plansAfter = Engine.planStats();
+        long[] plansAfter = JitnnRuntime.planStats();
         System.out.printf("[inference] plans %-28s %d compiled, %d replayed (%d remembered) in %d calls%n", name, plansAfter[0] - plans[0], plansAfter[1] - plans[1], plansAfter[3] - plans[3],
                 RUNS);
         // per call: kernel launches, library calls, and the bytes the operators read and write at least
         System.out.printf("[traffic] %-28s %6.0f kernels %4.0f library calls %10.1f MB%n", name, (after[1] - before[1]) / (double) RUNS, (after[2] - before[2]) / (double) RUNS,
                 (after[3] - before[3]) / 1e6 / RUNS);
         if (profile) {
-            printProfile(name, Engine.kernelBreakdown());
+            printProfile(name, JitnnRuntime.kernelBreakdown());
         }
         int threads = Integer.getInteger("jitnn.bench.threads", 1);
         if (threads > 1) {
@@ -217,15 +217,15 @@ class InferenceBenchAccelTest {
             long t0 = System.nanoTime();
             Tensor y = forward.get();
             long t1 = System.nanoTime();
-            long[] before = Engine.timeSplit();
-            Engine.sync();
-            long[] after = Engine.timeSplit();
+            long[] before = JitnnRuntime.timeSplit();
+            JitnnRuntime.sync();
+            long[] after = JitnnRuntime.timeSplit();
             long t2 = System.nanoTime();
             if (i >= WARMUP) {
                 t[4][i - WARMUP] = (after[0] - before[0]) / 1e6;
                 t[5][i - WARMUP] = (after[1] - before[1]) / 1e6;
             }
-            Engine.sync(y);
+            JitnnRuntime.sync(y);
             long t3 = System.nanoTime();
             y.toFloatArray();
             long t4 = System.nanoTime();
@@ -297,7 +297,7 @@ class InferenceBenchAccelTest {
                 time(name, b, forward);
             }
         }
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test
@@ -331,6 +331,6 @@ class InferenceBenchAccelTest {
                 }));
             }
         }
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 }

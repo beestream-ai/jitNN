@@ -20,12 +20,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import ai.beestream.jitnn.F;
 import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.onnx.OnnxModel.Attribute;
 import ai.beestream.jitnn.onnx.OnnxModel.Node;
 import ai.beestream.jitnn.onnx.OnnxOps.Handler;
-import ai.beestream.jitnn.ops.Unary;
 
 /**
  * Quantised ONNX models: the QDQ format (QuantizeLinear / DequantizeLinear around float operators,
@@ -536,8 +536,8 @@ final class OnnxQuant {
             float[] range = range(n, type);
             float scale = floats(in.get(1))[0];
             float zp = OnnxOps.present(in, 2) ? floats(in.get(2))[0] : 0.0f;
-            Unary.Kind kind = range[1] - range[0] == 255.0f ? Unary.Kind.FAKE_QUANT8 : Unary.Kind.FAKE_QUANT16;
-            return List.of(Value.of(Unary.apply(kind, OnnxOps.t(in, 0), scale, range[0] - zp), OnnxModel.FLOAT));
+            int bits = range[1] - range[0] == 255.0f ? 8 : 16;
+            return List.of(Value.of(F.fakeQuantize(OnnxOps.t(in, 0), scale, range[0] - zp, bits), OnnxModel.FLOAT));
         });
         h.put("DequantizeLinear", (n, in) -> List.of(dequantize(n, in)));
         h.put("QuantizeLinear", (n, in) -> {

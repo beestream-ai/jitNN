@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Autotune;
 import ai.beestream.jitnn.engine.Engine;
@@ -40,15 +41,15 @@ class DeterminismAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.setDeterministic(false);
-        Engine.reset();
+        JitnnRuntime.setDeterministic(false);
+        JitnnRuntime.reset();
     }
 
     private record Run(Module model, Optimizer opt, Supplier<Tensor> loss) {
     }
 
     private static float[] train(Supplier<Run> make, int steps) {
-        Engine.reset();
+        JitnnRuntime.reset();
         Autotune.clear();
         Run r = make.get();
         for (int i = 0; i < steps; i++) {
@@ -98,7 +99,7 @@ class DeterminismAccelTest {
     @Test
     void sameBitsTwice() {
         for (var c : List.of(cnn(), transformer())) {
-            Engine.setDeterministic(false);
+            JitnnRuntime.setDeterministic(false);
             float[] a = train(c, 3);
             float[] b = train(c, 3);
             int differ = 0;
@@ -106,7 +107,7 @@ class DeterminismAccelTest {
                 differ += Float.floatToRawIntBits(a[i]) != Float.floatToRawIntBits(b[i]) ? 1 : 0;
             }
             System.out.printf("[determinism] without the switch: %d of %d weights differ between two runs%n", differ, a.length);
-            Engine.setDeterministic(true);
+            JitnnRuntime.setDeterministic(true);
             assertArrayEquals(train(c, 3), train(c, 3), "deterministic runs differ");
             System.out.println("[determinism] with the switch: identical");
         }

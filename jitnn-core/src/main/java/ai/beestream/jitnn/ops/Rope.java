@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.RopeScaling;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
 import ai.beestream.jitnn.engine.Node;
@@ -32,7 +33,7 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
  * token shares its position), for positions offset .. offset + T - 1, with frequencies
  * base^(-2i / D). Inputs [x, cos, sin]; iattr = [T, D, offset, interleaved, group] with group the
  * rows per position (1, or H); fattr = [sign]. The tables are cached per (positions, D, base,
- * scaling) as persistent tensors. A {@link Scaling} adjusts the frequencies for longer contexts.
+ * scaling) as persistent tensors. A {@link RopeScaling} adjusts the frequencies for longer contexts.
  */
 public final class Rope implements Op {
 
@@ -42,55 +43,12 @@ public final class Rope implements Op {
     private Rope() {
     }
 
-    /** A rescaling of the RoPE frequencies, as Hugging Face's rope_scaling. */
-    public sealed interface Scaling {
-
-        /** The frequency used in place of {@code frequency} (radians per position). */
-        double apply(double frequency);
-
-        /** Positions divided by {@code factor} (rope_type linear). */
-        static Scaling linear(double factor) {
-            return new Linear(factor);
-        }
-
-        /**
-         * Llama 3.1's rescaling (rope_type llama3): frequencies with wavelengths above
-         * originalContext / lowFreqFactor are divided by {@code factor}, those below
-         * originalContext / highFreqFactor are kept, and the band between is interpolated.
-         */
-        static Scaling llama3(double factor, double lowFreqFactor, double highFreqFactor, int originalContext) {
-            return new Llama3(factor, lowFreqFactor, highFreqFactor, originalContext);
-        }
-    }
-
-    record Linear(double factor) implements Scaling {
-        @Override
-        public double apply(double frequency) {
-            return frequency / factor;
-        }
-    }
-
-    record Llama3(double factor, double lowFreqFactor, double highFreqFactor, int originalContext) implements Scaling {
-        @Override
-        public double apply(double frequency) {
-            double wavelength = 2 * Math.PI / frequency;
-            if (wavelength < originalContext / highFreqFactor) {
-                return frequency;
-            }
-            if (wavelength > originalContext / lowFreqFactor) {
-                return frequency / factor;
-            }
-            double smooth = (originalContext / wavelength - lowFreqFactor) / (highFreqFactor - lowFreqFactor);
-            return (1 - smooth) * frequency / factor + smooth * frequency;
-        }
-    }
-
     public static Tensor apply(Tensor x, float base, int offset, boolean interleaved) {
         return apply(x, base, null, offset, interleaved);
     }
 
     /** As {@link #apply(Tensor, float, int, boolean)} with the frequencies rescaled by {@code scaling} (null for none). */
-    public static Tensor apply(Tensor x, float base, Scaling scaling, int offset, boolean interleaved) {
+    public static Tensor apply(Tensor x, float base, RopeScaling scaling, int offset, boolean interleaved) {
         Checks.f32(x);
         if (x.rank() < 2 || x.dim(-1) % 2 != 0) {
             throw new IllegalArgumentException("rope needs [..., T, D] with even D, got " + x.shape());
@@ -107,7 +65,7 @@ public final class Rope implements Op {
     }
 
     /** As {@link #applyHeads(Tensor, float, int, boolean)} with the frequencies rescaled by {@code scaling} (null for none). */
-    public static Tensor applyHeads(Tensor x, float base, Scaling scaling, int offset, boolean interleaved) {
+    public static Tensor applyHeads(Tensor x, float base, RopeScaling scaling, int offset, boolean interleaved) {
         Checks.f32(x);
         if (x.rank() < 3 || x.dim(-1) % 2 != 0) {
             throw new IllegalArgumentException("rope needs [..., T, H, D] with even D, got " + x.shape());
@@ -125,7 +83,7 @@ public final class Rope implements Op {
     }
 
     /** cos and sin of t * base^(-2i / D) (rescaled by {@code scaling} when not null) for t < positions, i < D / 2, computed in double. */
-    static synchronized Tensor[] tables(int positions, int dim, float base, Scaling scaling) {
+    static synchronized Tensor[] tables(int positions, int dim, float base, RopeScaling scaling) {
         String key = positions + "/" + dim + "/" + base + "/" + scaling;
         return TABLES.computeIfAbsent(key, k -> {
             int half = dim / 2;

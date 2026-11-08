@@ -24,6 +24,7 @@ import java.util.TreeMap;
 
 import ai.beestream.jitnn.Autocast;
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.engine.Node;
@@ -76,6 +77,6 @@ class CastCensusAccelTest {
         }
         System.out.printf("[census] %d nodes%n", nodes.size());
         byKind.forEach((k, v) -> System.out.printf("[census] %-70s %4d casts %8.1f M values%n", k, v[0], v[1] / 1e6));
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 }

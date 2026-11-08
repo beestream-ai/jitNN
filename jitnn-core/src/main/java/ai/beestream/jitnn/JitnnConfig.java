@@ -44,7 +44,7 @@ import java.util.function.Function;
  * <p>Only the options marked {@linkplain Option#changeableAtRunTime() changeable at run time}
  * (determinism, autotuning, the GEMM and transpose variants, the CPU backend's library choice)
  * can change afterwards, through {@link #change} or their setters such as
- * {@code Engine.setDeterministic}; the others are start-time options.
+ * {@code JitnnRuntime.setDeterministic}; the others are start-time options.
  *
  * <p>An invalid value (a number that does not parse, a value outside an option's choices) fails
  * with an {@link IllegalArgumentException} naming the key.
@@ -274,13 +274,13 @@ public final class JitnnConfig {
     public static final Option<String> CPU_NATIVE_CHOOSE = choice("jitnn.cpu.native.choose", "measure", RUNTIME, "`measure`", new String[] { "measure", "kernel", "blas", "onednn", "bnns" }, "how the `cpu` backend picks between its kernel and `blas`, `onednn`, `bnns` per operator and shape: `measure` times each way for three calls, runs the fastest, and re-times after 64 more calls for the final choice; `kernel`, `blas`, `onednn` or `bnns` forces that way when available (tests)").runtime();
 
     /** {@code jitnn.cpu.reuse}. */
-    public static final Option<Boolean> CPU_REUSE = bool("jitnn.cpu.reuse", true, RUNTIME, "`true`", "a `cpu` trace of the same structure as the last reuses its intermediates' arrays, as a compiled plan does; tensors not requested at that sync (`Engine.sync(t)`, `t.item()`) are then gone");
+    public static final Option<Boolean> CPU_REUSE = bool("jitnn.cpu.reuse", true, RUNTIME, "`true`", "a `cpu` trace of the same structure as the last reuses its intermediates' arrays, as a compiled plan does; tensors not requested at that sync (`JitnnRuntime.sync(t)`, `t.item()`) are then gone");
 
     /** {@code jitnn.cpu.reuse.traces}. */
     public static final Option<Integer> CPU_REUSE_TRACES = integer("jitnn.cpu.reuse.traces", 32, RUNTIME, "`32`", "trace structures each thread remembers for that reuse");
 
     /** {@code jitnn.cpu.stats}. */
-    public static final Option<Boolean> CPU_STATS = bool("jitnn.cpu.stats", false, RUNTIME, "`false`", "time every `cpu` operator and print calls, time and reference fallbacks at exit; `Engine.cpuStats()` gives counts without it");
+    public static final Option<Boolean> CPU_STATS = bool("jitnn.cpu.stats", false, RUNTIME, "`false`", "time every `cpu` operator and print calls, time and reference fallbacks at exit; `JitnnRuntime.cpuStats()` gives counts without it");
 
     /** {@code jitnn.cpu.stats.shapes}. */
     public static final Option<Boolean> CPU_STATS_SHAPES = bool("jitnn.cpu.stats.shapes", false, RUNTIME, "`false`", "with `jitnn.cpu.stats`: one row per operator and shape");
@@ -334,7 +334,7 @@ public final class JitnnConfig {
     public static final Option<String> PRINT_KERNELS = string("jitnn.printKernels", "", RUNTIME, "`false`", "print each compiled plan's operators and kernel source: `true` for standard output, or a file name (appended); see [Printing the kernels](USAGE.md#printing-the-kernels)");
 
     /** {@code jitnn.profile}. */
-    public static final Option<Boolean> PROFILE = bool("jitnn.profile", false, RUNTIME, "`false`", "TornadoVM's profiler: `Engine.lastProfile()` gives the last step's kernel time, `Engine.kernelBreakdown()` device time per operator task. `Engine.startTrace`/`stopTrace` write a Chrome trace of plan runs and kernels. On CUDA also set `jitnn.cudaGraph=false`: the profiler reports no kernel time under CUDA graphs");
+    public static final Option<Boolean> PROFILE = bool("jitnn.profile", false, RUNTIME, "`false`", "TornadoVM's profiler: `JitnnRuntime.lastProfile()` gives the last step's kernel time, `JitnnRuntime.kernelBreakdown()` device time per operator task. `JitnnRuntime.startTrace`/`stopTrace` write a Chrome trace of plan runs and kernels. On CUDA also set `jitnn.cudaGraph=false`: the profiler reports no kernel time under CUDA graphs");
 
     /** {@code jitnn.gemm}. */
     public static final Option<String> GEMM = string("jitnn.gemm", "auto", KERNELS, "`auto`", "FP32 GEMM kernel (see [GEMM selection](#gemm-selection-auto)): `auto`, `simdgroup`, `128`, `64`, `16`, or padded `gemm64p`, `gemm64pd`, `gemm128p`, `gemm128pd`, `gemm128x64pd`, `gemm64x128pd`. A forced variant also disables forward split-K").runtime();
@@ -346,10 +346,10 @@ public final class JitnnConfig {
     public static final Option<Boolean> FUSE_PROGRAM = bool("jitnn.fuse.program", true, KERNELS, "`true`", "fused element-wise chains of up to six operations sharing the output's layout use a kernel specialised for the chain (`FusedKernels.fusedProgram1` to `6`); `false` uses the generic interpreter kernel");
 
     /** {@code jitnn.deterministic}. */
-    public static final Option<Boolean> DETERMINISTIC = bool("jitnn.deterministic", false, KERNELS, "`false`", "reproducible runs: no autotuning measurements, deterministic cuDNN algorithms (`Engine.setDeterministic`)").runtime();
+    public static final Option<Boolean> DETERMINISTIC = bool("jitnn.deterministic", false, KERNELS, "`false`", "reproducible runs: no autotuning measurements, deterministic cuDNN algorithms (`JitnnRuntime.setDeterministic`)").runtime();
 
     /** {@code jitnn.autotune}. */
-    public static final Option<String> AUTOTUNE = choice("jitnn.autotune", "off", KERNELS, "`off`", new String[] { "off", "on", "use" }, "run-time autotuning (`engine.Autotune`): `on` measures the variants of each new GEMM, 1x1 and 3x3 convolution and row-norm shape on first use and keeps the fastest; `use` only applies saved decisions. Decisions override tuning tables and size rules").runtime();
+    public static final Option<String> AUTOTUNE = choice("jitnn.autotune", "off", KERNELS, "`off`", new String[] { "off", "on", "use" }, "run-time autotuning: `on` measures the variants of each new GEMM, 1x1 and 3x3 convolution and row-norm shape on first use and keeps the fastest; `use` only applies saved decisions. Decisions override tuning tables and size rules").runtime();
 
     /** {@code jitnn.autotune.dir}. */
     public static final Option<String> AUTOTUNE_DIR = string("jitnn.autotune.dir", null, KERNELS, "`~/.jitnn/autotune`", "where decisions are saved, one `<backend>-<device>.properties` per device").runtime();

@@ -20,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.engine.Native;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -44,7 +43,7 @@ class NativeAccelTest {
     static void release() {
         Map<Native.Lib, Long> tasks = Native.emittedTasks();
         System.out.println("[native] library tasks compiled: " + tasks);
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test

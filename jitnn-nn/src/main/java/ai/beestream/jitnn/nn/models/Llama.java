@@ -23,7 +23,7 @@ import ai.beestream.jitnn.nn.Embedding;
 import ai.beestream.jitnn.nn.Linear;
 import ai.beestream.jitnn.nn.Module;
 import ai.beestream.jitnn.nn.RMSNorm;
-import ai.beestream.jitnn.ops.Rope;
+import ai.beestream.jitnn.RopeScaling;
 
 /**
  * A Llama-style decoder: token embedding, pre-RMSNorm blocks of causal attention with rotary
@@ -53,7 +53,7 @@ public final class Llama extends Module {
     }
 
     /** Rescales the RoPE frequencies of every block (Llama 3.1's rope_scaling); null for none. */
-    public Llama ropeScaling(Rope.Scaling scaling) {
+    public Llama ropeScaling(RopeScaling scaling) {
         for (Block b : blocks) {
             b.ropeScaling = scaling;
         }
@@ -105,15 +105,15 @@ public final class Llama extends Module {
                 : w.config().get("rope_scaling") instanceof java.util.Map<?, ?> q ? q : null;
         float theta = w.config().get("rope_theta") instanceof Number t ? t.floatValue()
                 : rope != null && rope.get("rope_theta") instanceof Number u ? u.floatValue() : 10000f;
-        Rope.Scaling scaling = null;
+        RopeScaling scaling = null;
         if (rope != null && (rope.containsKey("rope_type") || rope.containsKey("type"))) {
             java.util.Map<?, ?> rs = rope;
             Object kind = rs.containsKey("rope_type") ? rs.get("rope_type") : rs.get("type");
             double factor = rs.get("factor") instanceof Number f ? f.doubleValue() : 1.0;
             scaling = switch (String.valueOf(kind)) {
                 case "default" -> null;
-                case "linear" -> Rope.Scaling.linear(factor);
-                case "llama3" -> Rope.Scaling.llama3(factor, ((Number) rs.get("low_freq_factor")).doubleValue(), ((Number) rs.get("high_freq_factor")).doubleValue(),
+                case "linear" -> RopeScaling.linear(factor);
+                case "llama3" -> RopeScaling.llama3(factor, ((Number) rs.get("low_freq_factor")).doubleValue(), ((Number) rs.get("high_freq_factor")).doubleValue(),
                         ((Number) rs.get("original_max_position_embeddings")).intValue());
                 default -> throw new IllegalArgumentException("rope_scaling " + kind + " is not supported (linear, llama3 are)");
             };
@@ -186,7 +186,7 @@ public final class Llama extends Module {
         private final int heads;
         private final int kvHeads;
         private final float ropeBase;
-        private Rope.Scaling ropeScaling;
+        private RopeScaling ropeScaling;
 
         Block(int dim, int heads, int kvHeads, int hidden, float ropeBase, float eps, boolean qkvBias, Seeds seeds) {
             this.heads = heads;

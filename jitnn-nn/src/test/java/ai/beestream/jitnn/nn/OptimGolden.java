@@ -29,8 +29,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.optim.AdaDelta;
 import ai.beestream.jitnn.nn.optim.AdaGrad;
 import ai.beestream.jitnn.nn.optim.AdaMax;
@@ -38,8 +39,8 @@ import ai.beestream.jitnn.nn.optim.Adam;
 import ai.beestream.jitnn.nn.optim.Lamb;
 import ai.beestream.jitnn.nn.optim.Lars;
 import ai.beestream.jitnn.nn.optim.NAdam;
-import ai.beestream.jitnn.nn.optim.RMSProp;
 import ai.beestream.jitnn.nn.optim.Optimizer;
+import ai.beestream.jitnn.nn.optim.RMSProp;
 import ai.beestream.jitnn.nn.optim.SGD;
 import org.junit.jupiter.api.DynamicTest;
 
@@ -52,7 +53,7 @@ final class OptimGolden {
     private OptimGolden() {
     }
 
-    static List<DynamicTest> tests(Engine.Backend backend) throws IOException {
+    static List<DynamicTest> tests(Backend backend) throws IOException {
         Path dir = Path.of("..", "jitnn-core", "src", "test", "resources", "golden");
         ByteBuffer data = ByteBuffer.wrap(Files.readAllBytes(dir.resolve("data.bin"))).order(ByteOrder.LITTLE_ENDIAN);
         Map<String, Map<String, float[]>> cases = new HashMap<>();
@@ -70,7 +71,7 @@ final class OptimGolden {
         assertTrue(cases.size() >= 5, "optimiser golden cases found: " + cases.keySet());
         List<DynamicTest> tests = new ArrayList<>();
         for (var e : cases.entrySet()) {
-            tests.add(dynamicTest(e.getKey(), () -> Engine.with(backend, () -> {
+            tests.add(dynamicTest(e.getKey(), () -> JitnnRuntime.with(backend, () -> {
                 run(e.getKey(), e.getValue());
                 return null;
             })));

@@ -21,7 +21,6 @@ import ai.beestream.jitnn.engine.Emitter;
 import ai.beestream.jitnn.engine.Node;
 import ai.beestream.jitnn.engine.Op;
 
-import uk.ac.manchester.tornado.api.KernelContext;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
 /**
@@ -44,13 +43,6 @@ public final class Assign implements Op {
         Tensor.record(OP, new Tensor[] { src }, new Tensor[] { dst }, new int[0], null, true);
     }
 
-    public static void copy(KernelContext kc, FloatArray src, FloatArray dst, int n) {
-        int i = kc.globalIdx;
-        if (i < n) {
-            dst.set(i, src.get(i));
-        }
-    }
-
     @Override
     public String name() {
         return "assign";
@@ -61,7 +53,7 @@ public final class Assign implements Op {
         FloatArray src = e.f32(n.in(0));
         FloatArray dst = e.f32(n.out(0));
         int count = n.out(0).numel();
-        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, Assign::copy, e.context(), src, dst, count));
+        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ai.beestream.jitnn.kernels.ElementwiseKernels::copy, e.context(), src, dst, count));
     }
 
     @Override

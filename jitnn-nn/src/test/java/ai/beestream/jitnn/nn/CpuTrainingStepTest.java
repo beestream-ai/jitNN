@@ -21,10 +21,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 
+import ai.beestream.jitnn.Backend;
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
-import ai.beestream.jitnn.engine.Engine.Backend;
 import ai.beestream.jitnn.nn.models.GPT2;
 import ai.beestream.jitnn.nn.models.ResNet;
 import ai.beestream.jitnn.nn.optim.Adam;
@@ -67,13 +67,13 @@ class CpuTrainingStepTest {
     }
 
     private static void same(String what, Supplier<Run> run, double tol) {
-        Run expected = Engine.with(Backend.REFERENCE, run::get);
+        Run expected = JitnnRuntime.with(Backend.REFERENCE, run::get);
         long[] before = fallbacks();
-        Run actual = Engine.with(Backend.CPU, run::get);
+        Run actual = JitnnRuntime.with(Backend.CPU, run::get);
         long[] after = fallbacks();
         close(expected.losses, actual.losses, tol, tol, what + " losses");
         close(expected.params, actual.params, tol, tol, what + " parameters");
-        assertEquals(before[0], after[0], what + ": operators that fell back to the reference " + Engine.cpuStats().keySet());
+        assertEquals(before[0], after[0], what + ": operators that fell back to the reference " + JitnnRuntime.cpuStats().keySet());
     }
 
     private static void close(float[] expected, float[] actual, double rtol, double atol, String what) {
@@ -88,7 +88,7 @@ class CpuTrainingStepTest {
 
     private static long[] fallbacks() {
         long n = 0;
-        for (long[] v : Engine.cpuStats().values()) {
+        for (long[] v : JitnnRuntime.cpuStats().values()) {
             n += v[2];
         }
         return new long[] { n };

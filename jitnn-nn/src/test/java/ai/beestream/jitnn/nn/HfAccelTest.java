@@ -28,8 +28,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.io.Json;
 import ai.beestream.jitnn.nn.models.Bert;
 import ai.beestream.jitnn.nn.models.GPT2;
@@ -57,7 +57,7 @@ class HfAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test
@@ -135,7 +135,7 @@ class HfAccelTest {
             if (tok != null) {
                 assertEquals(ref.get("next"), tok.token(best), name + " next token");
             }
-            Engine.reset();
+            JitnnRuntime.reset();
         }
     }
 
@@ -176,7 +176,7 @@ class HfAccelTest {
                 best = logits[i] > logits[best] ? i : best;
             }
             assertEquals(ref.get("prediction"), tok.token(best), key + " prediction");
-            Engine.reset();
+            JitnnRuntime.reset();
         }
     }
 

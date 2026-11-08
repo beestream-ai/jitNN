@@ -29,7 +29,6 @@ import ai.beestream.jitnn.nn.LayerNorm;
 import ai.beestream.jitnn.nn.Module;
 import ai.beestream.jitnn.nn.optim.Adam;
 import ai.beestream.jitnn.nn.optim.LRScheduler;
-import ai.beestream.jitnn.ops.AttentionSoftmax;
 
 /**
  * Trains a GPT from scratch on Tiny Shakespeare, Andrej Karpathy's nanoGPT with its
@@ -107,7 +106,7 @@ public final class NanoGptShakespeare {
             if (!isTraining()) {
                 return F.scaledDotProductAttention(q, k, v, null, true, -1);
             }
-            Tensor weights = AttentionSoftmax.apply(q.matmul(k, false, true), (float) (1.0 / Math.sqrt(q.dim(-1))), true);
+            Tensor weights = F.attentionSoftmax(q.matmul(k, false, true), (float) (1.0 / Math.sqrt(q.dim(-1))), true);
             return attnDrop.forward(weights).matmul(v);
         }
     }

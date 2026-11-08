@@ -25,8 +25,8 @@ import java.util.function.Supplier;
 import ai.beestream.jitnn.Autocast;
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.nn.models.Bert;
 import ai.beestream.jitnn.nn.models.GPT2;
 import ai.beestream.jitnn.nn.models.Llama;
@@ -46,7 +46,7 @@ class HalfTrainingAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     private record Case(String name, Supplier<Module> model, java.util.function.Function<Module, Tensor> loss) {
@@ -104,7 +104,7 @@ class HalfTrainingAccelTest {
             }
             opt.zeroGrad();
         }
-        Engine.reset();
+        JitnnRuntime.reset();
         return losses;
     }
 

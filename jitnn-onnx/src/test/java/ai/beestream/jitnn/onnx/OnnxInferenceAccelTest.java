@@ -26,8 +26,8 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -45,7 +45,7 @@ class OnnxInferenceAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     static float[] images(int n) {
@@ -116,12 +116,12 @@ class OnnxInferenceAccelTest {
             Arrays.sort(ms);
             if (Boolean.getBoolean("jitnn.profile")) {
                 // device time per operator over 10 calls (TornadoVM's profiler slows the calls themselves)
-                Engine.kernelBreakdown();
+                JitnnRuntime.kernelBreakdown();
                 for (int i = 0; i < 10; i++) {
                     s.run(Map.of(input, x)).get(output).toFloatArray();
                 }
                 Map<String, long[]> perOp = new java.util.TreeMap<>();
-                Engine.kernelBreakdown().forEach((k, v) -> {
+                JitnnRuntime.kernelBreakdown().forEach((k, v) -> {
                     long[] a = perOp.computeIfAbsent(k.replaceAll("#.*", ""), q -> new long[2]);
                     a[0] += v[0];
                     a[1] += v[1];
@@ -140,7 +140,7 @@ class OnnxInferenceAccelTest {
                 want = read(ref);
             } else if (fp16) {
                 // no ONNX Runtime output: the same file run in FP32 is the reference
-                Engine.reset();
+                JitnnRuntime.reset();
                 want = OnnxSession.load(work.resolve(f), false).run(Map.of(input, x)).get(output).toFloatArray();
                 against = "the FP32 session";
             }
@@ -163,7 +163,7 @@ class OnnxInferenceAccelTest {
                 double tol = name.contains("int8") ? INT8_TOLERANCE : fp16 ? 3e-2 : 1e-3;
                 assertTrue(rel <= tol, name + ": " + err);
             }
-            Engine.reset();
+            JitnnRuntime.reset();
         }
     }
 }

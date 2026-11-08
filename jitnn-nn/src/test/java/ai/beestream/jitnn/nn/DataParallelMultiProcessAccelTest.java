@@ -28,9 +28,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.dist.NcclCollective;
 import ai.beestream.jitnn.dist.ProcessGroup;
-import ai.beestream.jitnn.engine.Engine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +44,7 @@ class DataParallelMultiProcessAccelTest {
 
     @AfterAll
     static void release() {
-        Engine.reset();
+        JitnnRuntime.reset();
     }
 
     @Test
@@ -53,8 +53,8 @@ class DataParallelMultiProcessAccelTest {
         assumeTrue(Boolean.getBoolean("jitnn.dist.nccl"), "no -Djitnn.dist.nccl=true");
         String[] devices = DataParallelAccelTest.devices();
         assumeTrue(devices.length == 2 && !devices[0].equals(devices[1]), "needs two distinct devices in -Djitnn.dist.devices");
-        List<float[]> reference = (List<float[]>) Engine.onDevice(devices[0], () -> DataParallelAccelTest.train(0, null, 1))[1];
-        Engine.reset();
+        List<float[]> reference = (List<float[]>) JitnnRuntime.onDevice(devices[0], () -> DataParallelAccelTest.train(0, null, 1))[1];
+        JitnnRuntime.reset();
 
         String id = NcclCollective.uniqueId();
         Path out = Files.createTempFile("jitnn-rank1", ".bin");
@@ -69,7 +69,7 @@ class DataParallelMultiProcessAccelTest {
         List<Object[]> mine;
         try (NcclCollective nccl = new NcclCollective(id, 2, 0, devices[0])) {
             mine = ProcessGroup.run(new String[] { devices[0] }, nccl, (r, c) -> DataParallelAccelTest.train(r, c, 2));
-            Engine.reset();
+            JitnnRuntime.reset();
         } finally {
             if (!child.waitFor(300, TimeUnit.SECONDS)) {
                 child.destroyForcibly();

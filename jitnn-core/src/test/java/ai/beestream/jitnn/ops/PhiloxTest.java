@@ -19,8 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.beestream.jitnn.Backend;
+import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Engine;
 import ai.beestream.jitnn.kernels.RandomKernels;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +51,7 @@ class PhiloxTest {
 
     @Test
     void uniformAndNormalStatistics() {
-        Engine.with(Engine.Backend.REFERENCE, () -> {
+        JitnnRuntime.with(Backend.REFERENCE, () -> {
             float[] u = Tensor.uniform(42, -1, 3, 10_000).toFloatArray();
             float[] z = Tensor.normal(42, 2, 0.5f, 10_001).toFloatArray();
             double su = 0;
