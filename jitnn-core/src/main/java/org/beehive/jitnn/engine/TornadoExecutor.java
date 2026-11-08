@@ -737,7 +737,11 @@ final class TornadoExecutor {
         }
     }
 
-    /** Drops a plan from the structure index (it was closed or dropped from the cache). */
+    /**
+     * Drops a plan from the structure index and from the replay memos (it was closed or dropped from
+     * the cache). A memo would otherwise keep the closed plan, its host arrays and the storages it was
+     * bound to reachable until 64 more traces were remembered.
+     */
     private static void forget(CompiledTrace ct) {
         ct.closed = true;
         List<CompiledTrace> list = ct.structure == null ? null : BY_STRUCTURE.get(ct.structure);
@@ -745,6 +749,16 @@ final class TornadoExecutor {
             list.remove(ct);
             if (list.isEmpty()) {
                 BY_STRUCTURE.remove(ct.structure);
+            }
+        }
+        var memos = MEMOS.values().iterator();
+        while (memos.hasNext()) {
+            List<Memo> l = memos.next();
+            int before = l.size();
+            l.removeIf(m -> m.ct() == ct);
+            memoCount -= before - l.size();
+            if (l.isEmpty()) {
+                memos.remove();
             }
         }
     }
@@ -1353,11 +1367,14 @@ final class TornadoExecutor {
                 s.validOn.remove(ct);
             } else if (s.boundTrace == ct && !s.hostValid && !s.stale && ct.last != null && ct.deviceArrays.contains(s.array)) {
                 // (an array no task touched has no device copy; asking TornadoVM for it corrupts the plan's state)
-                // an output not read yet: keep its data on the host, as the plan's buffers go
+                // an output not read yet: keep its data on the host, as the plan's buffers go. The
+                // plan's host array becomes the storage's own, unless another slot of the plan shares it
                 ct.last.transferToHost(s.array);
-                TornadoNativeArray own = Storage.newArray(s.dtype, s.numel);
-                copy((TornadoNativeArray) s.array, own);
-                s.array = own;
+                if (sharedArray(ct, s.array)) {
+                    TornadoNativeArray own = Storage.newArray(s.dtype, s.numel);
+                    copy((TornadoNativeArray) s.array, own);
+                    s.array = own;
+                }
                 s.hostValid = true;
                 s.boundTrace = null;
             }
@@ -1367,6 +1384,17 @@ final class TornadoExecutor {
         } catch (TornadoExecutionPlanException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** Whether more than one slot of {@code ct} uses {@code array} (a recycled buffer). */
+    private static boolean sharedArray(CompiledTrace ct, Object array) {
+        int uses = 0;
+        for (Object a : ct.arrays) {
+            if (a == array && ++uses > 1) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Executions of any plan so far; a plan's lastUsed is this count at its latest execution. */
