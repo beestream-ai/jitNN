@@ -50,6 +50,12 @@ public final class Storage {
 
     // Persistent storages: the compiled traces whose device copy is current.
     final Set<CompiledTrace> validOn = Collections.newSetFromMap(new IdentityHashMap<>());
+    /**
+     * A persistent storage's device buffer: the plan that owns it, and every plan (the owner too)
+     * that uses that same buffer instead of a copy of its own (empty while no plan owns one).
+     */
+    CompiledTrace deviceOwner;
+    final Set<CompiledTrace> sharers = Collections.newSetFromMap(new IdentityHashMap<>());
 
     // Non-persistent outputs: the trace and execution that produced the current device contents.
     CompiledTrace boundTrace;

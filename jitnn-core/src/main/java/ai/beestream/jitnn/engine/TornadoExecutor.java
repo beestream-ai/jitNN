@@ -75,6 +75,18 @@ final class TornadoExecutor {
      */
     private static final boolean CARRY = Boolean.parseBoolean(System.getProperty("jitnn.plan.carry", "true"));
     /**
+     * Inputs that are outputs of another plan's latest execution on the same device (a generator's
+     * activations, read by the next plan of the step) are read from that plan's device buffer, not
+     * fetched to the host and uploaded again ({@code -Djitnn.plan.import}).
+     */
+    private static final boolean IMPORT = Boolean.parseBoolean(System.getProperty("jitnn.plan.import", "true"));
+    /**
+     * Plans on the same device that use the same persistent storage (parameters, optimiser state,
+     * running statistics) share one device buffer of it: what one plan writes the next reads in
+     * place, instead of a fetch to the host and an upload ({@code -Djitnn.plan.share}).
+     */
+    private static final boolean SHARE = IMPORT && Boolean.parseBoolean(System.getProperty("jitnn.plan.share", "true"));
+    /**
      * Remember traces already run (default on): a trace recorded again with the same operators,
      * shapes, storage kinds and parameter versions replays its plan without being rewritten and
      * keyed again, which is most of jitNN's host time per call at small batches.
@@ -123,7 +135,9 @@ final class TornadoExecutor {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, CompiledTrace> eldest) {
             // every concurrency slot compiles its own plans, so the cache holds CACHE_SIZE per slot
-            if (size() > Math.max(CACHE_SIZE, RESERVED.get()) * Math.max(1, Integer.getInteger("jitnn.concurrency", 1)) && !eldest.getValue().busy && local(eldest.getValue())) {
+            // a plan others import from stays until they go (closing it would close a plan just added)
+            if (size() > Math.max(CACHE_SIZE, RESERVED.get()) * Math.max(1, Integer.getInteger("jitnn.concurrency", 1)) && !eldest.getValue().busy && local(eldest.getValue())
+                    && eldest.getValue().dependents.isEmpty()) {
                 close(eldest.getValue());
                 return true;
             }
@@ -339,9 +353,37 @@ final class TornadoExecutor {
                 unread.add(s);
             }
         }
+        CompiledTrace[] importFrom = null;
+        int[] importSlot = null;
+        if (IMPORT) {
+            String base = key.toString();
+            for (int i = 0; i < slots.size(); i++) {
+                if (kinds[i] != CompiledTrace.INPUT) {
+                    continue;
+                }
+                CompiledTrace p = slots.get(i).boundTrace;
+                int j = p == null ? -1 : producedSlot(p, slots.get(i));
+                // not this trace's own previous execution (carried values handle that)
+                if (j < 0 || p.structure != null && p.structure.startsWith(base)) {
+                    continue;
+                }
+                if (importFrom == null) {
+                    importFrom = new CompiledTrace[slots.size()];
+                    importSlot = new int[slots.size()];
+                }
+                importFrom[i] = p;
+                importSlot[i] = j;
+                key.append("|X").append(i).append('=').append(p.name).append('.').append(j);
+            }
+        }
         String structure = key.toString();
         String k = structure + "|P" + ids;
         CompiledTrace ct = CACHE.get(k);
+        if (ct != null && ct.closed) {
+            // closed with a plan it read buffers from
+            CACHE.remove(k);
+            ct = null;
+        }
         // remembered only once the rewrite has given the same plan twice: the first calls of a model
         // fold weights (batch norm, channels-last copies) that later calls take from the caches
         boolean stable = ct != null;
@@ -354,7 +396,7 @@ final class TornadoExecutor {
             if (DEBUG_KEYS) {
                 System.err.println("[jitnn] key " + k);
             }
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null, importFrom, importSlot);
             ct.structure = structure;
             BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
@@ -369,7 +411,7 @@ final class TornadoExecutor {
             // still holds them, is closed once the new one has read them
             replaced = ct;
             stable = false;
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, replaced.seenCarry.clone());
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, replaced.seenCarry.clone(), importFrom, importSlot);
             if (VERBOSE) {
                 System.err.printf("[jitnn] %s replaces %s: %d input(s) carried on the device from the previous execution%n", ct.name, replaced.name,
                         Arrays.stream(ct.carry).filter(j -> j >= 0).count());
@@ -404,7 +446,8 @@ final class TornadoExecutor {
                 replaced = null;
             }
             stable = false;
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
+            // every other plan was closed, those it imported from too: their outputs are on the host now
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null, null, null);
             ct.structure = structure;
             BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
@@ -424,7 +467,7 @@ final class TornadoExecutor {
             structure = Devices.key() + "|" + slotTag + tag + structure.substring(Devices.key().length() + 1 + slotTag.length() + nativeTag.length());
             k = structure + "|P" + ids;
             stable = false;
-            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null);
+            ct = compile(k, nodes, slots, slotOf, kinds, written, recyclable, lastUse, unread, null, importFrom, importSlot);
             ct.structure = structure;
             BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
@@ -562,6 +605,9 @@ final class TornadoExecutor {
             for (int i = 0; i < m.slotLocal().length; i++) {
                 slots.add(m.slotLocal()[i] >= 0 ? sg.locals[m.slotLocal()[i]] : m.slotFixed()[i]);
             }
+            if (!importsHold(ct, slots)) {
+                continue;
+            }
             // the outputs to fetch, decided now: storages' numbers belong to whichever thread signed last
             Storage[] fetches = new Storage[wanted.length];
             for (int i = 0; i < wanted.length; i++) {
@@ -673,7 +719,7 @@ final class TornadoExecutor {
             return null;
         }
         for (CompiledTrace c : candidates) {
-            boolean fits = !c.closed && !c.busy;
+            boolean fits = !c.closed && !c.busy && c.sharedFrom == null && c.dependents.isEmpty();
             for (int i = 0; fits && i < kinds.length; i++) {
                 Storage s = slots.get(i);
                 Storage old = c.bound[i];
@@ -769,7 +815,7 @@ final class TornadoExecutor {
     }
 
     private static CompiledTrace compile(String key, List<Node> nodes, List<Storage> slots, IdentityHashMap<Storage, Integer> slotOf, int[] kinds, boolean[] written, boolean[] recyclable,
-            int[] lastUse, Set<Storage> unread, int[] carry) {
+            int[] lastUse, Set<Storage> unread, int[] carry, CompiledTrace[] importFrom, int[] importSlot) {
         long t0 = System.nanoTime();
         String name = "jitnn" + GRAPHS.incrementAndGet();
         Object[] arrays = new Object[slots.size()];
@@ -814,10 +860,31 @@ final class TornadoExecutor {
                 }
             }
         }
+        // imported inputs are the producing plan's own arrays: its device buffers are read in place
+        IdentityHashMap<Object, uk.ac.manchester.tornado.api.ImmutableTaskGraph> imported = new IdentityHashMap<>();
+        if (importFrom != null) {
+            for (int i = 0; i < slots.size(); i++) {
+                if (importFrom[i] != null) {
+                    arrays[i] = importFrom[i].arrays[importSlot[i]];
+                    imported.put(arrays[i], importFrom[i].graphOf.get(arrays[i]));
+                }
+            }
+        }
+        CompiledTrace[] sharedFrom = null;
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
             if (arrays[i] == null) {
                 arrays[i] = kinds[i] == CompiledTrace.PERSISTENT ? s.allocate() : Storage.newArray(s.dtype, s.numel);
+            }
+            CompiledTrace owner = s.deviceOwner;
+            if (SHARE && kinds[i] == CompiledTrace.PERSISTENT && owner != null && !owner.closed && local(owner) && owner.executions > 0 && owner.graphOf != null
+                    && owner.graphOf.containsKey(arrays[i]) && imported.get(arrays[i]) == null) {
+                // the storage already has a device buffer in another plan: use it in place
+                if (sharedFrom == null) {
+                    sharedFrom = new CompiledTrace[slots.size()];
+                }
+                sharedFrom[i] = owner;
+                imported.put(arrays[i], owner.graphOf.get(arrays[i]));
             }
             if (kinds[i] == CompiledTrace.PERSISTENT) {
                 bound[i] = s;
@@ -893,8 +960,17 @@ final class TornadoExecutor {
             List<Object> once = new ArrayList<>();
             List<Object> keep = new ArrayList<>();
             java.util.Map<String, List<Object>> consumed = new LinkedHashMap<>();
+            IdentityHashMap<uk.ac.manchester.tornado.api.ImmutableTaskGraph, List<Object>> fromPlans = new IdentityHashMap<>();
             for (int ni = ranges.get(gi)[0]; ni < ranges.get(gi)[1]; ni++) {
                 for (Object a : e.uses.get(ni)) {
+                    uk.ac.manchester.tornado.api.ImmutableTaskGraph producer = imported.get(a);
+                    if (producer != null) {
+                        List<Object> list = fromPlans.computeIfAbsent(producer, x -> new ArrayList<>());
+                        if (list.stream().noneMatch(x -> x == a)) {
+                            list.add(a);
+                        }
+                        continue;
+                    }
                     String o = owner.get(a);
                     if (o == null) {
                         owner.put(a, gname);
@@ -922,6 +998,9 @@ final class TornadoExecutor {
                 graph.transferToDevice(DataTransferMode.FIRST_EXECUTION, once.toArray());
             }
             for (var c : consumed.entrySet()) {
+                graph.consumeFromDevice(c.getKey(), c.getValue().toArray());
+            }
+            for (var c : fromPlans.entrySet()) {
                 graph.consumeFromDevice(c.getKey(), c.getValue().toArray());
             }
             java.util.Set<String> forked = new java.util.LinkedHashSet<>();
@@ -960,6 +1039,32 @@ final class TornadoExecutor {
         ct.deviceArrays.addAll(owner.keySet());
         ct.recyclable = recyclable;
         ct.carry = carry;
+        ct.importFrom = importFrom;
+        ct.importSlot = importSlot;
+        ct.sharedFrom = sharedFrom;
+        for (int i = 0; i < slots.size(); i++) {
+            Storage s = slots.get(i);
+            if (kinds[i] != CompiledTrace.PERSISTENT || !SHARE) {
+                continue;
+            }
+            if (sharedFrom != null && sharedFrom[i] != null) {
+                s.sharers.add(ct);
+                if (!sharedFrom[i].dependents.contains(ct)) {
+                    sharedFrom[i].dependents.add(ct);
+                }
+            } else if (s.deviceOwner == null || s.deviceOwner.closed) {
+                s.deviceOwner = ct;
+                s.sharers.clear();
+                s.sharers.add(ct);
+            }
+        }
+        if (importFrom != null) {
+            for (CompiledTrace p : importFrom) {
+                if (p != null && !p.dependents.contains(ct)) {
+                    p.dependents.add(ct);
+                }
+            }
+        }
         ct.libraries = e.libraries;
         for (Emitter.Spec spec : e.tasks) {
             if (spec.grid() == null) {
@@ -977,6 +1082,14 @@ final class TornadoExecutor {
         uk.ac.manchester.tornado.api.ImmutableTaskGraph[] snapshots = new uk.ac.manchester.tornado.api.ImmutableTaskGraph[graphs.size()];
         for (int i = 0; i < snapshots.length; i++) {
             snapshots[i] = graphs.get(i).snapshot();
+        }
+        ct.graphOf = new IdentityHashMap<>();
+        for (var en : owner.entrySet()) {
+            for (int i = 0; i < snapshots.length; i++) {
+                if (graphs.get(i).getTaskGraphName().equals(en.getValue())) {
+                    ct.graphOf.put(en.getKey(), snapshots[i]);
+                }
+            }
         }
         TornadoExecutionPlan plan = new TornadoExecutionPlan(snapshots);
         if (e.tasks.stream().anyMatch(t -> t.grid() != null)) {
@@ -1103,6 +1216,10 @@ final class TornadoExecutor {
         // must be fetched before its slot is rebound below (unless the plan carries it on the device).
         for (int i = 0; i < slots.size(); i++) {
             if (ct.kinds[i] == CompiledTrace.INPUT) {
+                if (ct.importFrom != null && ct.importFrom[i] != null) {
+                    // read from the producing plan's device buffer (checked before the plan was chosen)
+                    continue;
+                }
                 Storage s = slots.get(i);
                 int from = CARRY ? previousOutput(ct, s) : -1;
                 boolean carried = ct.carry != null && ct.carry[i] >= 0;
@@ -1138,6 +1255,11 @@ final class TornadoExecutor {
         for (int i = 0; i < slots.size(); i++) {
             Storage s = slots.get(i);
             if (ct.kinds[i] == CompiledTrace.PERSISTENT && !s.validOn.contains(ct)) {
+                if (s.sharers.contains(ct) && !Collections.disjoint(s.validOn, s.sharers)) {
+                    // the buffer this plan shares holds the newest value
+                    s.validOn.add(ct);
+                    continue;
+                }
                 if (!s.hostValid) {
                     fetch(s);
                 }
@@ -1247,6 +1369,10 @@ final class TornadoExecutor {
                 if (ct.written[i]) {
                     s.validOn.clear();
                     s.hostValid = false;
+                    if (s.sharers.contains(ct)) {
+                        // written in the shared buffer: every plan sharing it holds the new value
+                        s.validOn.addAll(s.sharers);
+                    }
                 }
                 s.validOn.add(ct);
             } else if (ct.kinds[i] == CompiledTrace.INTERMEDIATE) {
@@ -1313,6 +1439,36 @@ final class TornadoExecutor {
         return -1;
     }
 
+    /**
+     * The slot of plan {@code p} that holds {@code s} as an output of its latest execution, still on
+     * the device and on this thread's device, or -1.
+     */
+    private static int producedSlot(CompiledTrace p, Storage s) {
+        if (p.closed || p.busy || s.stale || s.boundExec != p.executions || p.graphOf == null || !p.key.startsWith(Devices.key() + "|")) {
+            return -1;
+        }
+        for (int j = 0; j < p.bound.length; j++) {
+            if (p.bound[j] == s && p.kinds[j] == CompiledTrace.INTERMEDIATE && (p.recyclable == null || !p.recyclable[j]) && p.graphOf.containsKey(p.arrays[j])) {
+                return j;
+            }
+        }
+        return -1;
+    }
+
+    /** Whether every input {@code ct} imports is still the output of its producer's latest execution. */
+    private static boolean importsHold(CompiledTrace ct, List<Storage> slots) {
+        if (ct.importFrom == null) {
+            return true;
+        }
+        for (int i = 0; i < slots.size(); i++) {
+            CompiledTrace p = ct.importFrom[i];
+            if (p != null && (slots.get(i).boundTrace != p || producedSlot(p, slots.get(i)) != ct.importSlot[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static int indexOf(CompiledTrace ct, Storage s) {
         for (int i = 0; i < ct.bound.length; i++) {
             if (ct.bound[i] == s) {
@@ -1353,7 +1509,24 @@ final class TornadoExecutor {
     }
 
     private static void close(CompiledTrace ct) {
+        if (ct.released) {
+            return;
+        }
+        ct.released = true;
         forget(ct);
+        // plans reading this plan's buffers go first: they would read freed memory (their cache
+        // entries are dropped when next looked up)
+        for (CompiledTrace dep : new ArrayList<>(ct.dependents)) {
+            close(dep);
+        }
+        ct.dependents.clear();
+        if (ct.importFrom != null) {
+            for (CompiledTrace p : ct.importFrom) {
+                if (p != null) {
+                    p.dependents.remove(ct);
+                }
+            }
+        }
         for (int i = 0; i < ct.kinds.length; i++) {
             Storage s = ct.bound[i];
             if (s == null) {
@@ -1365,6 +1538,11 @@ final class TornadoExecutor {
                     s.hostValid = true;
                 }
                 s.validOn.remove(ct);
+                s.sharers.remove(ct);
+                if (s.deviceOwner == ct) {
+                    s.deviceOwner = null;
+                    s.sharers.clear();
+                }
             } else if (s.boundTrace == ct && !s.hostValid && !s.stale && ct.last != null && ct.deviceArrays.contains(s.array)) {
                 // (an array no task touched has no device copy; asking TornadoVM for it corrupts the plan's state)
                 // an output not read yet: keep its data on the host, as the plan's buffers go. The
@@ -1416,7 +1594,11 @@ final class TornadoExecutor {
         var it = CACHE.values().iterator();
         while (it.hasNext()) {
             CompiledTrace ct = it.next();
-            if (ct != running && !ct.busy && local(ct) && ct.intermediateBytes >= IDLE_BYTES && executionsTotal - ct.lastUsed > IDLE_EXECUTIONS) {
+            if (ct.closed) {
+                it.remove();
+                continue;
+            }
+            if (ct != running && !ct.busy && local(ct) && ct.intermediateBytes >= IDLE_BYTES && executionsTotal - ct.lastUsed > IDLE_EXECUTIONS && !needs(running, ct)) {
                 if (VERBOSE) {
                     System.err.printf("[jitnn] closed idle plan %s (%.1f MB of intermediates)%n", ct.name, ct.intermediateBytes / 1e6);
                 }
@@ -1426,13 +1608,32 @@ final class TornadoExecutor {
         }
     }
 
+    /** Whether {@code ct} reads buffers of {@code from}, directly or through other plans. */
+    private static boolean needs(CompiledTrace ct, CompiledTrace from) {
+        java.util.ArrayDeque<CompiledTrace> todo = new java.util.ArrayDeque<>(List.of(from));
+        Set<CompiledTrace> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        while (!todo.isEmpty()) {
+            for (CompiledTrace d : todo.pop().dependents) {
+                if (d == ct) {
+                    return true;
+                }
+                if (seen.add(d)) {
+                    todo.push(d);
+                }
+            }
+        }
+        return false;
+    }
+
     /** Closes every cached plan except {@code keep}; false when there was nothing to close. */
     private static boolean evictAllExcept(CompiledTrace keep) {
         boolean any = false;
         var it = CACHE.values().iterator();
         while (it.hasNext()) {
             CompiledTrace ct = it.next();
-            if (ct != keep && !ct.busy && local(ct)) {
+            if (ct.closed) {
+                it.remove();
+            } else if (ct != keep && !ct.busy && local(ct) && (keep == null || !needs(keep, ct))) {
                 close(ct);
                 it.remove();
                 any = true;

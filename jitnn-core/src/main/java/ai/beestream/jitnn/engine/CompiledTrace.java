@@ -47,6 +47,21 @@ final class CompiledTrace {
     int[] carry;
     /** Per input slot, the intermediate slot of the previous execution it was seen to read (-1: none); null when none was seen. */
     int[] seenCarry;
+    /**
+     * Per input slot, the plan whose device buffer it reads (an output of that plan's latest
+     * execution, consumed on the device), or null when it comes from the host; null when none does.
+     */
+    CompiledTrace[] importFrom;
+    /** Per imported input slot, the producing plan's slot. */
+    int[] importSlot;
+    /** Per persistent slot, the plan whose device buffer of that storage this plan uses (null: its own). */
+    CompiledTrace[] sharedFrom;
+    /** Whether {@link #close} has run (forget only takes the plan out of the indexes). */
+    boolean released;
+    /** The task graph of this plan that holds each of its arrays on the device (for plans importing them). */
+    java.util.IdentityHashMap<Object, uk.ac.manchester.tornado.api.ImmutableTaskGraph> graphOf;
+    /** Plans that import this plan's buffers: closed with it. */
+    java.util.List<CompiledTrace> dependents = new java.util.ArrayList<>();
 
     /** "graph.task" keys of the profiler log and the operator each task belongs to (profiling only). */
     java.util.Map<String, String> taskLabels;
