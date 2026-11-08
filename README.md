@@ -33,10 +33,7 @@ are plain Java; every operator is a Java kernel that TornadoVM JIT-compiles for 
 ## Architecture
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/architecture-dark.svg">
-    <img alt="jitNN's layers: your code; jitnn-nn, the importers and the DJL engine; the core API; the engine that records, rewrites, compiles and replays each step; operators, kernels and vendor libraries; TornadoVM; the hardware" src="docs/images/architecture-light.svg" width="900">
-  </picture>
+  <img alt="jitNN's layers: your code; jitnn-nn, the importers and the DJL engine; the core API and runtime; the engine that records, rewrites, compiles and replays each step; operators, kernels and vendor libraries; TornadoVM; the hardware" src="docs/images/architecture.svg" width="900">
 </p>
 
 Programs, imported models and DJL code all end up as calls on `Tensor` and `F`. The engine records

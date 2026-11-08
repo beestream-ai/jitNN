@@ -11,19 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Writes docs/images/architecture-{light,dark}.svg: jitNN's layers, from user code down to the hardware.
+"""Writes docs/images/architecture.svg: jitNN's layers, from user code down to the hardware, in light
+colours that read on light and dark pages alike.
 
 usage: python scripts/docs/architecture.py docs/images
 """
 import sys
 out_dir = sys.argv[1]
 W, H = 1000, 860
-THEMES = {
-    "light": dict(bg="#FFFFFF", ink="#0B1F33", sub="#4A5B6C", line="#8A99A8", band="#F3F6F9",
-                  box="#FFFFFF", stroke="#C9D3DD", accent="#14A884", accentbg="#E6F7F1", tvm="#0B1F33", tvmink="#FFFFFF", tvmsub="#B9C7D4"),
-    "dark": dict(bg="#0D1117", ink="#E6EDF3", sub="#9AA7B4", line="#5C6B7A", band="#161B22",
-                 box="#0D1117", stroke="#30363D", accent="#22D3A6", accentbg="#0F2A24", tvm="#22D3A6", tvmink="#0B1F33", tvmsub="#0B3B30"),
-}
+THEME = dict(bg="#FFFFFF", ink="#1F2D3D", sub="#5B6B7B", line="#A3B1BF", band="#F6F8FA",
+             box="#FFFFFF", stroke="#D8E0E8", accent="#7FD1B9", accentbg="#F0FAF6",
+             tvm="#EAF3FC", tvmstroke="#B9D4EE", tvmink="#1F2D3D", tvmsub="#5B6B7B")
 FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
 MONO = "SFMono-Regular, Menlo, Consolas, monospace"
 
@@ -36,7 +34,8 @@ def svg(t):
     a(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="img" aria-labelledby="t d">')
     a('<title id="t">jitNN architecture</title>')
     a('<desc id="d">User code and integrations on top of jitnn-nn, the importers and the DJL engine; the core API (Tensor, F, Grad); '
-      'the engine that records operators lazily, rewrites and compiles each step into one TornadoVM task graph and replays it; '
+      'the runtime and configuration; the engine that records operators lazily, rewrites and compiles each step into one TornadoVM task graph '
+      'and replays it; '
       'operators, kernels and vendor libraries; TornadoVM compiling to CUDA, OpenCL and Metal; and the hardware. A CPU backend runs without TornadoVM.</desc>')
     a(f'<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
       f'<path d="M0,0 L10,5 L0,10 z" fill="{t["line"]}"/></marker></defs>')
@@ -80,8 +79,8 @@ def svg(t):
     band(y, 112, "MODULES")
     mods = [("Neural networks", "jitnn-nn", ["Layers and models, optimisers", "Data loaders, tokenizers", "Classical machine learning"]),
             ("Importers", "jitnn-onnx, -tf", ["ONNX import and export", "TensorFlow via the ONNX", "operators; graph rewrites"]),
-            ("Quantised weights", "jitnn-gguf", ["GGUF reader", "Q4_0 to Q8_0 blocks", "jitnn-llm on top"]),
-            ("DJL engine", "jitnn-djl", ["NDArray on Tensor", "registered by service", "loader, rank 0"])]
+            ("Quantised weights", "jitnn-gguf", ["GGUF reader", "Q4_0, Q4_1, Q8_0, K-quants", "jitnn-llm on top"]),
+            ("DJL engine", "jitnn-djl", ["NDArray on Tensor", "the default DJL engine when", "on the class path"])]
     for i, (ti, code, li) in enumerate(mods):
         box(L + i * (gw + 12), y + 10, gw, 92, ti, li, code)
 
@@ -90,7 +89,7 @@ def svg(t):
     band(y, 84, "CORE API")
     box(L, y + 10, CW, 64, "jitnn-core", [
         "Tensor, F (operators), Grad (autograd), Autocast (FP16/BF16), Linalg, Fft, SparseMatrix, CustomOp",
-        "dist: collectives and data-parallel training over NCCL  ·  io: safetensors and state dicts"], "ai.beestream.jitnn")
+        "JitnnRuntime, JitnnConfig  ·  dist: data-parallel training over NCCL or the host  ·  io: safetensors, state dicts"], "ai.beestream.jitnn")
 
     # 4. engine
     y = 336
@@ -103,8 +102,8 @@ def svg(t):
         box(x, y + 12, sw, 74, ti, li, fill=t["accentbg"], stroke=t["accent"])
         if i < 3:
             arrow(x + sw + 3, y + 49, x + sw + 23, y + 49)
-    text(L + CW / 2, y + 108, "at each sync point (item(), toFloatArray(), a loss read): the steps run once, later steps replay", 12, t["sub"], 400, "middle")
-    ex = [("TornadoExecutor", ["GPUs through TornadoVM; autotuning", "and per-device tuning tables"]),
+    text(L + CW / 2, y + 108, "at each sync point (item(), toFloatArray()): the first step of a shape compiles, later steps replay it", 12, t["sub"], 400, "middle")
+    ex = [("TornadoExecutor", ["GPUs through TornadoVM: plan cache,", "compiler, runner; autotuning per device"]),
           ("CpuExecutor", ["Java Vector API kernels; oneDNN,", "BLAS, BNNS when installed"]),
           ("ReferenceExecutor", ["plain Java, FP64 accumulation:", "the reference the tests check against"])]
     ew = (CW - 2 * 12) / 3
@@ -121,9 +120,9 @@ def svg(t):
 
     # 6. TornadoVM
     y = 680
-    a(f'<rect x="20" y="{y}" width="{W - 40}" height="70" rx="10" fill="{t["tvm"]}"/>')
+    a(f'<rect x="20" y="{y}" width="{W - 40}" height="70" rx="10" fill="{t["tvm"]}" stroke="{t["tvmstroke"]}" stroke-width="1.2"/>')
     text(W / 2, y + 30, "TornadoVM", 17, t["tvmink"], 700, "middle")
-    text(W / 2, y + 52, "JIT-compiles the Java kernels for the device: CUDA C (NVRTC), OpenCL C, Metal Shading Language", 12.5, t["tvmsub"] if t is THEMES["dark"] else "#B9C7D4", 400, "middle")
+    text(W / 2, y + 52, "JIT-compiles the Java kernels for the device: CUDA C (NVRTC), OpenCL C, Metal Shading Language", 12.5, t["tvmsub"], 400, "middle")
 
     # 7. hardware
     y = 764
@@ -133,5 +132,4 @@ def svg(t):
         box(L + i * (gw + 12), y + 10, gw, 56, ti, li)
     return "\n".join(o) + "\n</svg>\n"
 
-for name, t in THEMES.items():
-    open(f"{out_dir}/architecture-{name}.svg", "w").write(svg(t))
+open(f"{out_dir}/architecture.svg", "w").write(svg(THEME))

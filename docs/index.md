@@ -27,8 +27,8 @@ are plain Java; every operator is a Java kernel that TornadoVM JIT-compiles for 
 
 ## Architecture
 
-```{image} images/architecture-light.svg
-:alt: jitNN's layers: your code; jitnn-nn, the importers and the DJL engine; the core API; the engine that records, rewrites, compiles and replays each step; operators, kernels and vendor libraries; TornadoVM; the hardware
+```{image} images/architecture.svg
+:alt: jitNN's layers: your code; jitnn-nn, the importers and the DJL engine; the core API and runtime; the engine that records, rewrites, compiles and replays each step; operators, kernels and vendor libraries; TornadoVM; the hardware
 :width: 100%
 ```
 
