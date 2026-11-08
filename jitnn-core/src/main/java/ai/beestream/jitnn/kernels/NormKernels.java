@@ -163,7 +163,7 @@ public final class NormKernels {
 
 
     // The reductions are written out in each kernel: Metal cannot pass a local array to a helper
-    // method (WORKAROUND J12).
+    // method (WORKAROUND(TornadoVM)).
 
     /**
      * y = (x - mean) * rstd * w + b per row (mean = 0 for RMSNorm); also stores the row mean and

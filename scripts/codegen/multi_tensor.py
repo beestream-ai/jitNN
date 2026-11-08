@@ -202,7 +202,7 @@ kernel("nadam", "NAdam over 4 parameters; hyper = [lr, beta1, beta2, eps, weight
        ["p", "g", "m", "v"], lambda k: f"nadamAt(p{k}, g{k}, m{k}, v{k}, hyper, factor, i - s{k})")
 
 # gradient statistics: work-group k reduces gradient k (reductions written out: Metal cannot pass a
-# local array to a helper method, J12)
+# local array to a helper method)
 params = ", ".join(f"FloatArray g{k}" for k in range(STATS))
 w("    /**")
 w("     * Sum of squares and a NaN/infinity flag of up to 8 gradients, each split into {@code chunks}")

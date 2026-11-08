@@ -298,7 +298,7 @@ final class TornadoExecutor {
                 key.append('>').append(slotOf.get(t.storage())).append(t.shape());
             }
         }
-        // Buffer reuse (N4): an internal intermediate (a backward-pass temporary no user code can
+        // Buffer reuse: an internal intermediate (a backward-pass temporary no user code can
         // hold) that a later node consumes and that was not requested at this sync hands its
         // buffer on once its last reader has run.
         int[] lastUse = new int[slots.size()];
@@ -385,7 +385,7 @@ final class TornadoExecutor {
         try {
             execute(ct, slots);
         } catch (uk.ac.manchester.tornado.api.exceptions.TornadoOutOfMemoryException oom) {
-            // Device memory is shared by every cached plan. WORKAROUND(TornadoVM J17): a plan
+            // Device memory is shared by every cached plan. WORKAROUND(TornadoVM): a plan
             // whose execution failed is not safe to execute again, so it is dropped, the other
             // plans are closed (persistent storages saved to the host first), and the trace is
             // compiled afresh.
@@ -858,7 +858,7 @@ final class TornadoExecutor {
             arrayKind.put(arrays[i], kinds[i]);
         }
 
-        // WORKAROUND(TornadoVM J9): a task graph holds at most 256 tasks (and 8 KiB of
+        // WORKAROUND(TornadoVM): a task graph holds at most 256 tasks (and 8 KiB of
         // high-level bytecode), so long traces are cut at node boundaries into a chain of graphs
         // in one plan. Each array belongs to the first graph that uses it, which uploads and
         // persists it; later graphs consume it from the device.

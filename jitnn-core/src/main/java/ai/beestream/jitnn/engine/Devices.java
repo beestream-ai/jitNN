@@ -84,7 +84,7 @@ final class Devices {
     /**
      * Pins a task graph to the device before its tasks are added.
      *
-     * <p>WORKAROUND(TornadoVM J10): a task's sketch is built when the task is added, for the
+     * <p>WORKAROUND(TornadoVM): a task's sketch is built when the task is added, for the
      * graph's device at that moment (the default device unless {@code <graph>.device} is set);
      * {@code withDevice} on the plan comes too late for backend-specific intrinsics such as the
      * Metal simdgroup matrix calls, which fail to sketch on OpenCL.

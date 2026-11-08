@@ -262,7 +262,7 @@ public final class SoftmaxKernels {
         }
     }
 
-    // WORKAROUND(TornadoVM J12): the row statistics are written out in each kernel. Passing the
+    // WORKAROUND(TornadoVM): the row statistics are written out in each kernel. Passing the
     // local-memory array to a shared helper method fails to sketch on Metal ("-1|LocalArray").
 
     /** Fused cross-entropy, per row: loss[r] = logsumexp(x[r]) - x[r, label[r]]. One work-group per row. */

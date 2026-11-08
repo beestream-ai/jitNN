@@ -11,7 +11,7 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
  * on every backend); decoding is jitNN's own, building the power of two from its exponent bits.
  * The GEMMs decode their FP8 operands while loading tiles into local memory and accumulate in FP32.
  *
- * <p>WORKAROUND(TornadoVM J23): the OpenCL backend emits {@code Float.NaN} as {@code NaNF}, which
+ * <p>WORKAROUND(TornadoVM): the OpenCL backend emits {@code Float.NaN} as {@code NaNF}, which
  * does not compile (scalar kernel arguments are specialised into literals too), so NaN and
  * infinity reach the decoder through a two-element array, special = [NaN, +infinity].
  */

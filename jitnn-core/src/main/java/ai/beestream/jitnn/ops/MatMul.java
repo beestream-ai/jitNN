@@ -504,7 +504,7 @@ public final class MatMul implements Op {
             }
             return;
         }
-        // Every kernel below takes the bias argument; it is only created when one does (J15).
+        // Every kernel below takes the bias argument; it is only created when one does.
         FloatArray biasArg = bias != null ? bias : e.dummyF32();
         int slices = auto || variant.equals("splitK") ? forwardSlices(m, n, k) : 1;
         if (slices > 1) {

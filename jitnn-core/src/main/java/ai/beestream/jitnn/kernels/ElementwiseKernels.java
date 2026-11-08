@@ -170,7 +170,7 @@ public final class ElementwiseKernels {
     public static final int LOG1P = 45;
     public static final int EXPM1 = 46;
     public static final int LOGICAL_NOT = 47;
-    // NaN-aware: tested by bit pattern, as TornadoVM folds x != x (J19)
+    // NaN-aware: tested by bit pattern, as TornadoVM folds x != x
     public static final int IS_NAN = 48;
     public static final int IS_INF = 49;
     public static final int IS_FINITE = 50;
@@ -196,7 +196,7 @@ public final class ElementwiseKernels {
 
     /**
      * Complementary error function, Numerical Recipes' erfcc: Chebyshev fit with a fractional
-     * error below 1.2e-7 everywhere. WORKAROUND(J7): TornadoMath has no erf/erfc.
+     * error below 1.2e-7 everywhere. WORKAROUND(TornadoVM): TornadoMath has no erf/erfc.
      */
     public static float erfc(float x) {
         float z = TornadoMath.abs(x);
@@ -208,7 +208,7 @@ public final class ElementwiseKernels {
     }
 
     /**
-     * Overflow-free tanh, through exp(-2|x|) in (0, 1]. WORKAROUND(J18): Metal's tanh returns NaN
+     * Overflow-free tanh, through exp(-2|x|) in (0, 1]. WORKAROUND(TornadoVM): Metal's tanh returns NaN
      * for large arguments (e.g. 66).
      */
     /** GELU with the tanh approximation, 0.5 x (1 + tanh(sqrt(2 / pi) (x + 0.044715 x^3))). */
@@ -235,7 +235,7 @@ public final class ElementwiseKernels {
     }
 
     /**
-     * log(1 + z) for z in [0, 1], accurate for small z. WORKAROUND(J7): TornadoMath has no log1p;
+     * log(1 + z) for z in [0, 1], accurate for small z. WORKAROUND(TornadoVM): TornadoMath has no log1p;
      * the rounding error of u = 1 + z is cancelled by z / (u - 1) (Goldberg's trick).
      */
     public static float log1p(float z) {
@@ -246,7 +246,7 @@ public final class ElementwiseKernels {
 
     /**
      * exp(x) - 1, accurate near 0 (Kahan's trick: the rounding of u = exp(x) cancels in
-     * (u - 1) x / log(u)). WORKAROUND(J7): TornadoMath has no expm1.
+     * (u - 1) x / log(u)). WORKAROUND(TornadoVM): TornadoMath has no expm1.
      */
     public static float expm1(float x) {
         float u = TornadoMath.exp(x);
