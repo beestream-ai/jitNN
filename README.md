@@ -68,7 +68,7 @@ The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERAT
 | Module | Contents |
 |---|---|
 | `jitnn-core` | tensors, autograd, the execution engine, every operator and kernel, `Linalg`, `Fft`, `SparseMatrix`, FP8, collectives |
-| `jitnn-nn` | modules and layers, optimisers, the models, embedding models and text sampling, the classical estimators (`org.beehive.jitnn.ml`), data-parallel training |
+| `jitnn-nn` | modules and layers, optimisers, the models, embedding models and text sampling, the classical estimators (`ai.beestream.jitnn.ml`), data-parallel training |
 | `jitnn-onnx` | the ONNX importer: `OnnxSession` |
 | `jitnn-gguf` | the GGUF reader: `GgufFile` |
 | `jitnn-llm` | optional (`-Pllm`): text generation from GGUF language models through jitllm, `Llm` |

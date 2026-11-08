@@ -1,0 +1,44 @@
+package ai.beestream.jitnn.nn;
+
+import ai.beestream.jitnn.SparseMatrix;
+import ai.beestream.jitnn.Tensor;
+
+/**
+ * Graph convolution (Kipf and Welling, 2017), PyTorch Geometric's GCNConv: Â (x W^T) + b, with Â
+ * the normalised adjacency {@link SparseMatrix#gcn} of the graph, given with each call since one
+ * layer serves many graphs. x [nodes, in] gives [nodes, out].
+ */
+public final class GraphConv extends Module {
+
+    private final Linear lin;
+    private final Tensor bias;
+    private SparseMatrix.Valued graph;
+
+    public GraphConv(int in, int out, long seed) {
+        this.lin = child(new Linear(in, out, false, seed));
+        this.bias = parameter(Tensor.zeros(out));
+    }
+
+    /** Sets the graph the next forward calls use. */
+    public GraphConv graph(SparseMatrix.Valued adjacency) {
+        this.graph = adjacency;
+        return this;
+    }
+
+    public Tensor forward(Tensor x, SparseMatrix.Valued adjacency) {
+        return adjacency.mm(lin.forward(x)).add(bias);
+    }
+
+    @Override
+    public Tensor forward(Tensor x) {
+        if (graph == null) {
+            throw new IllegalStateException("GraphConv: set the graph with graph(...) or call forward(x, adjacency)");
+        }
+        return forward(x, graph);
+    }
+
+    /** The weight [out, in]. */
+    public Tensor weight() {
+        return lin.weight();
+    }
+}

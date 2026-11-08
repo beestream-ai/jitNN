@@ -18,7 +18,7 @@ QP, KP, SP = D + 1, D + 1, BK + 1
 
 o = []
 w = o.append
-w("package org.beehive.jitnn.kernels;")
+w("package ai.beestream.jitnn.kernels;")
 w("")
 w("import uk.ac.manchester.tornado.api.KernelContext;")
 w("import uk.ac.manchester.tornado.api.math.TornadoMath;")

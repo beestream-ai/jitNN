@@ -1,6 +1,6 @@
 """Channels-last Winograd F(4x4, 3x3) transforms, derived from the NCHW ones in ConvKernels.java.
 
-usage: python3 scripts/codegen/winograd_channels_last.py > jitnn-core/src/main/java/org/beehive/jitnn/kernels/ConvChannelsLastKernels.java
+usage: python3 scripts/codegen/winograd_channels_last.py > jitnn-core/src/main/java/ai/beestream/jitnn/kernels/ConvChannelsLastKernels.java
 
 The input transform reads x [N, H, W, C] (FP32 or FP16) into v [36, tiles, C], optionally applying
 the producing convolution's bias and ReLU to in-bounds values; the weight transform
@@ -13,7 +13,7 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, "..", "..", "jitnn-core", "src", "main", "java", "org", "beehive", "jitnn", "kernels", "ConvKernels.java")
+SRC = os.path.join(HERE, "..", "..", "jitnn-core", "src", "main", "java", "ai", "beestream", "jitnn", "kernels", "ConvKernels.java")
 
 
 def method(text, name):
@@ -75,7 +75,7 @@ def main():
     inp = method(text, "winograd4Input")
     outp = method(text, "winograd4Output")
     wgt = method(text, "winograd4Weight")
-    print("package org.beehive.jitnn.kernels;")
+    print("package ai.beestream.jitnn.kernels;")
     print()
     print("import uk.ac.manchester.tornado.api.KernelContext;")
     print("import uk.ac.manchester.tornado.api.math.TornadoMath;")

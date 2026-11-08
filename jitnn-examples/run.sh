@@ -8,7 +8,7 @@ set -e
 if [ $# -lt 1 ]; then
     sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
     echo "examples:"
-    ls "$(dirname "$0")"/src/main/java/org/beehive/jitnn/examples/*.java "$(dirname "$0")"/src/main/java/org/beehive/jitnn/examples/djl/*.java \
+    ls "$(dirname "$0")"/src/main/java/ai/beestream/jitnn/examples/*.java "$(dirname "$0")"/src/main/java/ai/beestream/jitnn/examples/djl/*.java \
         | sed -e 's#.*/examples/##' -e 's#\.java$##' -e 's#/#.#' | grep -v '^Examples$' | sed 's/^/  /'
     exit 1
 fi
@@ -22,4 +22,4 @@ example=$1
 shift
 exec java @"$TORNADOVM_HOME"/tornado-argfile --add-modules jdk.incubator.vector \
     -Dtornado.device.memory=${JITNN_DEVICE_MEMORY:-12GB} ${JAVA_OPTS:-} \
-    -cp "$here/target/classes:$(cat "$cpfile")" org.beehive.jitnn.examples."$example" "$@"
+    -cp "$here/target/classes:$(cat "$cpfile")" ai.beestream.jitnn.examples."$example" "$@"

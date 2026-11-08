@@ -38,7 +38,7 @@ def ind(n):
     return "    " * n
 
 
-w("package org.beehive.jitnn.kernels;")
+w("package ai.beestream.jitnn.kernels;")
 w("")
 w("import uk.ac.manchester.tornado.api.KernelContext;")
 w("import uk.ac.manchester.tornado.api.enums.MMAShape;")

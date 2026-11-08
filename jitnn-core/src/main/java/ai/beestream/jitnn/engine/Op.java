@@ -1,0 +1,45 @@
+package ai.beestream.jitnn.engine;
+
+import ai.beestream.jitnn.Tensor;
+
+/**
+ * An operator: how to run it on a device (KernelContext kernels), how to run it on the host
+ * (the reference used by tests), and how to differentiate it (in terms of other operators).
+ */
+public interface Op {
+
+    /** A stable name; it is part of the compiled-trace cache key. */
+    String name();
+
+    /**
+     * True when the operator takes FP16 tensors in half-precision inference
+     * ({@code Autocast.enableHalf}); other operators get FP32 copies of FP16 inputs.
+     */
+    default boolean acceptsHalf() {
+        return false;
+    }
+
+    /** Adds the device tasks for {@code node} to the graph being built. */
+    void emit(Emitter e, Node node);
+
+    /** Computes {@code node} on the host. Inputs are host-valid; output arrays are allocated. */
+    void reference(Node node);
+
+    /**
+     * Computes {@code node} with the CPU backend's kernels: inputs are host-valid and output arrays
+     * allocated, but they may hold old contents, so the kernel writes every element. Returns false,
+     * before writing anything, when the operator has no kernel for these operands; the CPU backend
+     * then zeroes the outputs and runs {@link #reference}.
+     */
+    default boolean cpu(Node node) {
+        return false;
+    }
+
+    /**
+     * Gradients with respect to each input, given the gradient of the (first) output. Entries may
+     * be null for inputs that need no gradient. Called with gradient tracking disabled.
+     */
+    default Tensor[] backward(Node node, Tensor gradOut) {
+        throw new UnsupportedOperationException("no gradient for " + name());
+    }
+}

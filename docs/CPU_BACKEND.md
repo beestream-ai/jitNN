@@ -127,7 +127,7 @@ default boolean cpu(Node node) {
   The BNNS filter API is deprecated since macOS 15 in favour of BNNS graphs (which need a compiled
   Core ML model) but still runs; its backward pass needs filters that read the weights in place.
 - **Code split.** Operators decode their own `iattr` layout (the constants are private to each
-  op class). They then call shared primitives in a new package `org.beehive.jitnn.cpu`. Those
+  op class). They then call shared primitives in a new package `ai.beestream.jitnn.cpu`. Those
   primitives take only segments, offsets and sizes. That package is the only code that imports
   `jdk.incubator.vector`.
 

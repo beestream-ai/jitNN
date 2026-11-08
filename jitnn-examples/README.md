@@ -35,7 +35,7 @@ The results are from one NVIDIA A10 with the default arguments.
 | `MnistMlp` | DL4J MLPMnistTwoLayerExample, Deep Netts' MNIST | a 784-500-100-10 perceptron on handwritten digits, Adam | 97.4% test accuracy in 3 epochs; 0.3 s per epoch after the first |
 | `MnistCnn` | PyTorch's MNIST example | two convolutions, max pooling and dropout, AdaDelta (lr 1.0) with the rate times 0.7 every epoch, 14 epochs | 99.2% test accuracy; 1.9 s per epoch (1.4 s with TF32) |
 | `LeNetMnist` | DL4J LeNetMNIST | two convolutions with max pooling, SGD with Nesterov momentum | 99.0% in 3 epochs, 0.8 s per epoch |
-| `IrisClassifier` | DL4J IrisClassifier, Deep Netts' iris | a 4-16-3 network against a random forest and logistic regression from `org.beehive.jitnn.ml` | 30 of 30 test flowers for all three |
+| `IrisClassifier` | DL4J IrisClassifier, Deep Netts' iris | a 4-16-3 network against a random forest and logistic regression from `ai.beestream.jitnn.ml` | 30 of 30 test flowers for all three |
 | `Cifar10ResNet` | DJL TrainResnetWithCifar10 | ResNet-18 with random crops and flips, batches assembled by four threads | 66.3% after 2 epochs, 2,100 images/s |
 | `CharLstmShakespeare` | DL4J LSTMCharModellingExample | a two-layer LSTM over the bytes of Tiny Shakespeare, then samples text one character at a time with its state | Shakespeare-shaped text after 2,000 steps (25 s) |
 | `NanoGptShakespeare` | Andrej Karpathy's nanoGPT (shakespeare_char) | nanoGPT's settings: a 6-layer, 6-head, 384-wide GPT with 256 tokens of context, AdamW with warm-up and cosine decay over 5,000 steps, then a new scene | validation loss 1.69 after 5,000 steps (lowest 1.47 at step 2,000); 915 s with TF32 |

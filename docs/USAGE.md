@@ -632,7 +632,7 @@ takes document ids as well, and `GloVe.loss(rows, cols, counts)` takes batches o
 
 ## Classical machine learning
 
-The estimators in `org.beehive.jitnn.ml` follow scikit-learn: construct, `fit`, then `predict`.
+The estimators in `ai.beestream.jitnn.ml` follow scikit-learn: construct, `fit`, then `predict`.
 Features are FP32 tensors [samples, features] and class labels `int[]`:
 
 ```java

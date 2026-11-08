@@ -3,13 +3,13 @@ FlashAttention-2 forward, reading q, k, v and writing o in FP16 (HalfFloatArray)
 product, the online softmax and the accumulators stay FP32; and the backward kernels reading q, k,
 v and o in FP16 (FP16 training), with FP32 gradients dO in and dQ, dK, dV out. Prints the Java class.
 
-    python scripts/codegen/flash_tiled_half.py > jitnn-core/src/main/java/org/beehive/jitnn/kernels/FlashTiled64Half.java
+    python scripts/codegen/flash_tiled_half.py > jitnn-core/src/main/java/ai/beestream/jitnn/kernels/FlashTiled64Half.java
 """
 import re
 import sys
 from pathlib import Path
 
-src = Path(__file__).resolve().parents[2] / "jitnn-core/src/main/java/org/beehive/jitnn/kernels/FlashTiled64.java"
+src = Path(__file__).resolve().parents[2] / "jitnn-core/src/main/java/ai/beestream/jitnn/kernels/FlashTiled64.java"
 text = src.read_text()
 start = text.index("    public static void forward(")
 end = text.index("    public static void backwardKV(")
@@ -38,7 +38,7 @@ def backward(name, nxt):
 
 body = body + "\n\n" + backward("backwardKV", "    public static void backwardQ(") + "\n\n" + backward("backwardQ", None)
 out = sys.stdout
-out.write("""package org.beehive.jitnn.kernels;
+out.write("""package ai.beestream.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;
 import uk.ac.manchester.tornado.api.math.TornadoMath;

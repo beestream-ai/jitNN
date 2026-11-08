@@ -34,7 +34,7 @@ DELTA = """    /** delta[r] = sum over c of dO[r, c] * O[r, c] for the n = Z * T
     }
 """ if D == 64 else ""
 
-print(f"""package org.beehive.jitnn.kernels;
+print(f"""package ai.beestream.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;
 import uk.ac.manchester.tornado.api.math.TornadoMath;

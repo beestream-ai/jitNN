@@ -1,7 +1,7 @@
 # Operators
 
 Every operator has a forward kernel, a gradient (a backward kernel or a composition of operators),
-and a double-precision host reference. Kernels live in `jitnn-core/src/main/java/org/beehive/jitnn/kernels`
+and a double-precision host reference. Kernels live in `jitnn-core/src/main/java/ai/beestream/jitnn/kernels`
 and are written with TornadoVM's `KernelContext` API, so every operator runs on CUDA, OpenCL and
 Metal.
 
@@ -157,7 +157,7 @@ and loss scaling inside its update.
 
 ## Linear algebra
 
-`org.beehive.jitnn.Linalg`, after `torch.linalg`, on matrices and batches of matrices
+`ai.beestream.jitnn.Linalg`, after `torch.linalg`, on matrices and batches of matrices
 [..., rows, cols]:
 
 | Function | Result |
@@ -181,7 +181,7 @@ complex numbers.
 
 ## Fourier transforms
 
-`org.beehive.jitnn.Fft`, after `torch.fft`: `fft`, `ifft`, `rfft`, `irfft`, `fft2`, `ifft2`,
+`ai.beestream.jitnn.Fft`, after `torch.fft`: `fft`, `ifft`, `rfft`, `irfft`, `fft2`, `ifft2`,
 `rfft2`, and the short-time transforms `stft` and `istft`. A complex tensor is a real tensor with
 a trailing axis of 2 (real, imaginary), as `torch.view_as_real` gives it; `dim` counts the complex
 axes only. `Fft.Norm` is `BACKWARD`, `ORTHO` or `FORWARD`, as torch's `norm`. Every transform is
@@ -220,7 +220,7 @@ unigram distribution raised to 3/4, and distance-weighted co-occurrence counts, 
 
 ## Classical machine learning
 
-`org.beehive.jitnn.ml` (in `jitnn-nn`), after scikit-learn. Features are FP32 tensors [samples,
+`ai.beestream.jitnn.ml` (in `jitnn-nn`), after scikit-learn. Features are FP32 tensors [samples,
 features]; class labels are `int[]`.
 
 | Estimator | Method |
@@ -271,7 +271,7 @@ instructions are not used.
 
 ## Collectives and data-parallel training
 
-`org.beehive.jitnn.dist`, after `torch.distributed`:
+`ai.beestream.jitnn.dist`, after `torch.distributed`:
 
 | Class | Role |
 |---|---|

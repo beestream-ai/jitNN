@@ -11,7 +11,7 @@ STATS = 8
 
 o = []
 w = o.append
-w("""package org.beehive.jitnn.kernels;
+w("""package ai.beestream.jitnn.kernels;
 
 import uk.ac.manchester.tornado.api.KernelContext;
 import uk.ac.manchester.tornado.api.math.TornadoMath;

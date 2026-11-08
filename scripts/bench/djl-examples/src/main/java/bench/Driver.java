@@ -98,7 +98,7 @@ public final class Driver {
     private static void profile() throws Exception {
         if (Boolean.getBoolean("jitnn.profile")) {
             // jitNN's device time per operator task over the whole run (jitNN engine only)
-            Class<?> engine = Class.forName("org.beehive.jitnn.engine.Engine");
+            Class<?> engine = Class.forName("ai.beestream.jitnn.engine.Engine");
             @SuppressWarnings("unchecked")
             java.util.Map<String, long[]> k = (java.util.Map<String, long[]>) engine.getMethod("kernelBreakdown").invoke(null);
             long total = k.values().stream().mapToLong(v -> v[1]).sum();
