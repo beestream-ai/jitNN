@@ -81,6 +81,7 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 | `scripts/sklearn` | scikit-learn references for the classical machine-learning estimators |
 | `scripts/onnx` | ONNX goldens (ONNX Runtime outputs) and the ONNX Runtime side of the inference comparison |
 | `scripts/tf` | TensorFlow goldens (SavedModels, a frozen GraphDef and TensorFlow's outputs) |
+| `scripts/docs` | `architecture.py`, which draws the architecture diagram (`docs/images/architecture-light.svg`, `-dark.svg`) |
 
 The benchmarks, their drivers and results are in [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking).
 

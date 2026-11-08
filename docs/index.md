@@ -33,6 +33,22 @@ Fourier transforms, sparse and graph operators, classical machine learning and a
   buffers are reused inside a compiled step (-43% memory on a ResNet-18 training step). On CUDA the
   element-wise, reduction and softmax kernels reach 83-88% of peak memory bandwidth.
 
+## Architecture
+
+```{image} images/architecture-light.svg
+:alt: jitNN's layers, from your code down to the hardware
+:width: 100%
+```
+
+Programs, imported models and DJL code all end up as calls on `Tensor` and `F`. The engine records
+those calls instead of running them. At a sync point it rewrites the recorded step (fusing
+epilogues, folding BatchNorm, reusing buffers), compiles it into one TornadoVM task graph and keeps
+that graph, keyed by the step's structure; every later step with the same structure replays it.
+Each operator brings its forward and backward kernels, written in Java with TornadoVM's
+`KernelContext` API, or calls a vendor library where one is enabled; TornadoVM JIT-compiles the
+kernels for the GPU. Without TornadoVM the CPU backend runs the same operators with the Java
+Vector API. [Development](DEVELOPMENT.md) walks through the code.
+
 ## What is in it
 
 | Area | Contents |

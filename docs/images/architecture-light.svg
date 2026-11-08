@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 860" width="1000" height="860" role="img" aria-labelledby="t d">
+<title id="t">jitNN architecture</title>
+<desc id="d">User code and integrations on top of jitnn-nn, the importers and the DJL engine; the core API (Tensor, F, Grad); the engine that records operators lazily, rewrites and compiles each step into one TornadoVM task graph and replays it; operators, kernels and vendor libraries; TornadoVM compiling to CUDA, OpenCL and Metal; and the hardware. A CPU backend runs without TornadoVM.</desc>
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8A99A8"/></marker></defs>
+<rect width="1000" height="860" rx="14" fill="#FFFFFF"/>
+<rect x="20" y="20" width="960" height="78" rx="10" fill="#F3F6F9"/>
+<text x="34" y="59.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#4A5B6C" letter-spacing="1.2" text-anchor="middle" transform="rotate(-90 34 59.0)">YOUR CODE</text>
+<rect x="52.0" y="30" width="220.0" height="58" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="64.0" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">Java applications</text>
+<text x="64.0" y="71" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">Tensor and nn APIs</text>
+<rect x="284.0" y="30" width="220.0" height="58" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="296.0" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">DJL programs</text>
+<text x="296.0" y="71" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">unchanged, jitNN as engine</text>
+<rect x="516.0" y="30" width="220.0" height="58" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="528.0" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">Pretrained models</text>
+<text x="528.0" y="71" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">ONNX, TensorFlow, GGUF, HF</text>
+<rect x="748.0" y="30" width="220.0" height="58" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="760.0" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">LLM serving</text>
+<text x="760.0" y="71" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">through jitllm</text>
+<rect x="20" y="112" width="960" height="112" rx="10" fill="#F3F6F9"/>
+<text x="34" y="168.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#4A5B6C" letter-spacing="1.2" text-anchor="middle" transform="rotate(-90 34 168.0)">MODULES</text>
+<rect x="52.0" y="122" width="220.0" height="92" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="64.0" y="144" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">Neural networks</text>
+<text x="260.0" y="144" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#4A5B6C" text-anchor="end">jitnn-nn</text>
+<text x="64.0" y="163" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">Layers and models, optimisers</text>
+<text x="64.0" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">Data loaders, tokenizers</text>
+<text x="64.0" y="197" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">Classical machine learning</text>
+<rect x="284.0" y="122" width="220.0" height="92" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="296.0" y="144" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">Importers</text>
+<text x="492.0" y="144" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#4A5B6C" text-anchor="end">jitnn-onnx, -tf</text>
+<text x="296.0" y="163" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">ONNX import and export</text>
+<text x="296.0" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">TensorFlow via the ONNX</text>
+<text x="296.0" y="197" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">operators; graph rewrites</text>
+<rect x="516.0" y="122" width="220.0" height="92" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="528.0" y="144" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">Quantised weights</text>
+<text x="724.0" y="144" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#4A5B6C" text-anchor="end">jitnn-gguf</text>
+<text x="528.0" y="163" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">GGUF reader</text>
+<text x="528.0" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">Q4_0 to Q8_0 blocks</text>
+<text x="528.0" y="197" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">jitnn-llm on top</text>
+<rect x="748.0" y="122" width="220.0" height="92" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="760.0" y="144" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">DJL engine</text>
+<text x="956.0" y="144" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#4A5B6C" text-anchor="end">jitnn-djl</text>
+<text x="760.0" y="163" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">NDArray on Tensor</text>
+<text x="760.0" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">registered by service</text>
+<text x="760.0" y="197" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">loader, rank 0</text>
+<rect x="20" y="238" width="960" height="84" rx="10" fill="#F3F6F9"/>
+<text x="34" y="280.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#4A5B6C" letter-spacing="1.2" text-anchor="middle" transform="rotate(-90 34 280.0)">CORE API</text>
+<rect x="52" y="248" width="916" height="64" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="64" y="270" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">jitnn-core</text>
+<text x="956" y="270" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#4A5B6C" text-anchor="end">ai.beestream.jitnn</text>
+<text x="64" y="289" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">Tensor, F (operators), Grad (autograd), Autocast (FP16/BF16), Linalg, Fft, SparseMatrix, CustomOp</text>
+<text x="64" y="306" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">dist: collectives and data-parallel training over NCCL  ·  io: safetensors and state dicts</text>
+<rect x="20" y="336" width="960" height="204" rx="10" fill="#F3F6F9"/>
+<text x="34" y="438.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#4A5B6C" letter-spacing="1.2" text-anchor="middle" transform="rotate(-90 34 438.0)">ENGINE</text>
+<rect x="52.0" y="348" width="209.5" height="74" rx="8" fill="#E6F7F1" stroke="#14A884" stroke-width="1.2"/>
+<text x="64.0" y="370" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">1  Record</text>
+<text x="64.0" y="389" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">operators lazily,</text>
+<text x="64.0" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">per thread</text>
+<line x1="264.5" y1="385" x2="284.5" y2="385" stroke="#8A99A8" stroke-width="1.4" marker-end="url(#arr)"/>
+<rect x="287.5" y="348" width="209.5" height="74" rx="8" fill="#E6F7F1" stroke="#14A884" stroke-width="1.2"/>
+<text x="299.5" y="370" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">2  Rewrite</text>
+<text x="299.5" y="389" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">fuse epilogues, fold</text>
+<text x="299.5" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">BatchNorm, reuse buffers</text>
+<line x1="500.0" y1="385" x2="520.0" y2="385" stroke="#8A99A8" stroke-width="1.4" marker-end="url(#arr)"/>
+<rect x="523.0" y="348" width="209.5" height="74" rx="8" fill="#E6F7F1" stroke="#14A884" stroke-width="1.2"/>
+<text x="535.0" y="370" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">3  Compile</text>
+<text x="535.0" y="389" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">one task graph per step,</text>
+<text x="535.0" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">cached by structure</text>
+<line x1="735.5" y1="385" x2="755.5" y2="385" stroke="#8A99A8" stroke-width="1.4" marker-end="url(#arr)"/>
+<rect x="758.5" y="348" width="209.5" height="74" rx="8" fill="#E6F7F1" stroke="#14A884" stroke-width="1.2"/>
+<text x="770.5" y="370" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">4  Replay</text>
+<text x="770.5" y="389" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">rebind inputs; CUDA</text>
+<text x="770.5" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">graphs; weights stay</text>
+<text x="510.0" y="444" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="middle">at each sync point (item(), toFloatArray(), a loss read): the steps run once, later steps replay</text>
+<rect x="52.0" y="458" width="297.3333333333333" height="72" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="64.0" y="480" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">TornadoExecutor</text>
+<text x="64.0" y="499" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">GPUs through TornadoVM; autotuning</text>
+<text x="64.0" y="516" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">and per-device tuning tables</text>
+<rect x="361.3333333333333" y="458" width="297.3333333333333" height="72" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="373.3333333333333" y="480" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">CpuExecutor</text>
+<text x="373.3333333333333" y="499" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">Java Vector API kernels; oneDNN,</text>
+<text x="373.3333333333333" y="516" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">BLAS, BNNS when installed</text>
+<rect x="670.6666666666666" y="458" width="297.3333333333333" height="72" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="682.6666666666666" y="480" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">ReferenceExecutor</text>
+<text x="682.6666666666666" y="499" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">plain Java, FP64 accumulation:</text>
+<text x="682.6666666666666" y="516" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">the reference the tests check against</text>
+<rect x="20" y="554" width="960" height="112" rx="10" fill="#F3F6F9"/>
+<text x="34" y="610.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#4A5B6C" letter-spacing="1.2" text-anchor="middle" transform="rotate(-90 34 610.0)">OPERATORS</text>
+<rect x="52" y="564" width="297.3333333333333" height="92" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="64" y="586" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">Operators</text>
+<text x="337.3333333333333" y="586" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#4A5B6C" text-anchor="end">ops</text>
+<text x="64" y="605" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">forward and backward of every</text>
+<text x="64" y="622" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">operator; picks a kernel variant</text>
+<text x="64" y="639" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">or a vendor library</text>
+<rect x="361.3333333333333" y="564" width="297.3333333333333" height="92" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="373.3333333333333" y="586" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">Kernels</text>
+<text x="646.6666666666666" y="586" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#4A5B6C" text-anchor="end">kernels</text>
+<text x="373.3333333333333" y="605" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">KernelContext kernels: GEMM,</text>
+<text x="373.3333333333333" y="622" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">convolution, attention, norms, ...;</text>
+<text x="373.3333333333333" y="639" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">tensor-core and simdgroup variants</text>
+<rect x="670.6666666666666" y="564" width="297.3333333333333" height="92" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="682.6666666666666" y="586" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">Vendor libraries</text>
+<text x="956.0" y="586" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#4A5B6C" text-anchor="end">natives</text>
+<text x="682.6666666666666" y="605" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">cuBLAS, cuDNN, cuFFT, cuSPARSE,</text>
+<text x="682.6666666666666" y="622" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">CUTLASS, NCCL, MLX as TornadoVM</text>
+<text x="682.6666666666666" y="639" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">library tasks (optional)</text>
+<rect x="20" y="680" width="960" height="70" rx="10" fill="#0B1F33"/>
+<text x="500.0" y="710" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#FFFFFF" text-anchor="middle">TornadoVM</text>
+<text x="500.0" y="732" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#B9C7D4" text-anchor="middle">JIT-compiles the Java kernels for the device: CUDA C (NVRTC), OpenCL C, Metal Shading Language</text>
+<rect x="20" y="764" width="960" height="76" rx="10" fill="#F3F6F9"/>
+<text x="34" y="802.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#4A5B6C" letter-spacing="1.2" text-anchor="middle" transform="rotate(-90 34 802.0)">HARDWARE</text>
+<rect x="52.0" y="774" width="220.0" height="56" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="64.0" y="796" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">NVIDIA GPUs</text>
+<text x="64.0" y="815" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">CUDA backend</text>
+<rect x="284.0" y="774" width="220.0" height="56" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="296.0" y="796" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">AMD, Intel GPUs</text>
+<text x="296.0" y="815" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">OpenCL backend</text>
+<rect x="516.0" y="774" width="220.0" height="56" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="528.0" y="796" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">Apple silicon</text>
+<text x="528.0" y="815" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">Metal backend</text>
+<rect x="748.0" y="774" width="220.0" height="56" rx="8" fill="#FFFFFF" stroke="#C9D3DD" stroke-width="1.2"/>
+<text x="760.0" y="796" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0B1F33" text-anchor="start">CPUs</text>
+<text x="760.0" y="815" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4A5B6C" text-anchor="start">CpuExecutor, or OpenCL</text>
+</svg>
