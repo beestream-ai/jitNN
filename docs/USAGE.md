@@ -791,7 +791,9 @@ try (NcclCollective nccl = new NcclCollective(id, worldSize, firstRank, "0:0")) 
     ProcessGroup.run(new String[] { "0:0" }, nccl, (rank, collective) -> train(rank, collective));
     Engine.reset();
 }
-``` Tensors belong to the device they were computed on: do
+```
+
+Tensors belong to the device they were computed on: do
 not pass them between ranks except through the collective. `Engine.onDevice(spec, body)` runs a
 block on another device from any thread.
 
