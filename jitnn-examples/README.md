@@ -1,0 +1,92 @@
+# jitNN examples
+
+Small, complete programs that show what jitNN feels like to use: well-known examples from
+DL4J, Deep Netts, DJL, PyTorch, Keras, H2O, Tribuo and Smile, written again with jitNN's API (one
+of them is DJL code that runs on jitNN unchanged). Each downloads its data on first use and prints
+what it learned.
+
+## Running them
+
+```bash
+source <TornadoVM>/setvars.sh            # TORNADOVM_HOME, as for building jitNN
+./mvnw install -DskipTests               # in the jitNN checkout, once
+jitnn-examples/run.sh                    # lists the examples
+jitnn-examples/run.sh MnistMlp           # runs one; arguments follow the name
+jitnn-examples/run.sh Gpt2TextGeneration "The meaning of life is" 80
+```
+
+- Downloads go to `~/.jitnn/examples` (`JAVA_OPTS=-Djitnn.examples.data=<dir>` to change it).
+- `JAVA_OPTS` passes JVM flags: `-Djitnn.device=1:0` for another device (`tornado --devices`
+  lists them), `-Djitnn.verbose=true` to log every compiled plan, `-Djitnn.withNative=true` to let
+  jitNN call cuBLAS and cuDNN.
+- `JITNN_DEVICE_MEMORY` sets TornadoVM's device-memory budget (default 12GB).
+
+The first step of every example compiles the whole step (forward, backward and optimiser) into one
+plan, which is why the first epoch is slower than the rest: later steps replay the plan.
+
+## The examples
+
+The results are from one NVIDIA A10 with the default arguments.
+
+### Neural networks
+
+| Example | After | What it does | Result |
+|---|---|---|---|
+| `MnistMlp` | DL4J MLPMnistTwoLayerExample, Deep Netts' MNIST | a 784-500-100-10 perceptron on handwritten digits, Adam | 97.4% test accuracy in 3 epochs; 0.3 s per epoch after the first |
+| `MnistCnn` | PyTorch's MNIST example | two convolutions, max pooling and dropout, AdaDelta (lr 1.0) with the rate times 0.7 every epoch, 14 epochs | 99.2% test accuracy; 1.9 s per epoch (1.4 s with TF32) |
+| `LeNetMnist` | DL4J LeNetMNIST | two convolutions with max pooling, SGD with Nesterov momentum | 99.0% in 3 epochs, 0.8 s per epoch |
+| `IrisClassifier` | DL4J IrisClassifier, Deep Netts' iris | a 4-16-3 network against a random forest and logistic regression from `org.beehive.jitnn.ml` | 30 of 30 test flowers for all three |
+| `Cifar10ResNet` | DJL TrainResnetWithCifar10 | ResNet-18 with random crops and flips, batches assembled by four threads | 66.3% after 2 epochs, 2,100 images/s |
+| `CharLstmShakespeare` | DL4J LSTMCharModellingExample | a two-layer LSTM over the bytes of Tiny Shakespeare, then samples text one character at a time with its state | Shakespeare-shaped text after 2,000 steps (25 s) |
+| `NanoGptShakespeare` | Andrej Karpathy's nanoGPT (shakespeare_char) | nanoGPT's settings: a 6-layer, 6-head, 384-wide GPT with 256 tokens of context, AdamW with warm-up and cosine decay over 5,000 steps, then a new scene | validation loss 1.57 at step 750 (150 s with TF32); a full 5,000-step run currently runs out of host direct memory after about 900 steps |
+| `VaeMnist` | DL4J VariationalAutoEncoderExample, PyTorch's VAE | PyTorch's settings: a 784-400-20 variational autoencoder, 10 epochs; decodes 64 random latent points into `vae-digits.png` | test loss 105.5 per image; 0.4 s per epoch |
+| `DcganMnist` | PyTorch's DCGAN (`--dataset mnist`) | MNIST at 64x64, five transposed convolutions against five convolutions, Adam for both, 25 epochs; writes `dcgan-digits.png` | 74 s per epoch (54 s with TF32) |
+| `Word2VecShakespeare` | DL4J Word2VecRawTextExample | skip-gram with negative sampling; nearest neighbours of a few words | "father": mother, guest, ... |
+| `GcnCora` | PyTorch's GCN (Kipf and Welling) | the original's settings: two graph convolutions on the Cora citation graph, 1,000 test papers, 500 for validation, 200 epochs | 77.6% test accuracy in 3.6 s |
+| `KerasImdbSentiment` | Keras' text classification from scratch | an embedding, strided 1-D convolutions and max pooling on 50,000 film reviews | 84.5% test accuracy in 3 epochs (2.4 s each) |
+| `KerasMovieLens` | Keras' collaborative filtering | user and film embeddings on 100,836 ratings; recommends films for a user | validation error 0.89 stars after 5 epochs (0.5 s each) |
+
+### Pretrained models
+
+| Example | After | What it does | Result |
+|---|---|---|---|
+| `OnnxImageClassification` | DJL ImageClassification | ResNet-50 from the ONNX model zoo, run on jitNN's kernels | "tabby" 62.5% on DJL's kitten; 4.7 ms per call |
+| `BertFillMask` | BERT's masked-word task | bert-base-uncased from Hugging Face fills in `[MASK]` | "The capital of France is [MASK]." gives paris |
+| `Gpt2TextGeneration` | DJL TextGeneration | GPT-2 (124M) from Hugging Face continues a prompt; one compiled plan serves every token | 44 tokens/s |
+
+### Classical machine learning
+
+| Example | After | What it does | Result |
+|---|---|---|---|
+| `H2oProstate` | H2O's GLM, GBM and random-forest walkthroughs | predicts capsule penetration of 380 prostate tumours | AUC: logistic regression 0.845, gradient boosting 0.837 |
+| `TribuoWineQuality` | Tribuo's regression tutorial | ridge regression, gradient-boosted trees and an early-stopped network on 1,599 red wines | R²: gradient boosting 0.376, ridge 0.316, network 0.272 |
+| `SmileTsneMnist` | Smile's t-SNE | t-SNE of 2,000 digits on the device, drawn into `tsne-mnist.png` | 83% of each point's nearest neighbours share its digit; 42 s |
+
+### jitNN features
+
+| Example | What it does | Result |
+|---|---|---|
+| `CustomOpSwish` | a swish activation written as a TornadoVM `KernelContext` kernel, with a gradient; checked against the built-in `silu`, then trains an MNIST network | matches `silu` to 5e-7; 97.7% |
+| `DataParallelCifar10` | ResNet-18 on several devices at once (`--nccl` on NVIDIA GPUs), 128 images per device, against one device | two A10s through NCCL: 3,600-3,700 images/s against 2,100, 1.7-1.8x |
+| `djl.TrainMnistDjl` | DJL's TrainMnist: DJL's `Mlp`, dataset and `EasyTrain`, with jitNN as DJL's engine | 96.8% in 2 epochs (6.8 s) |
+
+### Against the originals
+
+Five examples use the settings of the program they follow. The originals ran unchanged with
+PyTorch 2.14 on the same A10. TF32 means `-Djitnn.native=auto -Djitnn.native.tf32=true` for
+jitNN; PyTorch uses TF32 for convolutions by default.
+
+| Example | Original | jitNN | jitNN, TF32 | Same result? |
+|---|---|---|---|---|
+| `MnistCnn` | 137 s (14 epochs) | 35 s | 25 s | 99.2% both |
+| `VaeMnist` | 55 s (10 epochs) | 13.6 s | | test loss 105.4 / 105.5 |
+| `DcganMnist` | 16-18 s per epoch | 74 s per epoch | 54 s per epoch | similar losses |
+| `GcnCora` | 0.8 s (200 epochs) | 3.6 s | | 80.9% / 77.6% |
+| `NanoGptShakespeare` | 607 s FP32, 298 s bf16 and `torch.compile` (val loss 1.70) | out of memory after about 900 steps | | |
+
+## Data
+
+The examples download, on first use: MNIST, CIFAR-10, Tiny Shakespeare (from char-rnn), Cora
+(LINQS), the IMDB reviews (fast.ai's copy of Maas et al.), MovieLens ml-latest-small (GroupLens),
+the prostate data (H2O), the red wine quality data (UCI), ResNet-50 from the ONNX model zoo, and
+GPT-2 and bert-base-uncased from Hugging Face. The iris data (UCI, CC BY 4.0) ships with the module.

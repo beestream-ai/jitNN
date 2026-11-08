@@ -75,6 +75,7 @@ The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERAT
 | `jitnn-djl` | a Deep Java Library engine, named `jitNN` (rank 0, so the default when on the class path): DJL code (NDArray, blocks, Trainer, Predictor) runs on jitNN |
 | `jitnn-tf` | the TensorFlow importer: SavedModels and frozen GraphDefs, `TfModel` |
 | `jitnn-bench` | kernel and model benchmarks: every operator call of the reference workloads, timed on a device |
+| `jitnn-examples` | runnable example applications after DL4J, Deep Netts, DJL, PyTorch, Keras, H2O, Tribuo and Smile examples; see [jitnn-examples/README.md](jitnn-examples/README.md) |
 
 ## Where it runs
 

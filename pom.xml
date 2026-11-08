@@ -28,6 +28,7 @@
         <module>jitnn-djl</module>
         <module>jitnn-tf</module>
         <module>jitnn-bench</module>
+        <module>jitnn-examples</module>
     </modules>
 
     <properties>

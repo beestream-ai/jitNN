@@ -1,0 +1,63 @@
+package org.beehive.jitnn.examples;
+
+import org.beehive.jitnn.F;
+import org.beehive.jitnn.Grad;
+import org.beehive.jitnn.Tensor;
+import org.beehive.jitnn.data.DataLoader;
+import org.beehive.jitnn.data.Mnist;
+import org.beehive.jitnn.nn.Linear;
+import org.beehive.jitnn.nn.Module;
+import org.beehive.jitnn.nn.ReLU;
+import org.beehive.jitnn.nn.Sequential;
+import org.beehive.jitnn.nn.optim.Adam;
+
+/**
+ * Handwritten digits with a multilayer perceptron, after DL4J's MLPMnistTwoLayerExample and Deep
+ * Netts' MNIST classifier: 784-500-100-10 with ReLU, Adam, cross-entropy.
+ *
+ * <pre>run.sh MnistMlp [epochs]</pre>
+ */
+public final class MnistMlp {
+
+    public static void main(String[] args) throws Exception {
+        int epochs = Examples.intArg(args, 0, 3);
+        int batch = 64;
+        Mnist train = Mnist.load(Examples.mnist(), true);
+        Mnist test = Mnist.load(Examples.mnist(), false);
+
+        Module model = new Sequential(new Linear(784, 500, 1), new ReLU(), new Linear(500, 100, 2), new ReLU(), new Linear(100, 10, 3));
+        Adam opt = new Adam(model.parameters(), 1e-3f);
+        System.out.printf("MLP with %,d parameters, %d training images%n", model.parameterCount(), train.count());
+
+        try (DataLoader loader = DataLoader.builder(train, batch).shuffle(42).dropLast(true).build()) {
+            for (int epoch = 0; epoch < epochs; epoch++) {
+                long t0 = System.nanoTime();
+                model.train(true);
+                float sum = 0;
+                for (DataLoader.Batch b : loader.epoch(epoch)) {
+                    // the first step compiles forward, backward and Adam into one plan; later steps replay it
+                    Tensor loss = F.crossEntropy(model.forward(b.x().reshape(batch, 784)), b.y());
+                    loss.backward();
+                    opt.step();
+                    sum += loss.item();
+                    opt.zeroGrad();
+                }
+                System.out.printf("epoch %d: loss %.4f, test accuracy %.2f%%, %.1f s%n", epoch + 1, sum / loader.batches(), 100 * accuracy(model, test), Examples.seconds(t0));
+            }
+        }
+    }
+
+    /** Test accuracy, in batches of 1000 without gradients. */
+    static float accuracy(Module model, Mnist test) {
+        model.train(false);
+        int n = 1000;
+        float correct = 0;
+        try (DataLoader loader = DataLoader.builder(test, n).build()) {
+            for (DataLoader.Batch b : loader.epoch(0)) {
+                Tensor logits = Grad.inference(() -> model.forward(b.x().reshape(n, 784)));
+                correct += F.accuracy(logits, b.y()) * n;
+            }
+        }
+        return correct / test.count();
+    }
+}
