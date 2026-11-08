@@ -203,6 +203,36 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <!-- API documentation: ./mvnw install -DskipTests && ./mvnw javadoc:aggregate
+                 writes one site for every module to target/reports/apidocs. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.11.2</version>
+                <configuration>
+                    <doctitle>jitNN ${project.version} API</doctitle>
+                    <windowtitle>jitNN ${project.version} API</windowtitle>
+                    <!-- Check HTML and references; members without comments are allowed. -->
+                    <doclint>all,-missing</doclint>
+                    <skippedModules>jitnn-bench</skippedModules>
+                    <groups>
+                        <group>
+                            <title>Core: tensors and autograd; operators and kernels</title>
+                            <packages>ai.beestream.jitnn:ai.beestream.jitnn.engine*:ai.beestream.jitnn.ops*:ai.beestream.jitnn.kernels*:ai.beestream.jitnn.natives*:ai.beestream.jitnn.dist*:ai.beestream.jitnn.io*</packages>
+                        </group>
+                        <group>
+                            <title>Neural networks and models; classical machine learning</title>
+                            <packages>ai.beestream.jitnn.nn*:ai.beestream.jitnn.ml*:ai.beestream.jitnn.data*</packages>
+                        </group>
+                        <group>
+                            <title>Importers and integrations</title>
+                            <packages>ai.beestream.jitnn.onnx*:ai.beestream.jitnn.gguf*:ai.beestream.jitnn.tf*:ai.beestream.jitnn.djl*:ai.beestream.jitnn.llm*</packages>
+                        </group>
+                    </groups>
+                </configuration>
+            </plugin>
+        </plugins>
     </build>
 
     <profiles>

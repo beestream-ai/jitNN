@@ -18,7 +18,7 @@ public final class IndexKernels {
     private IndexKernels() {
     }
 
-    /** out[o, j, q] = x[o, idx[j], q] for j < m (index_select). */
+    /** out[o, j, q] = x[o, idx[j], q] for j &lt; m (index_select). */
     public static void indexSelect(KernelContext kc, FloatArray x, IntArray idx, FloatArray out, int n, int m, int inner, int total) {
         int i = kc.globalIdx;
         if (i < total) {

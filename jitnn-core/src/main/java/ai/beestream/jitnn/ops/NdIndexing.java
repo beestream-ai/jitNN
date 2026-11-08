@@ -13,7 +13,7 @@ import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
 /**
  * GatherND and ScatterND (ONNX, batch_dims 0). For data [d0, ..., dn-1] and INT32 indices [..., k]
- * (k <= n), each index row picks the slice data[i0, ..., ik-1, :, ...]: GatherND returns them as
+ * (k &lt;= n), each index row picks the slice data[i0, ..., ik-1, :, ...]: GatherND returns them as
  * [..., d_k, ..., dn-1]; ScatterND writes, adds or multiplies the update slices into a copy of
  * data. iattr = [k, rows, slice, reduction (ScatterND)].
  */

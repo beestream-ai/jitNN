@@ -634,7 +634,7 @@ public final class F {
     }
 
     /**
-     * Huber loss with threshold {@code delta}: 0.5 d^2 where |d| < delta, else delta (|d| - delta / 2),
+     * Huber loss with threshold {@code delta}: 0.5 d^2 where |d| &lt; delta, else delta (|d| - delta / 2),
      * d = input - target (PyTorch's huber_loss).
      */
     public static Tensor huberLoss(Tensor input, Tensor target, float delta, Reduction reduction) {

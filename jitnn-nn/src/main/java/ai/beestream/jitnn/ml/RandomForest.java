@@ -33,7 +33,7 @@ public final class RandomForest {
     private int[] classes;
     private int outputs;
 
-    /** maxFeatures <= 0: sqrt(F) for classification, all for regression (scikit-learn's defaults). */
+    /** maxFeatures &lt;= 0: sqrt(F) for classification, all for regression (scikit-learn's defaults). */
     public RandomForest(Task task, int trees, int maxDepth, int minSamplesLeaf, int maxFeatures, int maxBins, boolean bootstrap, long seed) {
         this.task = task;
         this.trees = trees;

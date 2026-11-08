@@ -52,12 +52,12 @@ public final class MmaGemmKernels {
     }
 
     /**
-     * {@link #gemmMMA} on strided operands, so any transpose works: element (r, k) of A is at
+     * jitllm's {@code gemmMMA} on strided operands, so any transpose works: element (r, k) of A is at
      * {@code r * sAr + k * sAk} and element (c, k) of B at {@code c * sBc + k * sBk} (A [M, K]
      * row-major: sAr = K, sAk = 1; A^T stored [K, M]: sAr = 1, sAk = M; the same for B with N), and
      * C[M, N] = A B^T. Split along K: slice z = groupIdz covers depth z * K .. (z + 1) * K and writes
      * rows z * M .. of C (C holds slices x M rows; one slice computes the product itself). Same
-     * tiling and requirements as {@link #gemmMMA}. Grid: (M/128) x (N/128) x slices groups of 256.
+     * tiling and requirements as jitllm's {@code gemmMMA}. Grid: (M/128) x (N/128) x slices groups of 256.
      */
     public static void gemmMMAStrideK(
             KernelContext ctx,
@@ -393,12 +393,12 @@ public final class MmaGemmKernels {
     }
 
     /**
-     * {@link #gemmMMAStrideK} on bfloat16 operands (raw bits): {@link #gemmMMA} on strided operands: element (r, k) of A is at
+     * {@link #gemmMMAStrideK} on bfloat16 operands (raw bits): jitllm's {@code gemmMMA} on strided operands: element (r, k) of A is at
      * {@code r * sAr + k * sAk} and element (c, k) of B at {@code c * sBc + k * sBk} (A [M, K]
      * row-major: sAr = K, sAk = 1; A^T stored [K, M]: sAr = 1, sAk = M; the same for B with N), and
      * C[M, N] = A B^T. Split along K: slice z = groupIdz covers depth z * K .. (z + 1) * K and writes
      * rows z * M .. of C (C holds slices x M rows; one slice computes the product itself). Same
-     * tiling and requirements as {@link #gemmMMA}. Grid: (M/128) x (N/128) x slices groups of 256.
+     * tiling and requirements as jitllm's {@code gemmMMA}. Grid: (M/128) x (N/128) x slices groups of 256.
      */
     public static void gemmMMAStrideKBF16(
             KernelContext ctx,

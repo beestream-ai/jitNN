@@ -29,7 +29,7 @@ public final class ElementwiseKernels {
     public static final int RELU_GRAD = 7;
     /** sign(a) * b. */
     public static final int SIGN_MUL = 8;
-    /** a = x, b = dy: dy where alpha <= x <= beta. */
+    /** a = x, b = dy: dy where alpha &lt;= x &lt;= beta. */
     public static final int CLAMP_GRAD = 9;
     public static final int GT = 10;
     public static final int LT = 11;
@@ -132,9 +132,9 @@ public final class ElementwiseKernels {
     public static final int LEAKY_RELU = 17;
     /** log(1 + exp(x)), overflow-free. */
     public static final int SOFTPLUS = 18;
-    /** alpha (expm1(x)) for x <= 0. */
+    /** alpha (expm1(x)) for x &lt;= 0. */
     public static final int ELU = 19;
-    /** SELU's scale (x, or alpha expm1(x) for x <= 0), PyTorch's constants. */
+    /** SELU's scale (x, or alpha expm1(x) for x &lt;= 0), PyTorch's constants. */
     public static final int SELU = 20;
     /** max(0, x) + min(0, alpha expm1(x / alpha)). */
     public static final int CELU = 21;
@@ -835,7 +835,7 @@ public final class ElementwiseKernels {
         }
     }
 
-    /** out[i, j] = labels[i] == j ? 1 : 0 for j < classes; n = labels * classes. */
+    /** out[i, j] = labels[i] == j ? 1 : 0 for j &lt; classes; n = labels * classes. */
     public static void oneHot(KernelContext kc, IntArray labels, FloatArray out, int classes, int n) {
         int i = kc.globalIdx;
         if (i < n) {
@@ -913,7 +913,7 @@ public final class ElementwiseKernels {
 
     /**
      * Copies a block along one axis, with both tensors seen as [outer, length, inner]:
-     * out[o, outOff + j, t] = x[o, inOff + j, t] for j < len. {@code n} = outer * len * inner.
+     * out[o, outOff + j, t] = x[o, inOff + j, t] for j &lt; len. {@code n} = outer * len * inner.
      */
     public static void copyBlock(KernelContext kc, FloatArray x, FloatArray out, int len, int inner, int inLen, int outLen, int inOff, int outOff, int n) {
         int i = kc.globalIdx;

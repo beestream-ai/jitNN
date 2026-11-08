@@ -6,7 +6,7 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 /**
  * Discrete Fourier transforms along the last axis, complex numbers as (re, im) pairs. One general
  * kernel serves the forward and inverse, real-to-complex, complex-to-real and adjoint transforms:
- * y_k = scale sum_{j < nIn} w_j x_j e^{+-2 pi i (k j mod n) / n} for k < nOut, with y_k = 0 for k >= n.
+ * y_k = scale sum_{j &lt; nIn} w_j x_j e^{+-2 pi i (k j mod n) / n} for k &lt; nOut, with y_k = 0 for k >= n.
  * The phases come from a host-computed table twiddle [n, 2] (cos, sin), which keeps them exact and
  * avoids device sin/cos. It is a direct O(n^2) sum (one thread per output), exact in its phase.
  */

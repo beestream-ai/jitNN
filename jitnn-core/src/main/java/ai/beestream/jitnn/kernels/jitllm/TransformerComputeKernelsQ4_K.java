@@ -9,7 +9,7 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 /**
  * Device kernels that read {@code Q4_K} weights <b>in the file's own representation</b>.
  *
- * <p>They are deliberately shaped like their Q8_0 siblings in {@link
+ * <p>They are deliberately shaped like their Q8_0 siblings in jitllm's {@code
  * TransformerComputeKernelsLayered} — same signatures, same workgroup-per-row structure, same
  * reduction — so the layer classes differ only in which method reference they name. What changes is
  * the decode in the inner loop.

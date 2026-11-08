@@ -42,7 +42,7 @@ public final class LibraryGlueKernels {
     }
 
     /** {@link #epilogueBatched} on an FP16 c (computed in FP32). */
-    /** dst[i] = src[i] for i < n: a library operand moved into an array of exactly its size. */
+    /** dst[i] = src[i] for i &lt; n: a library operand moved into an array of exactly its size. */
     public static void copy(KernelContext kc, FloatArray src, FloatArray dst, int n) {
         int i = kc.globalIdx;
         if (i < n) {
@@ -268,7 +268,7 @@ public final class LibraryGlueKernels {
         }
     }
 
-    /** y[i] *= s for i < total. */
+    /** y[i] *= s for i &lt; total. */
     public static void scale(KernelContext kc, FloatArray y, float s, int total) {
         int i = kc.globalIdx;
         if (i < total) {

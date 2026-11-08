@@ -8,6 +8,10 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.11"
+  jobs:
+    # The Javadoc, served under /api/ (linked from the API reference page).
+    post_build:
+      - bash docs/build-javadoc.sh "$READTHEDOCS_OUTPUT/html/api"
 
 # Build documentation in the docs/ directory with Sphinx
 sphinx:

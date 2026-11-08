@@ -155,7 +155,7 @@ public final class Fft {
 
     /**
      * torch.istft(x, nFft, hop, window=window, center, normalized, onesided=True, length): x
-     * [(B,) nFft / 2 + 1, frames, 2] back to [(B,) length] (length <= 0: as long as the frames reach,
+     * [(B,) nFft / 2 + 1, frames, 2] back to [(B,) length] (length &lt;= 0: as long as the frames reach,
      * less the centre padding), by overlap-add divided by the summed squared window.
      */
     public static Tensor istft(Tensor x, int nFft, int hop, Tensor window, boolean center, boolean normalized, int length) {

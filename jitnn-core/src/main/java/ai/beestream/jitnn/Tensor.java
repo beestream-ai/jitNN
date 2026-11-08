@@ -824,7 +824,7 @@ public final class Tensor implements AutoCloseable {
         return ai.beestream.jitnn.ops.Bitwise.not(this);
     }
 
-    /** this << o for INT32 tensors, with broadcasting. */
+    /** this &lt;&lt; o for INT32 tensors, with broadcasting. */
     public Tensor shiftLeft(Tensor o) {
         return ai.beestream.jitnn.ops.Bitwise.apply(ai.beestream.jitnn.ops.Bitwise.Kind.SHIFT_LEFT, this, o);
     }
@@ -861,7 +861,7 @@ public final class Tensor implements AutoCloseable {
         return Binary.apply(Binary.Kind.NE, this, o);
     }
 
-    /** 1 where this <= o, else 0, with broadcasting. */
+    /** 1 where this &lt;= o, else 0, with broadcasting. */
     public Tensor le(Tensor o) {
         return Binary.apply(Binary.Kind.LE, this, o);
     }

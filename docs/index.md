@@ -181,6 +181,7 @@ CONFIGURATION
 
 OPERATORS
 NATIVE
+api
 ```
 
 ```{toctree}

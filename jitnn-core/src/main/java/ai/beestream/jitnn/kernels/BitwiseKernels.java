@@ -9,7 +9,7 @@ public final class BitwiseKernels {
     public static final int AND = 0;
     public static final int OR = 1;
     public static final int XOR = 2;
-    /** x << y. */
+    /** x &lt;&lt; y. */
     public static final int SHIFT_LEFT = 3;
     /** x >> y, arithmetic (the sign is kept), as torch.bitwise_right_shift on signed integers. */
     public static final int SHIFT_RIGHT = 4;

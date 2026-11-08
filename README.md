@@ -184,6 +184,7 @@ on an RTX 5070 Ti. Training, per-kernel, fusion, autotuning and multi-GPU result
 | [VALIDATION.md](docs/VALIDATION.md) | Reference backend, finite differences, PyTorch, scikit-learn and ONNX Runtime references, the model gates |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | Per-kernel, training and inference results on CUDA, Metal and OpenCL, against PyTorch and ONNX Runtime, with and without vendor libraries |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Architecture, code layout, adding an operator, code generators, TornadoVM workarounds |
+| [API reference](docs/api.md) | Javadoc for every module: `./mvnw install -DskipTests && ./mvnw javadoc:aggregate` |
 
 The same pages build as a Read the Docs site (`.readthedocs.yaml`). To build it locally:
 `pip install -r docs/requirements.txt && make -C docs html`, then open `docs/_build/html/index.html`.

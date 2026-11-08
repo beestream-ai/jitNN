@@ -33,8 +33,8 @@ public final class AttentionHalfKernels {
 
 
     /**
-     * {@link #gather} of q, k and v in one launch: element i of qz (if i < t d z) and of kz and vz (if
-     * i < s d z), with the (offset, batch, head, token) strides of q, k and v at meta[5..16] and the
+     * {@link #gather} of q, k and v in one launch: element i of qz (if i &lt; t d z) and of kz and vz (if
+     * i &lt; s d z), with the (offset, batch, head, token) strides of q, k and v at meta[5..16] and the
      * heads at meta[0] (FlashAttention's metadata).
      */
     public static void gatherQkv(KernelContext kc, HalfFloatArray q, HalfFloatArray k, HalfFloatArray v, HalfFloatArray qz, HalfFloatArray kz, HalfFloatArray vz,

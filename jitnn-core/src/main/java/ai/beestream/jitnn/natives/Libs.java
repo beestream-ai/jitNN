@@ -142,7 +142,7 @@ public final class Libs {
     }
 
     /**
-     * C[z] [m, n] = op(A[z]) op(B[z]) (+ epilogue) for z < batch: A[z] at z * strideA and B[z] at
+     * C[z] [m, n] = op(A[z]) op(B[z]) (+ epilogue) for z &lt; batch: A[z] at z * strideA and B[z] at
      * z * strideB (0: the same matrix for every z), C contiguous.
      */
     public static boolean gemmBatched(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue, int batch,
