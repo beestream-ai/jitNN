@@ -134,29 +134,8 @@ All variants take both transposes and an epilogue (bias, ReLU) without materiali
 Half-precision operands (FP16, BF16) run on tensor cores on CUDA (a 128x128 tile when M and N are
 multiples of 128 and K of 16), on the simdgroup kernels on Metal, and on 64x64 register-blocked
 kernels elsewhere, converting on load. A^T B products with a long reduction and a small output
-(weight gradients) are split along K into up to 32 slices. `scripts/bench/tune.py` writes the
-tuning tables from a sweep of every variant over the benchmark workloads.
-
-## Benchmark tools
-
-Properties of `jitnn-bench` (`KernelBenchAccelTest`, `ModelProfileAccelTest`), which
-`scripts/bench/run_kernels.sh` and `run_models.sh` set.
-
-| Property | Default | Meaning |
-|---|---|---|
-| `jitnn.kbench` | `false` | run `KernelBenchAccelTest`: every distinct operator call of the benchmark workloads, timed on the device |
-| `jitnn.models` | `false` | run `ModelProfileAccelTest`: whole training and inference steps of the workloads |
-| `jitnn.kbench.out` | `kernels.jsonl`, `models.jsonl` | result file, appended |
-| `jitnn.kbench.label` | empty | free text recorded with every result line, for example the commits |
-| `jitnn.kbench.workloads` | empty | comma-separated workload filter (for example `mlp_train_b256`); empty: all |
-| `jitnn.kbench.families` | empty | comma-separated operator families (for example `gemm,convolution`); empty: all |
-| `jitnn.kbench.from` | `0` | skip the first n calls, to resume a run |
-| `jitnn.kbench.only` | empty | comma-separated call indices to run (1-based, in capture order) |
-| `jitnn.kbench.warmup`, `jitnn.kbench.calls` | `20`, `100` | warm-up and minimum timed calls per operator call (timed for at least 0.3 s) |
-| `jitnn.kbench.steps`, `jitnn.kbench.modelWarmup` | `30`, `10` | timed and warm-up steps per workload of `ModelProfileAccelTest` (with `jitnn.cpu.stats`, it also prints the CPU backend's operators by time) |
-| `jitnn.kbench.gpu` | `0` | `nvidia-smi` index of the GPU whose clocks are sampled |
-| `jitnn.kbench.minMhz` | `1350` | a timed window is retried when the mean SM clock is below this or the GPU was power or thermal capped |
-| `jitnn.kbench.bandwidth`, `jitnn.kbench.fp32`, `jitnn.kbench.half` | `1721e9`, `19.0e12`, `245e12` | peak bytes/s and FLOP/s that the efficiency columns are relative to |
+(weight gradients) are split along K into up to 32 slices. `scripts/tune.py` in
+[jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking) writes the tuning tables from a sweep of every variant over the benchmark workloads.
 
 ## Test properties
 
@@ -191,12 +170,10 @@ latter through `jitnn.test.extra`).
 | `jitnn.bench.split` | `false` | `InferenceBenchAccelTest`: also print where a call's time goes (recording, execution, fetching the output, converting it to floats) |
 | `jitnn.bench.profileTasks` | `false` | `InferenceBenchAccelTest` with `jitnn.profile`: also print the device time of every task, not only per operator |
 | `jitnn.bench.warmup`, `jitnn.bench.runs` | 10, 50 | warm-up and timed calls of `InferenceBenchAccelTest` |
-| `jitnn.bench.out` | empty | directory where `InferenceBenchAccelTest` writes its outputs, for `scripts/bench/t1.py` to compare |
+| `jitnn.bench.out` | empty | directory where `InferenceBenchAccelTest` writes its outputs, for `scripts/t1.py` in [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking) to compare |
 | `jitnn.onnx.t1` | empty | directory with the exported ResNet-50 and BERT-base ONNX files and ONNX Runtime's outputs; `OnnxT1AccelTest` is skipped when empty |
 | `jitnn.onnx.t1.match` | empty | run only the ONNX files whose name contains this text |
 | `jitnn.probe` | `false` | run `GradProbeTest`: MobileNetV2 step-0 gradients on the reference backend against PyTorch FP64, per parameter (needs `jitnn.mnist`) |
-| `jitnn.lstmprobe` | `false` | run `LstmProbeAccelTest`: LSTM training-step times at the shapes of DJL's MNIST LSTM example and two wider ones |
-| `jitnn.tileprobe` | `false` | run the CUDA Tile API probes `TileGemmProbeAccelTest` and `TileAttentionProbeAccelTest` |
 
 `NativeAccelTest` runs only when vendor libraries are requested
 (`-Djitnn.test.extra=-Djitnn.native=auto`).

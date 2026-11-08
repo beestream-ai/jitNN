@@ -42,7 +42,7 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
   `jitnn.plan.idleExecutions` executions are closed; an evicted plan fetches only the outputs its
   tasks wrote. `Engine.transferStats()` counts the resulting traffic.
 - **Tuning tables**: `engine.Tuning` reads the per-device GEMM tables in
-  `jitnn-core/src/main/resources/tuning`, written by `scripts/bench/tune.py`.
+  `jitnn-core/src/main/resources/tuning`, written by `scripts/tune.py` in [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking).
 - **Autotuning**: an operator with several kernel variants for a shape asks
   `Autotune.choose(emitter, family, shape, rule, candidates...)` while it emits. With
   `-Djitnn.autotune=on` a choice not decided yet uses the rule and is recorded; once the plan has
@@ -76,13 +76,13 @@ Tensor ops ─▶ Node (op, inputs, outputs, int/float attributes) ─▶ Trace 
 | `jitnn-llm/.../llm` | `Llm` (a jitllm model loaded from a GGUF file, with the file's `GgufFile`) |
 | `jitnn-tf/.../tf` | `TfModel`, `TfGraph`, `TfGraphs` (SavedModel and GraphDef parsing), `Inliner` (function calls), `TensorBundle` (checkpoint variables), `Translator` (TensorFlow operations to the ONNX importer's) |
 | `jitnn-djl/.../djl` | `JitnnEngine` and `JitnnEngineProvider` (registered through `META-INF/services`), `JitnnNDManager`, `JitnnNDArray`, `JitnnNDArrayEx`, `JitnnIndexer`, `JitnnGradientCollector`, `JitnnModel`, `JitnnSymbolBlock` |
-| `jitnn-bench/.../bench` | `Workloads` (the reference workloads, captured as traces), `KernelBench` (every distinct operator call, timed), `ModelProfile` (whole steps), `ClockMonitor` (GPU clock and throttle checks) |
 | `scripts/codegen` | GEMM, tensor-core GEMM, simdgroup GEMM, implicit-GEMM convolution, fused attention and multi-tensor optimiser generators (Java has no macros; accumulators must be scalars) |
 | `scripts/pytorch` | golden tensors, the MNIST, CNN, transformer, generative and recurrent reference runs, jitNN's Philox in numpy |
 | `scripts/sklearn` | scikit-learn references for the classical machine-learning estimators |
 | `scripts/onnx` | ONNX goldens (ONNX Runtime outputs) and the ONNX Runtime side of the inference comparison |
 | `scripts/tf` | TensorFlow goldens (SavedModels, a frozen GraphDef and TensorFlow's outputs) |
-| `scripts/bench` | the PyTorch and ONNX Runtime inference comparison (`t1.py`), the same through DJL in `djl/`, DJL's own examples on any engine in `djl-examples/`, the kernel and model benchmark drivers (`run_kernels.sh`, `run_models.sh`), the PyTorch kernel baselines and `tune.py` |
+
+The benchmarks, their drivers and results are in [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking).
 
 ## Adding an operator
 

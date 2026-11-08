@@ -1,7 +1,7 @@
 {
  "device": "cuda-nvidia-a10",
  "measured": "2026-10-09",
- "source": "scripts/bench/tune.py over auto, gemm128pd, gemm128x64pd, gemm64pd, gemm64x128pd; 89 calls, margin 0.03",
+ "source": "jitNN-benchmarking scripts/tune.py over auto, gemm128pd, gemm128x64pd, gemm64pd, gemm64x128pd; 89 calls, margin 0.03",
  "gemm": {
   "m10n10k10t00": "gemm128pd",
   "m10n10k10t01": "gemm128pd",

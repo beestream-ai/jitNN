@@ -69,7 +69,6 @@ The full list, with kernels and gradients, is in [Operators](OPERATORS.md).
 | `jitnn-llm` | optional (`-Pllm`): text generation from GGUF language models through jitllm, `Llm` |
 | `jitnn-djl` | a Deep Java Library engine, named `jitNN` (rank 0, so the default when on the class path): DJL code (NDArray, blocks, Trainer, Predictor) runs on jitNN |
 | `jitnn-tf` | the TensorFlow importer: SavedModels and frozen GraphDefs, `TfModel` |
-| `jitnn-bench` | kernel and model benchmarks: every operator call of the reference workloads, timed on a device |
 
 ## Where it runs
 
@@ -163,8 +162,8 @@ On its own kernels (no vendor libraries) jitNN is level with PyTorch on ResNet-5
 1.3-3x behind on BERT and FP16. Fusion removes 38% of ResNet-50's kernels and 45% of its memory
 traffic; autotuning makes BERT-base 15-34% faster. The baseline element-wise kernels reach 86-88%
 of peak bandwidth on CUDA and Metal, reductions and softmax 83-84% on CUDA, and SGEMM 12.7 TFLOP/s
-on an RTX 5070 Ti. Training, per-kernel, fusion, autotuning and multi-GPU results are in
-[Performance](PERFORMANCE.md).
+on an RTX 5070 Ti. Training, per-kernel, fusion, autotuning and multi-GPU results, and the benchmarks that produce
+them, are in [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking).
 
 ```{toctree}
 :caption: Getting started
@@ -191,7 +190,6 @@ api
 :hidden:
 
 VALIDATION
-PERFORMANCE
 ```
 
 ```{toctree}

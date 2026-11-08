@@ -1,4 +1,4 @@
-"""ONNX Runtime on the T1 ONNX files (written by scripts/bench/t1.py): the reference outputs and
+"""ONNX Runtime on the T1 ONNX files (written by jitNN-benchmarking's scripts/t1.py): the reference outputs and
 timings that OnnxT1AccelTest compares jitNN against, on the same files and inputs.
 
 For each <work dir>/<name>.onnx: inputs as InferenceBenchAccelTest builds them, ONNX Runtime's CUDA

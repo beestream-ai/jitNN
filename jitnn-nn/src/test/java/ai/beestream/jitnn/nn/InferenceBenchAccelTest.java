@@ -20,7 +20,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Inference latency of ResNet-50 and BERT-base, measured the way scripts/bench/t1.py measures
+ * Inference latency of ResNet-50 and BERT-base, measured the way jitNN-benchmarking's scripts/t1.py measures
  * ONNX Runtime, PyTorch and DJL on the same GPU: host input in, host output out, a warm-up, then
  * the median of timed runs. The models are built from the same seeds as the Python side, so every
  * framework runs the same weights on the same inputs; with {@code -Djitnn.bench.out=<dir>} the

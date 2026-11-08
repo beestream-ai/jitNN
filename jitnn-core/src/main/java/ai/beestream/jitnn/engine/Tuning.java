@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 
 /**
  * Per-GPU tuning tables: the kernel variant to use for each shape class, measured offline by
- * sweeping every variant over the reference workloads (scripts/bench/tune.py) and read when a plan
+ * sweeping every variant over the reference workloads (scripts/tune.py in jitNN-benchmarking) and read when a plan
  * is compiled.
  *
  * <p>A table is {@code tuning/<backend>-<device>.json} on the class path, e.g.

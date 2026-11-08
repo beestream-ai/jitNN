@@ -27,7 +27,6 @@
         <module>jitnn-gguf</module>
         <module>jitnn-djl</module>
         <module>jitnn-tf</module>
-        <module>jitnn-bench</module>
         <module>jitnn-examples</module>
     </modules>
 
@@ -215,7 +214,6 @@
                     <windowtitle>jitNN ${project.version} API</windowtitle>
                     <!-- Check HTML and references; members without comments are allowed. -->
                     <doclint>all,-missing</doclint>
-                    <skippedModules>jitnn-bench</skippedModules>
                     <!-- the CPU backend uses the Vector API -->
                     <additionalOptions>
                         <additionalOption>--add-modules</additionalOption>

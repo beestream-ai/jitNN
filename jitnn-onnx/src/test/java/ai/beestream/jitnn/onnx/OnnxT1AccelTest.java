@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The T1 models from their ONNX files: ResNet-50 and BERT-base exported by PyTorch
- * (scripts/bench/t1.py), run by jitNN through the importer and compared with ONNX Runtime on the
+ * (jitNN-benchmarking's scripts/t1.py), run by jitNN through the importer and compared with ONNX Runtime on the
  * same files and inputs (scripts/onnx/t1_onnx.py writes its outputs next to the models). Runs only
  * with {@code -Djitnn.onnx.t1=<work dir>}; {@code -Djitnn.onnx.t1.match=<substring>} picks files.
  */

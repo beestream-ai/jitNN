@@ -74,7 +74,6 @@ The full list, with kernels and gradients, is in [docs/OPERATORS.md](docs/OPERAT
 | `jitnn-llm` | optional (`-Pllm`): text generation from GGUF language models through jitllm, `Llm` |
 | `jitnn-djl` | a Deep Java Library engine, named `jitNN` (rank 0, so the default when on the class path): DJL code (NDArray, blocks, Trainer, Predictor) runs on jitNN |
 | `jitnn-tf` | the TensorFlow importer: SavedModels and frozen GraphDefs, `TfModel` |
-| `jitnn-bench` | kernel and model benchmarks: every operator call of the reference workloads, timed on a device |
 | `jitnn-examples` | runnable example applications after DL4J, Deep Netts, DJL, PyTorch, Keras, H2O, Tribuo and Smile examples; see [jitnn-examples/README.md](jitnn-examples/README.md) |
 
 ## Where it runs
@@ -169,8 +168,8 @@ On its own kernels (no vendor libraries) jitNN is level with PyTorch on ResNet-5
 1.3-3x behind on BERT and FP16. Fusion removes 38% of ResNet-50's kernels and 45% of its memory
 traffic; autotuning makes BERT-base 15-34% faster. The baseline element-wise kernels reach 86-88%
 of peak bandwidth on CUDA and Metal, reductions and softmax 83-84% on CUDA, and SGEMM 12.7 TFLOP/s
-on an RTX 5070 Ti. Training, per-kernel, fusion, autotuning and multi-GPU results are in
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+on an RTX 5070 Ti. Training, per-kernel, fusion, autotuning and multi-GPU results, and the benchmarks that produce
+them, are in [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking).
 
 ## Documentation
 
@@ -182,7 +181,6 @@ on an RTX 5070 Ti. Training, per-kernel, fusion, autotuning and multi-GPU result
 | [NATIVE.md](docs/NATIVE.md) | `--with-native`: which operators call cuBLAS, cuDNN, cuFFT, cuSPARSE or MLX, and the fallback to jitNN kernels |
 | [OPERATORS.md](docs/OPERATORS.md) | Every operator and its kernels and gradient, the ONNX and TensorFlow operators, the DJL engine, what is not supported yet |
 | [VALIDATION.md](docs/VALIDATION.md) | Reference backend, finite differences, PyTorch, scikit-learn and ONNX Runtime references, the model gates |
-| [PERFORMANCE.md](docs/PERFORMANCE.md) | Per-kernel, training and inference results on CUDA, Metal and OpenCL, against PyTorch and ONNX Runtime, with and without vendor libraries |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Architecture, code layout, adding an operator, code generators, TornadoVM workarounds |
 | [API reference](docs/api.md) | Javadoc for every module: `./mvnw install -DskipTests && ./mvnw javadoc:aggregate` |
 

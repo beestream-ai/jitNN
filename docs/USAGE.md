@@ -847,7 +847,7 @@ files. NDArrays follow DJL's types: integer division truncates, and an integer a
 floating scalar gives FLOAT32, as in PyTorch. Operators jitNN lacks run on the engine named by
 `-Djitnn.djl.fallback` when it is on the class path. DJL's own examples (`TrainMnist`,
 `TrainResnetWithCifar10`, `ImageClassification`, `YoloDetection`) run unchanged; see
-[PERFORMANCE.md](PERFORMANCE.md#djl-examples).
+[jitNN-benchmarking's PERFORMANCE.md](https://github.com/beestream-ai/jitNN-benchmarking/blob/main/PERFORMANCE.md#djl-examples).
 
 ## Custom operators
 
@@ -950,4 +950,3 @@ runs a block on the reference, which is how the tests compare the two.
 | `... -Dtest=BaselineBenchAccelTest -Djitnn.test.profile=true` | kernel benchmarks |
 | `... -Dtest=InferenceBenchAccelTest -Djitnn.bench.inference=true` | ResNet-50 and BERT-base inference latency |
 | `... -Djitnn.test.extra=-Djitnn.native=auto` | runs the device tests with the vendor libraries, and adds `NativeAccelTest` (each library-backed operator against the reference, and the fallback) |
-| `scripts/bench/run_kernels.sh <device> <dir> [--with-native]`, `run_models.sh` | the kernel and model benchmarks of `jitnn-bench` |

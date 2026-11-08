@@ -524,7 +524,7 @@ public final class MatMul implements Op {
         }
         if (auto && big) {
             // padded local memory and register prefetch: 1.5x the earlier 64 and 128 kernels over the
-            // reference workloads' products on an A100 (bench/results/a100, GEMM sweep)
+            // reference workloads' products on an A100 (jitNN-benchmarking results/a100, GEMM sweep)
             tuned(e, "gemm64pd", a, b, c, biasArg, m, n, k, ta, tb, epilogue);
         } else if (variant.equals("128")) {
             WorkerGrid grid = Emitter.blocks2D(Emitter.ceilDiv(n, 128), Emitter.ceilDiv(m, 128), 16, 16);

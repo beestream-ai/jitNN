@@ -119,7 +119,7 @@ convolutions, `off` turns it off. It needs a TornadoVM whose cuDNN binding has t
 
 jitNN's own kernels against vendor libraries, median ms (2026-10-23 on NVIDIA, 2026-10-18 on the
 M4 Pro). The same models against PyTorch and ONNX Runtime are in
-[PERFORMANCE.md](PERFORMANCE.md#inference-against-pytorch-and-onnx-runtime).
+[jitNN-benchmarking's PERFORMANCE.md](https://github.com/beestream-ai/jitNN-benchmarking/blob/main/PERFORMANCE.md#inference-against-pytorch-and-onnx-runtime).
 
 | Workload | A100 kernels | A100 libraries | RTX 5070 Ti kernels | RTX 5070 Ti libraries | M4 Pro kernels | M4 Pro MLX |
 |---|---|---|---|---|---|---|
