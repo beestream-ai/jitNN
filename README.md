@@ -9,6 +9,7 @@
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
   <img alt="Java 22+" src="https://img.shields.io/badge/java-22%2B-orange.svg">
   <img alt="TornadoVM" src="https://img.shields.io/badge/TornadoVM-8.1.0-0B1F33.svg">
+  <a href="https://beestream-ai.github.io/jitNN/"><img alt="Javadoc" src="https://img.shields.io/badge/javadoc-public%20API-4c1.svg"></a>
 </p>
 
 # jitNN
@@ -177,7 +178,7 @@ logs every compiled plan and `-Djitnn.debugKeys=true` shows why a step recompile
 | [OPERATORS.md](docs/OPERATORS.md) | every operator, the ONNX and TensorFlow operators, the DJL engine |
 | [VALIDATION.md](docs/VALIDATION.md) | how correctness is checked: references, gradients, model gates |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | architecture, the public API and the internal packages, code layout, adding an operator, code generators |
-| [API reference](docs/api.md) | Javadoc for every module |
+| [API reference](https://beestream-ai.github.io/jitNN/) | Javadoc of the public API of every module ([api.md](docs/api.md): the packages and building it) |
 
 The same pages build as a Read the Docs site: `pip install -r docs/requirements.txt && make -C docs html`.
 
