@@ -26,6 +26,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 
+import ai.beestream.jitnn.JitnnConfig;
+
 /**
  * A native BLAS's {@code sgemm} (Intel MKL, OpenBLAS, Arm Performance Libraries, Apple Accelerate),
  * called through the foreign function API: {@code -Djitnn.cpu.blas=<library file>} names the
@@ -54,7 +56,7 @@ public final class Blas {
     static {
         MethodHandle sgemm = null;
         String name = null;
-        String p = System.getProperty("jitnn.cpu.blas", "auto").trim();
+        String p = JitnnConfig.current().get(JitnnConfig.CPU_BLAS);
         if (!p.equals("off")) {
             for (String candidate : p.equals("auto") ? AUTO : new String[] { p }) {
                 try {
@@ -72,7 +74,7 @@ public final class Blas {
         }
         SGEMM = sgemm;
         NAME = name;
-        if (NAME != null && Boolean.getBoolean("jitnn.verbose")) {
+        if (NAME != null && JitnnConfig.current().get(JitnnConfig.VERBOSE)) {
             System.err.println("[jitnn] the CPU backend calls sgemm of " + NAME + " (" + Cpu.threads() + " threads)");
         }
     }

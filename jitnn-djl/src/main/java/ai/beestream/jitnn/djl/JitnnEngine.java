@@ -28,6 +28,7 @@ import ai.djl.ndarray.NDManager;
 import ai.djl.nn.SymbolBlock;
 import ai.djl.training.GradientCollector;
 
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.engine.Engine.Backend;
 
 /**
@@ -60,9 +61,7 @@ public final class JitnnEngine extends Engine {
     private JitnnEngine() {
         // DJL training loops run several distinct traces per step (data, forward and backward,
         // evaluators, optimiser updates): keep them all compiled
-        if (System.getProperty("jitnn.plan.cache") == null) {
-            System.setProperty("jitnn.plan.cache", "64");
-        }
+        JitnnConfig.defaultIfUnset(JitnnConfig.PLAN_CACHE, 64);
     }
 
     /** The engine, created on first use. */
@@ -80,7 +79,7 @@ public final class JitnnEngine extends Engine {
     @Override
     public Engine getAlternativeEngine() {
         if (!alternativeResolved) {
-            String name = System.getProperty("jitnn.djl.fallback", "").trim();
+            String name = JitnnConfig.current().get(JitnnConfig.DJL_FALLBACK).trim();
             alternative = name.isEmpty() || !Engine.hasEngine(name) ? null : Engine.getEngine(name);
             alternativeResolved = true;
         }

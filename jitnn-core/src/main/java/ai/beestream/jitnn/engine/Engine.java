@@ -18,6 +18,7 @@ package ai.beestream.jitnn.engine;
 import java.util.List;
 import java.util.function.Supplier;
 
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 
 /**
@@ -56,7 +57,7 @@ public final class Engine {
     }
 
     private static Backend defaultBackend() {
-        String p = System.getProperty("jitnn.backend");
+        String p = JitnnConfig.current().get(JitnnConfig.BACKEND);
         if (p != null) {
             return checked(Backend.valueOf(p.trim().toUpperCase(java.util.Locale.ROOT)));
         }
@@ -271,7 +272,7 @@ public final class Engine {
      * CUDA, {@code -Djitnn.cudaGraph=false} (a CUDA graph reports one time for all its kernels).
      */
     public static void startTrace() {
-        if (!Boolean.getBoolean("jitnn.profile")) {
+        if (!JitnnConfig.current().get(JitnnConfig.PROFILE)) {
             throw new IllegalStateException("a timeline needs -Djitnn.profile=true (and -Djitnn.cudaGraph=false on CUDA)");
         }
         Telemetry.traceStart();
@@ -280,14 +281,11 @@ public final class Engine {
 
     private static volatile boolean tracing;
 
-    private static volatile boolean deterministic = initialDeterministic();
-
-    private static boolean initialDeterministic() {
-        boolean on = Boolean.getBoolean("jitnn.deterministic");
-        if (on) {
+    static {
+        // TornadoVM's cuDNN provider reads this property when it picks algorithms
+        if (JitnnConfig.current().get(JitnnConfig.DETERMINISTIC)) {
             System.setProperty("tornado.cudnn.deterministic", "true");
         }
-        return on;
     }
 
     /**
@@ -299,13 +297,13 @@ public final class Engine {
      * the same bits.
      */
     public static void setDeterministic(boolean on) {
-        deterministic = on;
+        JitnnConfig.change(JitnnConfig.DETERMINISTIC, on);
         System.setProperty("tornado.cudnn.deterministic", Boolean.toString(on));
     }
 
     /** Whether deterministic kernels were asked for ({@link #setDeterministic}). */
     public static boolean deterministic() {
-        return deterministic;
+        return JitnnConfig.current().get(JitnnConfig.DETERMINISTIC);
     }
 
     /**
@@ -383,7 +381,7 @@ public final class Engine {
     private static volatile java.io.PrintStream kernelSink = initialKernelSink();
 
     private static java.io.PrintStream initialKernelSink() {
-        String p = System.getProperty("jitnn.printKernels", "").trim();
+        String p = JitnnConfig.current().get(JitnnConfig.PRINT_KERNELS).trim();
         if (p.isEmpty() || p.equals("false")) {
             return null;
         }

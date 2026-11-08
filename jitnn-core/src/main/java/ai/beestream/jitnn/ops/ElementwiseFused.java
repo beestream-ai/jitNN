@@ -15,6 +15,7 @@
  */
 package ai.beestream.jitnn.ops;
 
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
 import ai.beestream.jitnn.engine.Node;
@@ -35,7 +36,7 @@ final class ElementwiseFused implements Op {
     static final ElementwiseFused OP = new ElementwiseFused();
 
     /** Chains run as FusedKernels.fusedProgram1..6 (specialised per chain) unless {@code -Djitnn.fuse.program=false}. */
-    private static final boolean PROGRAM = !"false".equals(System.getProperty("jitnn.fuse.program"));
+    private static final boolean PROGRAM = JitnnConfig.current().get(JitnnConfig.FUSE_PROGRAM);
 
     private ElementwiseFused() {
     }

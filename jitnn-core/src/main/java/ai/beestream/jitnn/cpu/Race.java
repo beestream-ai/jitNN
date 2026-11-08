@@ -19,6 +19,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import ai.beestream.jitnn.JitnnConfig;
+
 /**
  * Which way to run an operator of one shape is fastest: the CPU backend's own kernel, a native BLAS
  * library's GEMM ({@link Blas}), oneDNN ({@link Dnnl}) or BNNS ({@link Bnns}). The first calls
@@ -38,7 +40,7 @@ public final class Race {
     private static final int RUNS = 3;
     /** Calls on the first round's choice before the second, final round of timing. */
     static final int SETTLE = 64;
-    private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose");
+    private static final boolean VERBOSE = JitnnConfig.current().get(JitnnConfig.VERBOSE);
     private static final Map<String, Race> RACES = new ConcurrentHashMap<>();
 
     private final String key;
@@ -102,7 +104,7 @@ public final class Race {
                 ways[i] = null;
             }
         }
-        String choose = System.getProperty("jitnn.cpu.native.choose", "measure");
+        String choose = JitnnConfig.current().get(JitnnConfig.CPU_NATIVE_CHOOSE);
         for (int i = 0; i < WAYS.length; i++) {
             if (WAYS[i].equals(choose)) {
                 return ways[i] != null ? i : 0;

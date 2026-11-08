@@ -19,6 +19,8 @@ import uk.ac.manchester.tornado.api.TornadoExecutionPlan;
 import uk.ac.manchester.tornado.api.common.TornadoDevice;
 import uk.ac.manchester.tornado.api.enums.TornadoVMBackendType;
 
+import ai.beestream.jitnn.JitnnConfig;
+
 /**
  * The device compiled plans run on: {@code -Djitnn.device=<driver>:<device>} (the numbering of
  * {@code tornado --devices}), else TornadoVM's default device; a thread may run on another device
@@ -26,7 +28,7 @@ import uk.ac.manchester.tornado.api.enums.TornadoVMBackendType;
  */
 final class Devices {
 
-    private static final String SPEC = System.getProperty("jitnn.device", "").trim();
+    private static final String SPEC = JitnnConfig.current().get(JitnnConfig.DEVICE).trim();
     private static final ThreadLocal<String> CURRENT = ThreadLocal.withInitial(() -> SPEC);
     private static final java.util.Map<String, TornadoVMBackendType> BACKENDS = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -130,7 +132,7 @@ final class Devices {
         static final String SPEC = find();
 
         private static String find() {
-            String p = System.getProperty("jitnn.cpu.opencl", "auto").trim();
+            String p = JitnnConfig.current().get(JitnnConfig.CPU_OPENCL).trim();
             if (p.equals("off")) {
                 return null;
             }

@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 
 import uk.ac.manchester.tornado.api.GridScheduler;
@@ -69,40 +70,40 @@ import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
 final class TornadoExecutor {
 
 
-    static final int CACHE_SIZE = Integer.getInteger("jitnn.plan.cache", 16);
-    static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose");
+    static final int CACHE_SIZE = JitnnConfig.current().get(JitnnConfig.PLAN_CACHE);
+    static final boolean VERBOSE = JitnnConfig.current().get(JitnnConfig.VERBOSE);
     /** Host inputs at least this large that are read again become persistent device storage. */
-    static final long PROMOTE_BYTES = Long.getLong("jitnn.promoteInputBytes", 16L << 20);
+    static final long PROMOTE_BYTES = JitnnConfig.current().get(JitnnConfig.PROMOTE_INPUT_BYTES);
     /** Prints the cache key of every compiled plan (to find what makes a trace recompile). */
-    static final boolean DEBUG_KEYS = Boolean.getBoolean("jitnn.debugKeys");
-    static final boolean PROFILE = Boolean.getBoolean("jitnn.profile");
+    static final boolean DEBUG_KEYS = JitnnConfig.current().get(JitnnConfig.DEBUG_KEYS);
+    static final boolean PROFILE = JitnnConfig.current().get(JitnnConfig.PROFILE);
     /**
      * Tasks per TornadoVM task graph before the trace is split into a chain of graphs. A graph's
      * high-level bytecode buffer is 8 KiB and a task takes 15 + 5 bytes per argument (jitNN
      * kernels take up to 19), next to the transfer declarations: 40 tasks stays inside it.
      */
-    static final int MAX_TASKS = Integer.getInteger("jitnn.graph.maxTasks", 40);
+    static final int MAX_TASKS = JitnnConfig.current().get(JitnnConfig.GRAPH_MAX_TASKS);
     /** Reuse dead intermediates' buffers within a compiled trace (default on). */
-    static final boolean REUSE = Boolean.parseBoolean(System.getProperty("jitnn.reuseBuffers", "true"));
+    static final boolean REUSE = JitnnConfig.current().get(JitnnConfig.REUSE_BUFFERS);
     /**
      * Reuse only buffers of exactly an intermediate's size ({@code -Djitnn.reuseBuffers.exact}): {@code auto}
      * (the default) on Metal with MLX, {@code true} always, {@code false} never.
      */
-    static final String EXACT_REUSE = System.getProperty("jitnn.reuseBuffers.exact", "auto");
+    static final String EXACT_REUSE = JitnnConfig.current().get(JitnnConfig.REUSE_BUFFERS_EXACT);
     /** On CUDA, capture each plan as a CUDA graph and replay it (default on). */
-    static final boolean CUDA_GRAPH = Boolean.parseBoolean(System.getProperty("jitnn.cudaGraph", "true"));
+    static final boolean CUDA_GRAPH = JitnnConfig.current().get(JitnnConfig.CUDA_GRAPH);
     /**
      * Ask TornadoVM to share kernels across array sizes (default on): a new batch or sequence size
      * then reuses the kernels compiled for earlier sizes instead of compiling every one again.
      */
-    static final boolean DYNAMIC_SHAPES = Boolean.parseBoolean(System.getProperty("jitnn.dynamicShapes", "true"));
+    static final boolean DYNAMIC_SHAPES = JitnnConfig.current().get(JitnnConfig.DYNAMIC_SHAPES);
     /**
      * Keep values a plan hands to its own next execution on the device (default on): an input that
      * is an output of the plan's previous execution (a gradient accumulated over steps) is copied
      * across on the device at the end of each execution, instead of being fetched to the host and
      * uploaded again. The plan is compiled once more when such an input is first seen.
      */
-    static final boolean CARRY = Boolean.parseBoolean(System.getProperty("jitnn.plan.carry", "true"));
+    static final boolean CARRY = JitnnConfig.current().get(JitnnConfig.PLAN_CARRY);
     static volatile boolean loaded;
 
     private TornadoExecutor() {
@@ -127,7 +128,7 @@ final class TornadoExecutor {
      * to this many threads run plans on the device at once. Threads of the same slot and device take
      * turns; threads on different devices (data-parallel ranks) do not wait for each other.
      */
-    static final int SLOTS = Math.max(1, Integer.getInteger("jitnn.concurrency", 1));
+    static final int SLOTS = Math.max(1, JitnnConfig.current().get(JitnnConfig.CONCURRENCY));
     static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.locks.ReentrantLock> SLOT_LOCKS = new java.util.concurrent.ConcurrentHashMap<>();
     static final java.util.concurrent.atomic.AtomicInteger NEXT_SLOT = new java.util.concurrent.atomic.AtomicInteger();
     static final ThreadLocal<Integer> SLOT = ThreadLocal.withInitial(() -> NEXT_SLOT.getAndIncrement() % SLOTS);

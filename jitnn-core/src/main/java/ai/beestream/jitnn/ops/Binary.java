@@ -16,6 +16,7 @@
 package ai.beestream.jitnn.ops;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
@@ -135,7 +136,7 @@ public final class Binary implements Op {
     }
 
     /** The {@code (i / div) % mod} kernel for block-repeating broadcasts unless {@code -Djitnn.binaryRepeat=false}. */
-    static final boolean REPEAT = !"false".equals(System.getProperty("jitnn.binaryRepeat"));
+    static final boolean REPEAT = JitnnConfig.current().get(JitnnConfig.BINARY_REPEAT);
 
     /**
      * {div, mod} when the operand, aligned to the output's trailing dimensions, is 1 everywhere

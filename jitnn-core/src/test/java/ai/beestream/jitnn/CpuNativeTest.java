@@ -43,28 +43,28 @@ class CpuNativeTest {
 
     @AfterEach
     void reset() {
-        System.clearProperty("jitnn.cpu.native.choose");
+        JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, null);
         Race.reset();
     }
 
     @TestFactory
     List<DynamicTest> cpuWithBlasMatchesPyTorch() {
         Assumptions.assumeTrue(Blas.library() != null, "no BLAS library");
-        System.setProperty("jitnn.cpu.native.choose", "blas");
+        JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, "blas");
         return GoldenOps.tests(Backend.CPU);
     }
 
     @TestFactory
     List<DynamicTest> cpuWithOneDnnMatchesPyTorch() {
         Assumptions.assumeTrue(Dnnl.available(), "no oneDNN library");
-        System.setProperty("jitnn.cpu.native.choose", "onednn");
+        JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, "onednn");
         return GoldenOps.tests(Backend.CPU);
     }
 
     @TestFactory
     List<DynamicTest> cpuWithBnnsMatchesPyTorch() {
         Assumptions.assumeTrue(Bnns.available(), "no BNNS");
-        System.setProperty("jitnn.cpu.native.choose", "bnns");
+        JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, "bnns");
         return GoldenOps.tests(Backend.CPU);
     }
 
@@ -108,14 +108,14 @@ class CpuNativeTest {
             }
             return concat(parts);
         };
-        System.setProperty("jitnn.cpu.native.choose", "kernel");
+        JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, "kernel");
         float[] kernels = Engine.with(Backend.CPU, step::get);
-        System.setProperty("jitnn.cpu.native.choose", library);
+        JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, library);
         for (int i = 0; i < 2; i++) {
             close(kernels, Engine.with(Backend.CPU, step::get), 1e-4, 1e-4, library + " step " + i);
         }
         // timed: whichever way wins, the results stay the same
-        System.setProperty("jitnn.cpu.native.choose", "measure");
+        JitnnConfig.change(JitnnConfig.CPU_NATIVE_CHOOSE, "measure");
         for (int i = 0; i < 10; i++) {
             close(kernels, Engine.with(Backend.CPU, step::get), 1e-4, 1e-4, "timed step " + i);
         }

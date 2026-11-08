@@ -16,19 +16,20 @@
 package ai.beestream.jitnn.ops;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
 import ai.beestream.jitnn.engine.Node;
 import ai.beestream.jitnn.engine.Op;
+import ai.beestream.jitnn.kernels.AttentionGatherKernels;
+import ai.beestream.jitnn.kernels.AttentionHalfKernels;
 import ai.beestream.jitnn.kernels.FlashKernels128;
 import ai.beestream.jitnn.kernels.FlashKernels32;
 import ai.beestream.jitnn.kernels.FlashKernels64;
-import ai.beestream.jitnn.kernels.AttentionGatherKernels;
 import ai.beestream.jitnn.kernels.FlashMma;
 import ai.beestream.jitnn.kernels.FlashTiled64;
 import ai.beestream.jitnn.kernels.FlashTiled64Half;
-import ai.beestream.jitnn.kernels.AttentionHalfKernels;
 
 import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
@@ -56,7 +57,7 @@ public final class FlashAttention implements Op {
     /** Largest head dimension of the fused kernels. */
     public static final int MAX_HEAD = FlashKernels128.D;
     /** The tiled kernels ({@link FlashTiled64}) for head dimensions up to 64 unless {@code -Djitnn.flash=simple}. */
-    static final boolean TILED = !"simple".equals(System.getProperty("jitnn.flash"));
+    static final boolean TILED = "tiled".equals(JitnnConfig.current().get(JitnnConfig.FLASH));
 
     static final FlashAttention OP = new FlashAttention();
     static final Backward BACKWARD = new Backward();
@@ -113,7 +114,7 @@ public final class FlashAttention implements Op {
     }
 
     /** The tensor-core kernels ({@link FlashMma}) for FP16 inputs on CUDA ({@code -Djitnn.flash.mma=false} turns them off). */
-    private static final boolean MMA = !"false".equals(System.getProperty("jitnn.flash.mma"));
+    private static final boolean MMA = JitnnConfig.current().get(JitnnConfig.FLASH_MMA);
 
     /** Whether FP16 attention of head dimension d runs on the tensor-core kernels. */
     private static boolean mmaKernels(int d) {
@@ -166,7 +167,7 @@ public final class FlashAttention implements Op {
      * (a cuDNN attention that builds no plan on the device falls back to CUTLASS), else the FP16
      * FlashAttention kernel; {@code cudnn}, {@code cutlass} and {@code flash} force one.
      */
-    private static final String HALF_ATTENTION = System.getProperty("jitnn.halfAttention", "auto");
+    private static final String HALF_ATTENTION = JitnnConfig.current().get(JitnnConfig.HALF_ATTENTION);
 
     private static boolean useCudnnAttention(int t, int s, int d, int causal) {
         return (HALF_ATTENTION.equals("auto") || HALF_ATTENTION.equals("cudnn")) && d % 8 == 0 && d <= 256 && (causal == 0 || t == s)

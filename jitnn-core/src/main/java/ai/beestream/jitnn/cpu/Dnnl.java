@@ -30,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import ai.beestream.jitnn.JitnnConfig;
+
 /**
  * oneDNN's convolutions (forward with bias and ReLU, backward data, backward weights), called
  * through the foreign function API: {@code -Djitnn.cpu.onednn=<library file>} names the library
@@ -85,7 +87,7 @@ public final class Dnnl {
 
     static {
         String name = null;
-        String p = System.getProperty("jitnn.cpu.onednn", "auto").trim();
+        String p = JitnnConfig.current().get(JitnnConfig.CPU_ONEDNN);
         if (!p.equals("off")) {
             for (String candidate : p.equals("auto") ? AUTO : new String[] { p }) {
                 try {
@@ -100,7 +102,7 @@ public final class Dnnl {
             }
         }
         NAME = name;
-        if (NAME != null && Boolean.getBoolean("jitnn.verbose")) {
+        if (NAME != null && JitnnConfig.current().get(JitnnConfig.VERBOSE)) {
             System.err.println("[jitnn] the CPU backend calls the convolutions of " + NAME + (ompSetThreads != null ? " (" + Cpu.threads() + " OpenMP threads)" : ""));
         }
     }

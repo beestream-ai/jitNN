@@ -16,6 +16,7 @@
 package ai.beestream.jitnn.ops;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
@@ -259,7 +260,7 @@ public final class RowNorm implements Op {
     }
 
     /** Warp-per-row kernels with warp reductions on CUDA unless {@code -Djitnn.rownorm=group}. */
-    static final boolean WARP = !"group".equals(System.getProperty("jitnn.rownorm"));
+    static final boolean WARP = "warp".equals(JitnnConfig.current().get(JitnnConfig.ROWNORM));
 
     @Override
     public void reference(Node n) {

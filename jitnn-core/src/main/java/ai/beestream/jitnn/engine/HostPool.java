@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 
 import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
 
@@ -35,7 +36,7 @@ import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
  */
 final class HostPool {
 
-    private static volatile long cap = Long.getLong("jitnn.hostPool.bytes", 256L << 20);
+    private static volatile long cap = JitnnConfig.current().get(JitnnConfig.HOST_POOL_BYTES);
     private static final Cleaner CLEANER = Cleaner.create();
     private static final Map<Long, ArrayDeque<TornadoNativeArray>> FREE = new HashMap<>();
     private static long bytes;

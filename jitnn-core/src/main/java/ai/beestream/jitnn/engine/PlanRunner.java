@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 import uk.ac.manchester.tornado.api.GridScheduler;
 import uk.ac.manchester.tornado.api.TaskGraph;
@@ -384,7 +385,7 @@ final class PlanRunner {
     }
 
     /** Inputs from this size are copied into a plan's buffer by several threads. */
-    static final long PARALLEL_COPY_BYTES = Long.getLong("jitnn.parallelCopyBytes", 32L << 20);
+    static final long PARALLEL_COPY_BYTES = JitnnConfig.current().get(JitnnConfig.PARALLEL_COPY_BYTES);
     static final int COPY_THREADS = Math.min(8, Runtime.getRuntime().availableProcessors());
 
     /**

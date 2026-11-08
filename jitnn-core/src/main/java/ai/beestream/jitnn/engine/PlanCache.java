@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 import uk.ac.manchester.tornado.api.GridScheduler;
 import uk.ac.manchester.tornado.api.TaskGraph;
@@ -266,8 +267,8 @@ final class PlanCache {
      * validation pass between epochs), freeing their device buffers. A closed plan that comes back
      * is compiled again.
      */
-    static final long IDLE_BYTES = Long.getLong("jitnn.plan.idleBytes", 64L << 20);
-    static final long IDLE_EXECUTIONS = Long.getLong("jitnn.plan.idleExecutions", 256);
+    static final long IDLE_BYTES = JitnnConfig.current().get(JitnnConfig.PLAN_IDLE_BYTES);
+    static final long IDLE_EXECUTIONS = JitnnConfig.current().get(JitnnConfig.PLAN_IDLE_EXECUTIONS);
 
     static void evictIdle(CompiledTrace running) {
         if ((executionsTotal & 31) != 0) {

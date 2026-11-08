@@ -16,6 +16,7 @@
 package ai.beestream.jitnn.ops;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
@@ -124,14 +125,14 @@ public final class Recurrent {
     }
 
     /** The tiled step kernels unless {@code -Djitnn.rnn=simple} (the thread-per-cell kernels). */
-    static final boolean TILED = !"simple".equals(System.getProperty("jitnn.rnn"));
+    static final boolean TILED = !"simple".equals(JitnnConfig.current().get(JitnnConfig.RNN));
 
     /**
      * The fused LSTM kernels (the whole sequence in one launch, a work-group per batch row) for
      * layers up to {@link RnnKernels#FUSED_MAX_H} hidden units and {@link #FUSED_MAX_B} rows, unless
      * {@code -Djitnn.rnn=steps} or {@code simple} (a launch per timestep).
      */
-    static final boolean FUSED = System.getProperty("jitnn.rnn") == null || "fused".equals(System.getProperty("jitnn.rnn"));
+    static final boolean FUSED = "fused".equals(JitnnConfig.current().get(JitnnConfig.RNN));
 
     /** Above this batch, the per-step kernels, which share W_hh across rows, win. */
     static final int FUSED_MAX_B = 256;

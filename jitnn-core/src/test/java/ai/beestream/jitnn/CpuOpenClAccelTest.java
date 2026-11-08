@@ -41,12 +41,12 @@ class CpuOpenClAccelTest {
     @BeforeAll
     static void device() {
         Assumptions.assumeTrue(Engine.cpuOpenClDevice() != null, "no OpenCL device on the host CPU");
-        System.setProperty("jitnn.cpu.opencl.choose", "always");
+        JitnnConfig.change(JitnnConfig.CPU_OPENCL_CHOOSE, "always");
     }
 
     @AfterAll
     static void reset() {
-        System.clearProperty("jitnn.cpu.opencl.choose");
+        JitnnConfig.change(JitnnConfig.CPU_OPENCL_CHOOSE, null);
     }
 
     @TestFactory
@@ -92,13 +92,13 @@ class CpuOpenClAccelTest {
         // the default: the reference twice, the device three times, then the faster of the two
         Supplier<float[]> step = () -> F.interpolate(Tensor.uniform(5, -1, 1, 4, 8, 32, 32).relu(), 64, 64, false, false).permute(0, 3, 1, 2).sum(1, false).toFloatArray();
         float[] expected = Engine.with(Backend.REFERENCE, step::get);
-        System.clearProperty("jitnn.cpu.opencl.choose");
+        JitnnConfig.change(JitnnConfig.CPU_OPENCL_CHOOSE, null);
         try {
             for (int i = 0; i < 7; i++) {
                 close(expected, Engine.with(Backend.CPU, step::get), 1e-5, 1e-5, "step " + i);
             }
         } finally {
-            System.setProperty("jitnn.cpu.opencl.choose", "always");
+            JitnnConfig.change(JitnnConfig.CPU_OPENCL_CHOOSE, "always");
         }
     }
 

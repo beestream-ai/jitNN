@@ -27,6 +27,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import ai.beestream.jitnn.JitnnConfig;
+
 /**
  * Per-GPU tuning tables: the kernel variant to use for each shape class, measured offline by
  * sweeping every variant over the reference workloads (scripts/tune.py in jitNN-benchmarking) and read when a plan
@@ -43,7 +45,7 @@ import java.util.regex.Pattern;
  */
 public final class Tuning {
 
-    private static final String SETTING = System.getProperty("jitnn.tuning", "").trim();
+    private static final String SETTING = JitnnConfig.current().get(JitnnConfig.TUNING).trim();
     private static final Map<String, Map<String, String>> TABLES = new ConcurrentHashMap<>();
     private static final Pattern ENTRY = Pattern.compile("\"([^\"]+)\"\\s*:\\s*\"([^\"]+)\"");
 

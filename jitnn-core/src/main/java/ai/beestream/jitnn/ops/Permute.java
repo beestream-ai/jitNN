@@ -16,6 +16,7 @@
 package ai.beestream.jitnn.ops;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
@@ -102,7 +103,7 @@ public final class Permute implements Op {
             int rows = n.in(0).dim(-2);
             int cols = n.in(0).dim(-1);
             int batch = n.in(0).numel() / Math.max(rows * cols, 1);
-            String variant = System.getProperty("jitnn.transpose", "32");
+            String variant = JitnnConfig.current().get(JitnnConfig.TRANSPOSE);
             if (variant.equals("32")) {
                 int tilesY = Emitter.ceilDiv(rows, 32);
                 e.task(Emitter.blocks2D(Emitter.ceilDiv(cols, 32), tilesY * batch, 32, 8),

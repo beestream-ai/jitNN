@@ -16,6 +16,7 @@
 package ai.beestream.jitnn.ops;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
@@ -49,7 +50,7 @@ public final class Gguf {
     static final MatVec MAT_VEC = new MatVec();
 
     /** Up to this many input rows use the quantised kernels; beyond, dequantise and GEMM. */
-    public static final int TILED_ROWS = Integer.getInteger("jitnn.gguf.tiledRows", 32);
+    public static final int TILED_ROWS = JitnnConfig.current().get(JitnnConfig.GGUF_TILED_ROWS);
     static final int LOCAL = 128;
 
     private Gguf() {

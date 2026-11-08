@@ -32,6 +32,7 @@ import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 
 /**
@@ -139,7 +140,7 @@ public class JitnnNDManager extends BaseNDManager {
     }
 
     /** Arrays created from host data at least this large are kept in persistent device storage. */
-    static final long PERSISTENT_BYTES = Long.getLong("jitnn.djl.persistentBytes", 4L << 20);
+    static final long PERSISTENT_BYTES = JitnnConfig.current().get(JitnnConfig.DJL_PERSISTENT_BYTES);
 
     @Override
     public JitnnNDArray create(Shape shape, DataType dataType) {

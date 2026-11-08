@@ -23,6 +23,7 @@ import java.util.Map;
 
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.F;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.onnx.OnnxModel.Node;
@@ -46,7 +47,7 @@ final class OnnxOps {
     }
 
     /** Fused attention up to this many (batch x heads) rows, unfused beyond ({@code -Djitnn.onnx.fusedAttentionRows}). */
-    static final int FUSED_ATTENTION_ROWS = Integer.getInteger("jitnn.onnx.fusedAttentionRows", 32);
+    static final int FUSED_ATTENTION_ROWS = JitnnConfig.current().get(JitnnConfig.ONNX_FUSED_ATTENTION_ROWS);
 
     private OnnxOps() {
     }

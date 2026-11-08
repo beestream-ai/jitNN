@@ -27,6 +27,7 @@ import java.util.TreeSet;
 import ai.beestream.jitnn.Autocast;
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.Grad;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.onnx.OnnxModel.Node;
 import ai.beestream.jitnn.onnx.OnnxModel.TensorData;
@@ -57,7 +58,7 @@ public final class OnnxSession implements AutoCloseable {
      * Half precision keeps activations in FP16 ({@code -Djitnn.onnx.halfActivations}, default true):
      * BERT-base on an A10 ran 1.5-2.0x faster than with FP16 products alone.
      */
-    private static final boolean HALF_ACTIVATIONS = !"false".equals(System.getProperty("jitnn.onnx.halfActivations"));
+    private static final boolean HALF_ACTIVATIONS = JitnnConfig.current().get(JitnnConfig.ONNX_HALF_ACTIVATIONS);
 
     private OnnxSession(OnnxModel model, boolean half) {
         this.model = model;
@@ -89,7 +90,7 @@ public final class OnnxSession implements AutoCloseable {
             throw new UnsupportedOperationException("ONNX operators not supported by jitNN: " + missing);
         }
         java.util.Set<String> outs = new java.util.HashSet<>(outputNames());
-        nodes = Boolean.parseBoolean(System.getProperty("jitnn.onnx.rewrite", "true")) ? Rewrites.apply(lowered, constants, outs, half) : lowered;
+        nodes = JitnnConfig.current().get(JitnnConfig.ONNX_REWRITE) ? Rewrites.apply(lowered, constants, outs, half) : lowered;
     }
 
     /**
@@ -108,7 +109,7 @@ public final class OnnxSession implements AutoCloseable {
     }
 
     /** Buckets for every session ({@code -Djitnn.onnx.buckets=1,2,4,8,...}, see {@link #withBuckets}), or none. */
-    private static final int[] DEFAULT_BUCKETS = parseBuckets(System.getProperty("jitnn.onnx.buckets", ""));
+    private static final int[] DEFAULT_BUCKETS = parseBuckets(JitnnConfig.current().get(JitnnConfig.ONNX_BUCKETS));
 
     private static int[] parseBuckets(String s) {
         if (s.isBlank()) {

@@ -20,11 +20,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.ops.Unary;
 import ai.beestream.jitnn.onnx.OnnxModel.Attribute;
 import ai.beestream.jitnn.onnx.OnnxModel.Node;
 import ai.beestream.jitnn.onnx.OnnxOps.Handler;
+import ai.beestream.jitnn.ops.Unary;
 
 /**
  * Quantised ONNX models: the QDQ format (QuantizeLinear / DequantizeLinear around float operators,
@@ -126,7 +127,7 @@ final class OnnxQuant {
      * Products in INT8 ({@code -Djitnn.onnx.int8=false} keeps them in FP32 on dequantised values):
      * the INT8 tensor-core kernels on CUDA, an INT32 loop elsewhere.
      */
-    private static final boolean INT8_KERNELS = !"false".equals(System.getProperty("jitnn.onnx.int8"));
+    private static final boolean INT8_KERNELS = JitnnConfig.current().get(JitnnConfig.ONNX_INT8);
 
     /**
      * MatMul(DequantizeLinear(a, s, z), DequantizeLinear(w, sw)) with a constant INT8 w [K, N] (zero

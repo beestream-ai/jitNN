@@ -24,6 +24,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 
 import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
@@ -45,15 +46,15 @@ import uk.ac.manchester.tornado.api.types.arrays.TornadoNativeArray;
  */
 final class CpuExecutor {
 
-    static final boolean STATS = Boolean.getBoolean("jitnn.cpu.stats");
+    static final boolean STATS = JitnnConfig.current().get(JitnnConfig.CPU_STATS);
     /** With {@code jitnn.cpu.stats}: one row per operator and attributes (shapes), not per operator. */
-    private static final boolean BY_SHAPE = Boolean.getBoolean("jitnn.cpu.stats.shapes");
+    private static final boolean BY_SHAPE = JitnnConfig.current().get(JitnnConfig.CPU_STATS_SHAPES);
     /** Per operator name: calls, nanoseconds (with {@link #STATS}), calls that ran the reference, calls that ran on the host's OpenCL device. */
     private static final Map<String, LongAdder[]> BY_OP = new ConcurrentHashMap<>();
 
     static {
-        if (System.getProperty("jitnn.hostPool.bytes") == null) {
-            HostPool.raiseCap(Long.getLong("jitnn.cpu.poolBytes", 2L << 30));
+        if (!JitnnConfig.current().isSet(JitnnConfig.HOST_POOL_BYTES)) {
+            HostPool.raiseCap(JitnnConfig.current().get(JitnnConfig.CPU_POOL_BYTES));
         }
         if (STATS) {
             Runtime.getRuntime().addShutdownHook(new Thread(() -> System.err.print(report()), "jitnn-cpu-stats"));
@@ -64,9 +65,9 @@ final class CpuExecutor {
     }
 
     /** Reuse the arrays of a trace's previous execution ({@code -Djitnn.cpu.reuse=false} turns it off). */
-    private static final boolean REUSE = !"false".equals(System.getProperty("jitnn.cpu.reuse"));
+    private static final boolean REUSE = JitnnConfig.current().get(JitnnConfig.CPU_REUSE);
     /** Trace structures remembered per thread. */
-    private static final int REMEMBERED = Integer.getInteger("jitnn.cpu.reuse.traces", 32);
+    private static final int REMEMBERED = JitnnConfig.current().get(JitnnConfig.CPU_REUSE_TRACES);
 
     /**
      * The previous execution of one trace structure: per storage slot, the storage it produced (weakly:
@@ -291,7 +292,7 @@ final class CpuExecutor {
         }
 
         private static boolean always() {
-            return "always".equals(System.getProperty("jitnn.cpu.opencl.choose"));
+            return "always".equals(JitnnConfig.current().get(JitnnConfig.CPU_OPENCL_CHOOSE));
         }
 
         synchronized boolean onDevice() {
@@ -320,7 +321,7 @@ final class CpuExecutor {
             }
             if (deviceRuns == 3) {
                 decided = device < reference ? DEVICE : REFERENCE;
-                if (Boolean.getBoolean("jitnn.verbose")) {
+                if (JitnnConfig.current().get(JitnnConfig.VERBOSE)) {
                     System.err.printf("[jitnn] %s runs %s: %.3f ms on the host's OpenCL device, %.3f ms as reference%n", key, decided == DEVICE ? "on the OpenCL device" : "its reference",
                             device / 1e6, reference / 1e6);
                 }
@@ -360,7 +361,7 @@ final class CpuExecutor {
         try {
             TornadoExecutor.run(segment, back.toArray(new Tensor[0]));
         } catch (RuntimeException e) {
-            if (Boolean.getBoolean("jitnn.verbose")) {
+            if (JitnnConfig.current().get(JitnnConfig.VERBOSE)) {
                 System.err.printf("[jitnn] the host's OpenCL device did not run %s: %s%n", segment.stream().map(n -> n.op.name()).toList(), e.getMessage());
             }
             return -1;

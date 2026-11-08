@@ -15,9 +15,10 @@
  */
 package ai.beestream.jitnn.natives;
 
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.engine.Emitter;
-import ai.beestream.jitnn.engine.Native;
 import ai.beestream.jitnn.engine.Native.Lib;
+import ai.beestream.jitnn.engine.Native;
 import ai.beestream.jitnn.kernels.LibraryGlueKernels;
 
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
@@ -59,7 +60,7 @@ public final class Libs {
      * Fewest flops for MLX to take operands held in larger arrays (intermediates in reused buffers),
      * through exact-size copies; below it the copies' launches cost more than they save.
      */
-    private static final long MLX_COPY_MIN_FLOPS = Long.getLong("jitnn.native.mlxCopyMinFlops", 1L << 30);
+    private static final long MLX_COPY_MIN_FLOPS = JitnnConfig.current().get(JitnnConfig.NATIVE_MLX_COPY_MIN_FLOPS);
 
     /** Whether MLX can take these operands: exactly sized, or larger and the product big enough to copy them. */
     private static boolean mlxOperands(FloatArray a, FloatArray b, FloatArray c, long na, long nb, long nc, long flops) {
@@ -179,10 +180,10 @@ public final class Libs {
      * {@code -Djitnn.native.approximateGelu=false} (the difference, at most about 5e-4, is below
      * FP16's rounding of the outputs).
      */
-    private static final boolean APPROXIMATE_GELU = !"false".equals(System.getProperty("jitnn.native.approximateGelu"));
+    private static final boolean APPROXIMATE_GELU = JitnnConfig.current().get(JitnnConfig.NATIVE_APPROXIMATE_GELU);
 
     /** The bias of FP16 products in cuBLASLt's epilogue unless {@code -Djitnn.native.biasEpilogue=false}. */
-    private static final boolean BIAS_EPILOGUE = !"false".equals(System.getProperty("jitnn.native.biasEpilogue"));
+    private static final boolean BIAS_EPILOGUE = JitnnConfig.current().get(JitnnConfig.NATIVE_BIAS_EPILOGUE);
 
     /** FP16 C [m, n] = op(A) op(B) (+ epilogue, applied in FP32) for FP16 A and B. */
     public static boolean gemmHalfOut(Emitter e, HalfFloatArray a, HalfFloatArray b, HalfFloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
@@ -354,7 +355,7 @@ public final class Libs {
      * Fewest multiply-adds (2 x N x Cout x OH x OW x Cin x K x K) for a convolution to go to cuDNN
      * ({@code -Djitnn.native.convMinFlops}): smaller ones keep jitNN's kernels.
      */
-    private static final long CONV_MIN_FLOPS = Long.getLong("jitnn.native.convMinFlops", 1L << 30);
+    private static final long CONV_MIN_FLOPS = JitnnConfig.current().get(JitnnConfig.NATIVE_CONV_MIN_FLOPS);
 
     /**
      * out [n, cout, oh, ow] = conv(x [n, cin, h, w], w [cout, cin, r, r]) (+ per-channel bias, ReLU
@@ -396,7 +397,7 @@ public final class Libs {
     }
 
     /** Fewest multiply-adds for a convolution to go to MLX ({@code -Djitnn.native.mlxConvMinFlops}): below it the layout transposes cost more than they save. */
-    private static final long MLX_CONV_MIN_FLOPS = Long.getLong("jitnn.native.mlxConvMinFlops", 1L << 28);
+    private static final long MLX_CONV_MIN_FLOPS = JitnnConfig.current().get(JitnnConfig.NATIVE_MLX_CONV_MIN_FLOPS);
 
     /**
      * Whether TornadoVM's MLX convolution reproduces MLX's kernel choice for this shape (one group, no
@@ -473,7 +474,7 @@ public final class Libs {
      * multiply-adds), {@code half} (FP16 only) or {@code off} (channels-first, NCHW). cuDNN's NHWC
      * kernels read the layout the tensor cores use without transposing it.
      */
-    private static final String CUDNN_CHANNELS_LAST = System.getProperty("jitnn.native.cudnnChannelsLast", "all");
+    private static final String CUDNN_CHANNELS_LAST = JitnnConfig.current().get(JitnnConfig.NATIVE_CUDNN_CHANNELS_LAST);
 
     /** Whether cuDNN takes channels-last convolutions (FP16 when {@code half}) on the current device. */
     private static boolean cudnnChannelsLast(boolean half) {
@@ -623,7 +624,7 @@ public final class Libs {
     }
 
     /** cuDNN's FP16 attention for FP32 tensors ({@code -Djitnn.native.attentionFp16=true}): rounds q, k and v to FP16. */
-    private static final boolean ATTENTION_FP16 = Boolean.getBoolean("jitnn.native.attentionFp16");
+    private static final boolean ATTENTION_FP16 = JitnnConfig.current().get(JitnnConfig.NATIVE_ATTENTION_FP16);
 
     /**
      * o = softmax(scale q k^T (+ causal mask)) v for contiguous q, o [batch, heads, t, d] and k, v
@@ -660,7 +661,7 @@ public final class Libs {
     }
 
     /** Fewest q k^T multiply-adds (z t s d) for attention in another layout to be gathered for MLX. */
-    private static final long MLX_GATHER_MIN = Long.getLong("jitnn.native.mlxGatherMin", 1L << 26);
+    private static final long MLX_GATHER_MIN = JitnnConfig.current().get(JitnnConfig.NATIVE_MLX_GATHER_MIN);
 
     /**
      * Whether attention of this shape held in another layout (packed or [B, T, H, d]) is worth gathering

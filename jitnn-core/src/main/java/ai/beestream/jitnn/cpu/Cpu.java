@@ -24,6 +24,8 @@ import java.util.concurrent.locks.LockSupport;
 
 import jdk.incubator.vector.FloatVector;
 
+import ai.beestream.jitnn.JitnnConfig;
+
 /**
  * The CPU backend's threads. One process-wide pool of {@code jitnn.cpu.threads} threads (default:
  * the physical cores this process may use, at most one socket's: hyper-threads do not speed up
@@ -37,7 +39,7 @@ import jdk.incubator.vector.FloatVector;
  */
 public final class Cpu {
 
-    private static final int THREADS = Math.max(1, Integer.getInteger("jitnn.cpu.threads", defaultThreads()));
+    private static final int THREADS = Math.max(1, java.util.Objects.requireNonNullElseGet(JitnnConfig.current().get(JitnnConfig.CPU_THREADS), Cpu::defaultThreads));
     private static final ReentrantLock POOL = new ReentrantLock();
     private static final ThreadLocal<Boolean> INSIDE = ThreadLocal.withInitial(() -> Boolean.FALSE);
     private static volatile Worker[] workers;
@@ -45,7 +47,7 @@ public final class Cpu {
      * 200 us by default, none on macOS: there spinning pool threads made ResNet-50 b1 29% slower on
      * the backend's own kernels and BERT b1 16% slower with Accelerate (M4 Pro).
      */
-    private static final long SPIN_NANOS = Long.getLong("jitnn.cpu.spinMicros", System.getProperty("os.name", "").startsWith("Mac") ? 0 : 200) * 1000;
+    private static final long SPIN_NANOS = java.util.Objects.requireNonNullElse(JitnnConfig.current().get(JitnnConfig.CPU_SPIN_MICROS), System.getProperty("os.name", "").startsWith("Mac") ? 0L : 200L) * 1000;
 
     private Cpu() {
     }

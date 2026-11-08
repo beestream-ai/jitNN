@@ -24,14 +24,15 @@ import java.util.Map;
 import java.util.Set;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
 import ai.beestream.jitnn.engine.Node;
 import ai.beestream.jitnn.engine.Op;
 import ai.beestream.jitnn.engine.Storage;
-import ai.beestream.jitnn.kernels.FusedKernels;
 import ai.beestream.jitnn.kernels.FoldKernels;
+import ai.beestream.jitnn.kernels.FusedKernels;
 
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
@@ -51,7 +52,7 @@ import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
  */
 public final class Fusion {
 
-    private static final boolean ENABLED = !"false".equals(System.getProperty("jitnn.fuse"));
+    private static final boolean ENABLED = JitnnConfig.current().get(JitnnConfig.FUSE);
 
     static final FoldBatchNorm FOLD_BN = new FoldBatchNorm();
 
@@ -159,7 +160,7 @@ public final class Fusion {
     }
 
     /** Element-wise chains into one kernel unless {@code -Djitnn.fuse.elementwise=false}. */
-    private static final boolean ELEMENTWISE = !"false".equals(System.getProperty("jitnn.fuse.elementwise"));
+    private static final boolean ELEMENTWISE = JitnnConfig.current().get(JitnnConfig.FUSE_ELEMENTWISE);
 
     private static boolean elementwise(Node n) {
         if (n.op != Unary.OP && n.op != Binary.OP) {

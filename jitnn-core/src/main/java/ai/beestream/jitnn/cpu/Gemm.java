@@ -25,6 +25,8 @@ import jdk.incubator.vector.FloatVector;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
+import ai.beestream.jitnn.JitnnConfig;
+
 /**
  * FP32 matrix multiplication on the CPU, C [m, n] = A [m, k] B [k, n] with an epilogue (bias per row
  * or per column, ReLU, GELU), in the BLIS scheme: A is packed into panels of {@link #MR} rows and B
@@ -44,11 +46,11 @@ public final class Gemm {
     /** Columns of B per micro-tile: two vectors. */
     public static final int NR = 2 * L;
 
-    private static final int KC = Integer.getInteger("jitnn.cpu.gemm.kc", 256);
-    private static final int MC_PANELS = Integer.getInteger("jitnn.cpu.gemm.mcPanels", 16);
-    private static final int NC_PANELS = Math.max(1, Integer.getInteger("jitnn.cpu.gemm.nc", 256) / NR);
+    private static final int KC = JitnnConfig.current().get(JitnnConfig.CPU_GEMM_KC);
+    private static final int MC_PANELS = JitnnConfig.current().get(JitnnConfig.CPU_GEMM_MC_PANELS);
+    private static final int NC_PANELS = Math.max(1, JitnnConfig.current().get(JitnnConfig.CPU_GEMM_NC) / NR);
     /** Multiply-adds a tile of C holds at least, so small products are not cut finer than pays. */
-    private static final long TILE_MIN_MACS = Long.getLong("jitnn.cpu.gemm.tileMacs", 1L << 20);
+    private static final long TILE_MIN_MACS = JitnnConfig.current().get(JitnnConfig.CPU_GEMM_TILE_MACS);
     /** Elements one parallel chunk packs at least. */
     private static final int PACK_GRAIN = 1 << 15;
 
@@ -77,7 +79,7 @@ public final class Gemm {
     public record Matrix(MemorySegment seg, long off, long xs, long qs) {
     }
 
-    private static final boolean STATS = Boolean.getBoolean("jitnn.cpu.stats");
+    private static final boolean STATS = JitnnConfig.current().get(JitnnConfig.CPU_STATS);
     private static final java.util.concurrent.atomic.LongAdder PACK_NANOS = new java.util.concurrent.atomic.LongAdder();
     private static final java.util.concurrent.atomic.LongAdder COMPUTE_NANOS = new java.util.concurrent.atomic.LongAdder();
 

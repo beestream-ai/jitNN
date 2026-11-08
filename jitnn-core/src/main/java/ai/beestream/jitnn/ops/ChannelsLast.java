@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
 import ai.beestream.jitnn.engine.Node;
@@ -43,9 +44,9 @@ import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
  */
 public final class ChannelsLast {
 
-    private static final boolean ENABLED = !"false".equals(System.getProperty("jitnn.channelsLast"));
+    private static final boolean ENABLED = JitnnConfig.current().get(JitnnConfig.CHANNELS_LAST);
     /** Logs each layout conversion and the operator that needs it ({@code -Djitnn.channelsLast.verbose=true}). */
-    private static final boolean VERBOSE = Boolean.getBoolean("jitnn.channelsLast.verbose");
+    private static final boolean VERBOSE = JitnnConfig.current().get(JitnnConfig.CHANNELS_LAST_VERBOSE);
 
     static final Conv CONV = new Conv();
     static final Winograd WINOGRAD = new Winograd();

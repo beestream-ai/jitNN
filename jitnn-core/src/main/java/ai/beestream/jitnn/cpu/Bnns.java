@@ -26,6 +26,8 @@ import java.lang.invoke.MethodHandle;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import ai.beestream.jitnn.JitnnConfig;
+
 /**
  * The convolutions of Apple's BNNS (Accelerate, macOS): forward with bias and ReLU, backward data
  * and backward weights, grouped too, called through the foreign function API on {@link
@@ -70,7 +72,7 @@ public final class Bnns {
 
     static {
         MethodHandle create = null, apply = null, backward = null, destroy = null;
-        String p = System.getProperty("jitnn.cpu.bnns", "auto").trim();
+        String p = JitnnConfig.current().get(JitnnConfig.CPU_BNNS);
         if (!p.equals("off") && System.getProperty("os.name", "").startsWith("Mac")) {
             try {
                 Linker linker = Linker.nativeLinker();

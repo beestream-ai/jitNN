@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Tensor;
 import uk.ac.manchester.tornado.api.GridScheduler;
 import uk.ac.manchester.tornado.api.TaskGraph;
@@ -55,7 +56,7 @@ final class PlanMemo {
      * shapes, storage kinds and parameter versions replays its plan without being rewritten and
      * keyed again, which is most of jitNN's host time per call at small batches.
      */
-    static final boolean MEMO = Boolean.parseBoolean(System.getProperty("jitnn.plan.memo", "true"));
+    static final boolean MEMO = JitnnConfig.current().get(JitnnConfig.PLAN_MEMO);
     static final int MEMO_MAX = 64;
     static final Map<Integer, List<Memo>> MEMOS = new java.util.HashMap<>();
     static int memoCount;

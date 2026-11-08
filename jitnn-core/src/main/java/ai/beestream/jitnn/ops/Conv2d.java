@@ -16,6 +16,7 @@
 package ai.beestream.jitnn.ops;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 import ai.beestream.jitnn.engine.Emitter;
@@ -114,26 +115,26 @@ public final class Conv2d implements Op {
     }
 
     /** The padded, prefetching implicit-GEMM kernels unless {@code -Djitnn.conv=simple}. */
-    static final boolean PADDED = !"simple".equals(System.getProperty("jitnn.conv"));
+    static final boolean PADDED = "padded".equals(JitnnConfig.current().get(JitnnConfig.CONV));
     /**
      * Winograd for 3x3 stride-1 convolutions unless {@code -Djitnn.winograd=false}; {@code =2}
      * keeps F(2x2, 3x3) everywhere (see {@link #winograd4}).
      */
-    static final String WINOGRAD_MODE = System.getProperty("jitnn.winograd", "auto");
+    static final String WINOGRAD_MODE = JitnnConfig.current().get(JitnnConfig.WINOGRAD);
     static final boolean WINOGRAD = !"false".equals(WINOGRAD_MODE);
 
     /** 1x1 stride-1 convolutions as one GEMM per image unless {@code -Djitnn.conv1x1=implicit}. */
-    static final boolean POINTWISE_GEMM = !"implicit".equals(System.getProperty("jitnn.conv1x1"));
+    static final boolean POINTWISE_GEMM = "gemm".equals(JitnnConfig.current().get(JitnnConfig.CONV1X1));
 
     /**
      * The batched GEMM of 1x1 convolutions ({@code -Djitnn.conv1x1.gemm}): {@code 64} (64x64 tiles),
      * {@code 128x64}, {@code 64x128}, {@code 128x16} (narrow, for 4x4 planes), or {@code auto}
      * (the default: by output rows and plane size).
      */
-    static final String POINTWISE_VARIANT = System.getProperty("jitnn.conv1x1.gemm", "auto");
+    static final String POINTWISE_VARIANT = JitnnConfig.current().get(JitnnConfig.CONV1X1_GEMM);
 
     /** Whether the 1x1 input gradient runs as one GEMM per image (20-35% faster) unless {@code -Djitnn.conv1x1.backward=implicit}. */
-    static final boolean POINTWISE_BACKWARD = !"implicit".equals(System.getProperty("jitnn.conv1x1.backward", "gemm"));
+    static final boolean POINTWISE_BACKWARD = "gemm".equals(JitnnConfig.current().get(JitnnConfig.CONV1X1_BACKWARD));
 
     /**
      * C[z] = op(A[z]) B[z] for z < batch as the chosen batched GEMM: A broadcast (stride 0) or
@@ -166,8 +167,8 @@ public final class Conv2d implements Op {
      * work-groups ({@code -Djitnn.conv.weightGroups}), each of at least WEIGHT_MIN_CHUNK positions
      * ({@code -Djitnn.conv.weightChunk}).
      */
-    static final int WEIGHT_GROUPS = Integer.getInteger("jitnn.conv.weightGroups", 256);
-    static final int WEIGHT_MIN_CHUNK = Integer.getInteger("jitnn.conv.weightChunk", 256);
+    static final int WEIGHT_GROUPS = JitnnConfig.current().get(JitnnConfig.CONV_WEIGHT_GROUPS);
+    static final int WEIGHT_MIN_CHUNK = JitnnConfig.current().get(JitnnConfig.CONV_WEIGHT_CHUNK);
 
     /** Fewest output positions per image for a pointwise convolution to run as one GEMM per image. */
     static final int POINTWISE_MIN_PLANE = 256;
@@ -216,7 +217,7 @@ public final class Conv2d implements Op {
     }
 
     /** The input gradient of strided convolutions split into stride phases unless {@code -Djitnn.convPhases=false}. */
-    static final boolean PHASES = !"false".equals(System.getProperty("jitnn.convPhases"));
+    static final boolean PHASES = JitnnConfig.current().get(JitnnConfig.CONV_PHASES);
 
     /** Largest column buffer (floats) for the input gradient of strided convolutions as a GEMM. */
     static final long COL_MAX_FLOATS = 64L << 20;

@@ -32,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import ai.beestream.jitnn.DType;
 import ai.beestream.jitnn.Grad;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
 
@@ -51,15 +52,21 @@ import ai.beestream.jitnn.Tensor;
  */
 public final class Autotune {
 
-    private static volatile String MODE = System.getProperty("jitnn.autotune", "off").trim();
-    private static volatile Path DIR = Path.of(System.getProperty("jitnn.autotune.dir", Path.of(System.getProperty("user.home"), ".jitnn", "autotune").toString()));
-    private static final double MARGIN = Double.parseDouble(System.getProperty("jitnn.autotune.margin", "0.05"));
-    private static final boolean VERBOSE = Boolean.getBoolean("jitnn.autotune.verbose");
+    private static String mode() {
+        return JitnnConfig.current().get(JitnnConfig.AUTOTUNE);
+    }
+
+    private static Path dir() {
+        String d = JitnnConfig.current().get(JitnnConfig.AUTOTUNE_DIR);
+        return d != null ? Path.of(d) : Path.of(System.getProperty("user.home"), ".jitnn", "autotune");
+    }
+    private static final double MARGIN = JitnnConfig.current().get(JitnnConfig.AUTOTUNE_MARGIN);
+    private static final boolean VERBOSE = JitnnConfig.current().get(JitnnConfig.AUTOTUNE_VERBOSE);
     /** Operator copies per timed plan, so the plan's fixed cost is shared (fewer for large outputs). */
-    private static final int REPS = Integer.getInteger("jitnn.autotune.reps", 8);
+    private static final int REPS = JitnnConfig.current().get(JitnnConfig.AUTOTUNE_REPS);
     /** Bytes of outputs a measurement plan may hold: large operators get fewer copies. */
     private static final long BUDGET = 256L << 20;
-    private static final int RUNS = Integer.getInteger("jitnn.autotune.runs", 15);
+    private static final int RUNS = JitnnConfig.current().get(JitnnConfig.AUTOTUNE_RUNS);
 
     /** Decisions per device file: choice key to variant. */
     private static final Map<Path, Map<String, String>> DECISIONS = new ConcurrentHashMap<>();
@@ -79,21 +86,18 @@ public final class Autotune {
 
     /** Sets the mode, as {@code -Djitnn.autotune}: "on", "use" or "off". */
     public static void setMode(String mode) {
-        if (!mode.equals("on") && !mode.equals("use") && !mode.equals("off")) {
-            throw new IllegalArgumentException("autotune mode " + mode + ": on, use or off");
-        }
-        MODE = mode;
+        JitnnConfig.change(JitnnConfig.AUTOTUNE, JitnnConfig.AUTOTUNE.parse(mode));
     }
 
     /** Sets the directory of the decision files, as {@code -Djitnn.autotune.dir}; decisions loaded so far are dropped. */
     public static void setDirectory(Path dir) {
-        DIR = dir;
+        JitnnConfig.change(JitnnConfig.AUTOTUNE_DIR, dir.toString());
         DECISIONS.clear();
     }
 
     /** True when choices are tuned or saved decisions applied. */
     public static boolean enabled() {
-        return !MODE.equals("off");
+        return !mode().equals("off");
     }
 
     /**
@@ -116,7 +120,7 @@ public final class Autotune {
         }
         Node n = e.node();
         // deterministic runs never measure: the choice would depend on this run's timings
-        if (MODE.equals("on") && !Engine.deterministic() && !TUNING.get() && n != null && replayable(n)) {
+        if (mode().equals("on") && !Engine.deterministic() && !TUNING.get() && n != null && replayable(n)) {
             e.choices.add(key);
             PENDING.get().putIfAbsent(key, new Pending(key, fallback, candidates.clone(), n.op, n.iattr == null ? null : n.iattr.clone(), n.fattr == null ? null : n.fattr.clone(),
                     shapes(n.inputs), types(n.inputs), shapes(n.outputs), types(n.outputs)));
@@ -310,7 +314,7 @@ public final class Autotune {
 
     /** The current device's decisions file. */
     public static Path file() {
-        return DIR.resolve(Tuning.fileName().replace(".json", ".properties"));
+        return dir().resolve(Tuning.fileName().replace(".json", ".properties"));
     }
 
     private static Map<String, String> load(Path file) {

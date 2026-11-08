@@ -16,13 +16,14 @@
 package ai.beestream.jitnn.ops;
 
 import ai.beestream.jitnn.DType;
+import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.Shape;
 import ai.beestream.jitnn.Tensor;
-import ai.beestream.jitnn.engine.Emitter;
 import ai.beestream.jitnn.engine.Autotune;
-import ai.beestream.jitnn.engine.Tuning;
+import ai.beestream.jitnn.engine.Emitter;
 import ai.beestream.jitnn.engine.Node;
 import ai.beestream.jitnn.engine.Op;
+import ai.beestream.jitnn.engine.Tuning;
 import ai.beestream.jitnn.kernels.GemmKernels;
 import ai.beestream.jitnn.kernels.MmaGemmKernels;
 
@@ -120,10 +121,10 @@ public final class MatMul implements Op {
         return slices;
     }
 
-    private static final boolean SPLIT_K = !"false".equals(System.getProperty("jitnn.splitK"));
+    private static final boolean SPLIT_K = JitnnConfig.current().get(JitnnConfig.SPLIT_K);
 
     /** Work-groups a forward product should reach before splitting K stops (about two per SM on an A100). */
-    private static final int SPLIT_TARGET = Integer.getInteger("jitnn.splitK.groups", 256);
+    private static final int SPLIT_TARGET = JitnnConfig.current().get(JitnnConfig.SPLIT_K_GROUPS);
 
     /**
      * K slices for a forward product C = op(A) op(B): 1 when its 64 x 64 output tiles already fill
@@ -295,7 +296,7 @@ public final class MatMul implements Op {
         emitGemmHalf(e, node.in(0), node.in(1), c, bias, m, n, k, ta, tb, 0);
     }
 
-    private static final boolean TENSOR_CORES = !"false".equals(System.getProperty("jitnn.tensorCores"));
+    private static final boolean TENSOR_CORES = JitnnConfig.current().get(JitnnConfig.TENSOR_CORES);
 
     /** True when half-precision products run on tensor cores (CUDA; {@code -Djitnn.tensorCores=false} disables it). */
     static boolean useTensorCores(Emitter e) {
@@ -446,7 +447,7 @@ public final class MatMul implements Op {
             emitMma(e, at, bt, c, bias, m, n, k, ta, tb, epilogue, 1, 0, 0);
             return;
         }
-        String variant = System.getProperty("jitnn.gemm", "auto");
+        String variant = JitnnConfig.current().get(JitnnConfig.GEMM);
         boolean big = (long) m * n >= 64L * 64 && k >= 16;
         if ((variant.equals("simdgroup") || (variant.equals("auto") && big)) && e.isMetal() && m % 8 == 0 && n % 8 == 0) {
             // Metal: the simdgroup matrix units, on operands converted to FP32 as they are staged.
@@ -488,7 +489,7 @@ public final class MatMul implements Op {
         if (ai.beestream.jitnn.natives.Libs.gemm(e, a, b, c, bias, m, n, k, ta, tb, epilogue)) {
             return;
         }
-        String variant = System.getProperty("jitnn.gemm", "auto");
+        String variant = JitnnConfig.current().get(JitnnConfig.GEMM);
         boolean big = (long) m * n >= 64L * 64 && k >= 16;
         if (variant.equals("auto") && !e.isMetal()) {
             // the device's tuning table, measured offline per shape class (Tuning), else the rules

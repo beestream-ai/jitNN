@@ -38,7 +38,7 @@ import ai.beestream.jitnn.kernels.ResizeKernels;
 public final class F {
 
     /** Fused attention kernels for FP32 attention (default); {@code -Djitnn.fusedAttention=false} composes GEMMs and softmax instead. */
-    private static final boolean FUSED_ATTENTION = !"false".equals(System.getProperty("jitnn.fusedAttention"));
+    private static final boolean FUSED_ATTENTION = JitnnConfig.current().get(JitnnConfig.FUSED_ATTENTION);
 
     private F() {
     }

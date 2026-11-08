@@ -23,6 +23,8 @@ import java.util.Set;
 
 import uk.ac.manchester.tornado.api.enums.TornadoVMBackendType;
 
+import ai.beestream.jitnn.JitnnConfig;
+
 /**
  * Vendor libraries that some operators can call instead of jitNN's own kernels: cuBLAS, cuDNN,
  * cuFFT and cuSPARSE on CUDA, MLX on Metal (through TornadoVM's library tasks, inside the same
@@ -76,7 +78,7 @@ public final class Native {
             System.setProperty("tornado.cuda.payloadAlignment", "128");
         }
     }
-    private static final boolean VERBOSE = Boolean.getBoolean("jitnn.verbose") || Boolean.getBoolean("jitnn.native.verbose");
+    private static final boolean VERBOSE = JitnnConfig.current().get(JitnnConfig.VERBOSE) || JitnnConfig.current().get(JitnnConfig.NATIVE_VERBOSE);
     /** Per device key and library: available (probed) or not. */
     private static final Map<String, Map<Lib, Boolean>> AVAILABLE = new java.util.HashMap<>();
     /** Library functions ("cudnn.sdpa") turned off at run time: a plan that called them failed. */
@@ -84,13 +86,13 @@ public final class Native {
     /** Library functions that have run in some plan: a later failure is not theirs. */
     private static final Set<String> PROVEN = new java.util.HashSet<>();
     /** Libraries treated as missing (tests of the fallback): {@code -Djitnn.native.unavailable=cudnn,...}. */
-    private static final String UNAVAILABLE = System.getProperty("jitnn.native.unavailable", "").toLowerCase(Locale.ROOT);
+    private static final String UNAVAILABLE = JitnnConfig.current().get(JitnnConfig.NATIVE_UNAVAILABLE).toLowerCase(Locale.ROOT);
 
     private Native() {
     }
 
     private static String mode() {
-        return System.getProperty("jitnn.native", Boolean.getBoolean("jitnn.withNative") ? "auto" : "off").trim().toLowerCase(Locale.ROOT);
+        return java.util.Objects.requireNonNullElse(JitnnConfig.current().get(JitnnConfig.NATIVE), JitnnConfig.current().get(JitnnConfig.WITH_NATIVE) ? "auto" : "off").trim().toLowerCase(Locale.ROOT);
     }
 
     private static Set<Lib> parse() {
