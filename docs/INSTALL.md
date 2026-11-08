@@ -44,6 +44,36 @@ The Maven wrapper downloads Maven 3.9.6 on first use; `./mvnw -o` builds offline
 dependencies are in `~/.m2`. To build against a TornadoVM `develop` install instead of the
 release, pass its version on every Maven command: `-Dtornadovm.version=8.1.1-jdk22plus-dev`.
 
+### Releases
+
+Released versions are on the [GitHub releases page](https://github.com/beestream-ai/jitNN/releases)
+(the module jars and the Javadoc) and in GitHub Packages. To depend on them from Maven, add the
+repository to your `pom.xml`:
+
+```xml
+<repositories>
+    <repository>
+        <id>github-jitnn</id>
+        <url>https://maven.pkg.github.com/beestream-ai/jitNN</url>
+    </repository>
+</repositories>
+
+<dependency>
+    <groupId>ai.beestream</groupId>
+    <artifactId>jitnn-nn</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+GitHub Packages asks for a login even for public packages: add a `<server>` with id `github-jitnn`,
+your GitHub user name and a personal access token with the `read:packages` scope to
+`~/.m2/settings.xml`.
+
+Maintainers release from the Actions tab: Release > Run workflow, with the version (for example
+`0.1.0`). It sets that version on a commit of its own, tags it `v0.1.0` (`main` keeps its
+`-SNAPSHOT` version), runs the tests, publishes to GitHub Packages and creates the GitHub release.
+"Dry run" stops after building and testing.
+
 ## Test data
 
 The MNIST gate needs the four MNIST IDX files (gzipped is fine) and a PyTorch reference run in the
