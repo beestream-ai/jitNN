@@ -129,8 +129,23 @@ final class PlanRunner {
         return t[runs / 2];
     }
 
+    /**
+     * A host copy into a plan's input buffer, made while the lock is released; without segments,
+     * the upload of the plan's buffer {@code bytes} (a slot index) once the copies before it are made.
+     */
+    private record Copy(MemorySegment from, MemorySegment to, long bytes) {
+        void run(CompiledTrace ct) {
+            if (from == null) {
+                ct.plan.transferToDevice(ct.arrays[(int) bytes]);
+            } else {
+                stage(from, to, bytes);
+            }
+        }
+    }
+
     static void execute(CompiledTrace ct, List<Storage> slots) {
         LAST.set(new java.lang.ref.WeakReference<>(ct));
+        List<Copy> copies = new java.util.ArrayList<>();
         // persistent storages another thread's plan is writing are read or written only after it
         for (int i = 0; i < slots.size(); i++) {
             if (ct.kinds[i] == CompiledTrace.PERSISTENT) {
@@ -159,17 +174,19 @@ final class PlanRunner {
                 transfers[4]++;
                 transfers[5] += s.numel;
                 TornadoNativeArray to = (TornadoNativeArray) ct.arrays[i];
+                // copied into the plan's buffer once the lock is released, just before the plan runs
                 if (s.array == null && s.heap != null) {
                     // a shared Java array (Tensor.wrap): one copy, straight into the plan's buffer
                     MemorySegment heap = s.heap instanceof float[] f ? MemorySegment.ofArray(f) : MemorySegment.ofArray((int[]) s.heap);
-                    stage(heap, to.getSegment(), (long) s.numel * 4);
+                    copies.add(new Copy(heap, to.getSegment(), (long) s.numel * 4));
                 } else if (s.array != to) {
                     TornadoNativeArray own = (TornadoNativeArray) s.array;
-                    stage(own.getSegment(), to.getSegment(), Math.min(own.getNumBytesOfSegment(), to.getNumBytesOfSegment()));
+                    copies.add(new Copy(own.getSegment(), to.getSegment(), Math.min(own.getNumBytesOfSegment(), to.getNumBytesOfSegment())));
                 }
                 if (carried && ct.executions > 0) {
-                    // a carried input is uploaded on the first execution only: another value is sent now
-                    ct.plan.transferToDevice(ct.arrays[i]);
+                    // a carried input is uploaded on the first execution only: another value is sent
+                    // now, once it has been copied into the plan's buffer (transferToDevice copies at once)
+                    copies.add(new Copy(null, null, i));
                 }
             }
         }
@@ -217,12 +234,19 @@ final class PlanRunner {
         }
         long[] readVersions = null;
         if (ct.printHeader != null) {
+            for (Copy c : copies) {
+                c.run(ct);
+            }
             ct.last = executePrinting(ct);
         } else {
             // The persistent storages this plan writes are marked: other threads wait for them
             // (awaitWritten) instead of for the lock, which is released while TornadoVM runs the plan,
             // so plans on other devices (data-parallel ranks, whose collectives wait for each
             // other) run at the same time.
+            // a fetch from this plan (another thread reading an output) finishes first
+            while (ct.busy) {
+                WRITTEN.awaitUninterruptibly();
+            }
             ct.busy = true;
             if (writes) {
                 for (int i = 0; i < slots.size(); i++) {
@@ -244,6 +268,9 @@ final class PlanRunner {
                 LOCK.unlock();
             }
             try {
+                for (Copy c : copies) {
+                    c.run(ct);
+                }
                 ct.last = ct.plan.execute();
             } finally {
                 for (int h = 0; h < holds; h++) {
@@ -318,42 +345,67 @@ final class PlanRunner {
         return null;
     }
 
-    /** Brings the newest device contents of {@code s} to its host array. */
+    /**
+     * Brings the newest device contents of {@code s} to its host array. The copy runs without the
+     * lock, with the plan it reads from marked busy (not run, closed or evicted meanwhile), so ranks
+     * on other devices are not held up by it; if a plan wrote {@code s} meanwhile, it is fetched
+     * again.
+     */
     static void fetch(Storage s) {
         LOCK.lock();
         try {
-            awaitWritten(s, null);
-            if (s.hostValid) {
-                return;
-            }
-            transfers[0]++;
-            transfers[1] += s.numel;
-            if (s.persistent) {
-                if (s.validOn.isEmpty()) {
-                    throw new IllegalStateException("persistent storage " + s.id + " has no valid copy");
+            while (true) {
+                awaitWritten(s, null);
+                if (s.hostValid) {
+                    return;
                 }
-                // a plan another thread is running is not read from: wait until one of the copies is idle
                 CompiledTrace ct;
-                while ((ct = idleCopy(s)) == null) {
-                    WRITTEN.awaitUninterruptibly();
-                    if (s.hostValid) {
-                        return;
-                    }
+                if (s.persistent) {
                     if (s.validOn.isEmpty()) {
                         throw new IllegalStateException("persistent storage " + s.id + " has no valid copy");
                     }
+                    // a plan another thread is running is not read from: wait until one of the copies is idle
+                    ct = idleCopy(s);
+                } else {
+                    ct = s.boundTrace;
+                    if (ct == null || s.stale || ct.bound[indexOf(ct, s)] != s || s.boundExec != ct.executions) {
+                        throw new IllegalStateException("tensor data was reused by a later execution of the same trace; "
+                                + "copy what you need (toFloatArray) before the next step");
+                    }
+                    if (ct.busy) {
+                        ct = null;
+                    }
                 }
-                ct.last.transferToHost(s.array);
-                s.hostValid = true;
-                return;
+                if (ct == null) {
+                    WRITTEN.awaitUninterruptibly();
+                    continue;
+                }
+                transfers[0]++;
+                transfers[1] += s.numel;
+                long version = s.version;
+                TornadoNativeArray to = s.array;
+                ct.busy = true;
+                int holds = LOCK.getHoldCount();
+                for (int h = 0; h < holds; h++) {
+                    LOCK.unlock();
+                }
+                try {
+                    ct.last.transferToHost(to);
+                } finally {
+                    for (int h = 0; h < holds; h++) {
+                        LOCK.lock();
+                    }
+                    ct.busy = false;
+                    WRITTEN.signalAll();
+                }
+                if (s.version == version && s.writer == null && s.array == to && !s.hostValid) {
+                    s.hostValid = true;
+                    return;
+                }
+                if (s.hostValid) {
+                    return;
+                }
             }
-            CompiledTrace ct = s.boundTrace;
-            if (ct == null || s.stale || ct.bound[indexOf(ct, s)] != s || s.boundExec != ct.executions) {
-                throw new IllegalStateException("tensor data was reused by a later execution of the same trace; "
-                        + "copy what you need (toFloatArray) before the next step");
-            }
-            ct.last.transferToHost(s.array);
-            s.hostValid = true;
         } finally {
             LOCK.unlock();
         }

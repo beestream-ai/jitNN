@@ -158,6 +158,32 @@ final class TornadoExecutor {
         }
     }
 
+    /**
+     * {@link PlanCompiler#compile} without holding the lock, so ranks on other devices (and other
+     * slots) record, bind and fetch meanwhile: building the task graphs (TornadoVM sketches every
+     * task) is the longest host work of a first run. The only shared state compiling changes, the
+     * host arrays of the persistent storages it binds, is allocated first, under the lock; this
+     * thread's slot lock keeps the plan's slot to itself.
+     */
+    static CompiledTrace compileUnlocked(String k, TraceLayout layout, int[] carry) {
+        for (int i = 0; i < layout.slots().size(); i++) {
+            if (layout.kinds()[i] == CompiledTrace.PERSISTENT) {
+                layout.slots().get(i).allocate();
+            }
+        }
+        int holds = LOCK.getHoldCount();
+        for (int h = 0; h < holds; h++) {
+            LOCK.unlock();
+        }
+        try {
+            return compile(k, layout, carry);
+        } finally {
+            for (int h = 0; h < holds; h++) {
+                LOCK.lock();
+            }
+        }
+    }
+
     static void runLocked(List<Node> recorded, Tensor[] wanted, int slot) {
         long start = System.nanoTime();
         long before = executeNanos;
@@ -195,7 +221,7 @@ final class TornadoExecutor {
             if (DEBUG_KEYS) {
                 System.err.println("[jitnn] key " + k);
             }
-            ct = compile(k, layout, null);
+            ct = compileUnlocked(k, layout, null);
             ct.structure = structure;
             BY_STRUCTURE.computeIfAbsent(structure, x -> new ArrayList<>()).add(ct);
             CACHE.put(k, ct);
@@ -210,7 +236,14 @@ final class TornadoExecutor {
             // still holds them, is closed once the new one has read them
             replaced = ct;
             stable = false;
-            ct = compile(k, layout, replaced.seenCarry.clone());
+            // still holds the carried values: not evicted while the lock is released to compile
+            replaced.busy = true;
+            try {
+                ct = compileUnlocked(k, layout, replaced.seenCarry.clone());
+            } finally {
+                replaced.busy = false;
+                WRITTEN.signalAll();
+            }
             if (VERBOSE) {
                 System.err.printf("[jitnn] %s replaces %s: %d input(s) carried on the device from the previous execution%n", ct.name, replaced.name,
                         Arrays.stream(ct.carry).filter(j -> j >= 0).count());
