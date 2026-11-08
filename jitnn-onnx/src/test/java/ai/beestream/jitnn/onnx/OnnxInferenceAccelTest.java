@@ -127,9 +127,9 @@ class OnnxInferenceAccelTest {
                     a[1] += v[1];
                 });
                 double total = perOp.values().stream().mapToLong(v -> v[1]).sum() / 1e7;
-                System.out.printf("[t1-onnx] %s device time per call %.3f ms%n", name, total);
+                System.out.printf("[inference-onnx] %s device time per call %.3f ms%n", name, total);
                 perOp.entrySet().stream().sorted((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1])).limit(12)
-                        .forEach(e -> System.out.printf("[t1-onnx]   %-40s %8.3f ms %5d launches%n", e.getKey(), e.getValue()[1] / 1e7, e.getValue()[0] / 10));
+                        .forEach(e -> System.out.printf("[inference-onnx]   %-40s %8.3f ms %5d launches%n", e.getKey(), e.getValue()[1] / 1e7, e.getValue()[0] / 10));
             }
             String err = "no ONNX Runtime output";
             Path ref = work.resolve(name + ".ort.f32");
@@ -155,7 +155,7 @@ class OnnxInferenceAccelTest {
                 rel = worst / Math.max(scale, 1e-30);
                 err = String.format("max err vs %s %.1e", against, rel);
             }
-            System.out.printf("[t1-onnx] jitnn %-24s median %8.3f ms  p10 %8.3f  p90 %8.3f  (load %.0f ms, first call %.0f ms)  %s%n", name, ms[RUNS / 2], ms[RUNS / 10],
+            System.out.printf("[inference-onnx] jitnn %-24s median %8.3f ms  p10 %8.3f  p90 %8.3f  (load %.0f ms, first call %.0f ms)  %s%n", name, ms[RUNS / 2], ms[RUNS / 10],
                     ms[RUNS * 9 / 10], loadMs, compile, err);
             if (rel >= 0) {
                 // INT8 files: ONNX Runtime runs integer kernels, jitNN the float definition of the

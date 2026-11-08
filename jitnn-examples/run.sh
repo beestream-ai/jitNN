@@ -19,7 +19,7 @@
 # -Djitnn.device=1:0 (another device) or -Djitnn.verbose=true (log each compiled plan).
 set -e
 if [ $# -lt 1 ]; then
-    sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '/^# usage:/,/^set -e/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'
     echo "examples:"
     ls "$(dirname "$0")"/src/main/java/ai/beestream/jitnn/examples/*.java "$(dirname "$0")"/src/main/java/ai/beestream/jitnn/examples/djl/*.java \
         | sed -e 's#.*/examples/##' -e 's#\.java$##' -e 's#/#.#' | grep -v '^Examples$' | sed 's/^/  /'

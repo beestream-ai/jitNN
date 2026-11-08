@@ -16,7 +16,7 @@ timings that OnnxInferenceAccelTest compares jitNN against, on the same files an
 
 For each <work dir>/<name>.onnx: inputs as InferenceBenchAccelTest builds them, ONNX Runtime's CUDA
 provider (TF32 off for FP32 files), host input in and host output out, 10 warm-up calls and the
-median of 50. Writes <name>.ort.f32 (the output) and ort_t1.json.
+median of 50. Writes <name>.ort.f32 (the output) and ort_inference.json.
 
 usage: python inference_onnx.py <work dir>
 """
@@ -70,7 +70,7 @@ for f in sorted(os.listdir(work)):
     ms.sort()
     out.astype(np.float32).tofile(os.path.join(work, name + ".ort.f32"))
     results.append(dict(run=name, median_ms=ms[25], p10_ms=ms[5], p90_ms=ms[45]))
-    print(f"[t1-onnx] onnxruntime {name:24s} median {ms[25]:8.3f} ms", flush=True)
+    print(f"[inference-onnx] onnxruntime {name:24s} median {ms[25]:8.3f} ms", flush=True)
     del sess
-with open(os.path.join(work, "ort_t1.json"), "w") as fh:
+with open(os.path.join(work, "ort_inference.json"), "w") as fh:
     json.dump(dict(onnxruntime=ort.__version__, results=results), fh, indent=1)
