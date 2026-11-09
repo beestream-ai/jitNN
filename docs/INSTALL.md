@@ -19,17 +19,57 @@ jitllm checkout first.
 
 ## TornadoVM
 
-Build the TornadoVM SDK, the runtime jitNN runs on, with the backends you want; `v8.1.0` matches
-the version jitNN compiles against:
+jitNN runs on a TornadoVM 8.1.0 SDK, the version it compiles against. Install it, and a JDK, with
+[SDKMAN!](https://sdkman.io), which keeps several versions side by side:
 
 ```bash
-git clone -b v8.1.0 https://github.com/beehive-lab/TornadoVM && cd TornadoVM
-make jdk22plus BACKEND=opencl,metal      # or BACKEND=cuda, or several
-source setvars.sh                        # JAVA_HOME, TORNADOVM_HOME, PATH
-tornado --devices                        # device ids, as <driver>:<device>
+curl -s "https://get.sdkman.io" | bash          # once, then open a new shell
+sdk install java 25.0.4-tem                     # any JDK 22+; the TornadoVM SDK does not include one
+sdk install tornadovm 8.1.0-jdk22plus-metal     # the SDK for your platform, from the table below
+tornado --devices                               # device ids, as <driver>:<device>
 ```
 
-Run `source setvars.sh` in every shell that builds or runs jitNN.
+| Platform | SDKMAN! identifier |
+|---|---|
+| macOS, Apple Silicon | `8.1.0-jdk22plus-metal` (recommended) or `8.1.0-jdk22plus-opencl` |
+| Linux x86-64, NVIDIA GPU | `8.1.0-jdk22plus-cuda` |
+| Linux x86-64, other OpenCL GPU | `8.1.0-jdk22plus-opencl` |
+| Linux x86-64, every backend in one SDK | `8.1.0-jdk22plus-full` |
+| Linux AArch64 (such as NVIDIA Grace), Windows | not on SDKMAN!: see below |
+
+Use the `jdk22plus` SDKs; the `jdk21` ones do not run jitNN. Every SDK includes the library modules
+jitNN uses (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`).
+SDKMAN! sets `TORNADOVM_HOME` and `PATH` for the default version, which
+`sdk default tornadovm <identifier>` changes; `sdk use tornadovm <identifier>` switches the current
+shell only, and `sdk list tornadovm` shows what is available.
+
+### Without SDKMAN!
+
+Every SDK, including CUDA for Linux AArch64 and Windows, is attached to the
+[TornadoVM 8.1.0 release](https://github.com/beehive-lab/TornadoVM/releases/tag/v8.1.0) and on
+[tornadovm.org/downloads](https://www.tornadovm.org/downloads). Unpack it and point `TORNADOVM_HOME`
+at it:
+
+```bash
+curl -fLO https://github.com/beehive-lab/TornadoVM/releases/download/v8.1.0/tornadovm-8.1.0-jdk22plus-cuda-linux-aarch64.tar.gz
+tar xzf tornadovm-8.1.0-jdk22plus-cuda-linux-aarch64.tar.gz
+export TORNADOVM_HOME=$PWD/tornadovm-8.1.0-cuda PATH=$PWD/tornadovm-8.1.0-cuda/bin:$PATH
+tornado --devices
+```
+
+### Building TornadoVM
+
+Build from source only for TornadoVM's `develop` branch, with `JAVA_HOME` at the JDK you will run
+jitNN with:
+
+```bash
+git clone -b develop https://github.com/beehive-lab/TornadoVM && cd TornadoVM
+make jdk22plus BACKEND=opencl,metal      # or BACKEND=cuda, or several
+source setvars.sh                        # JAVA_HOME, TORNADOVM_HOME, PATH
+```
+
+Run `source setvars.sh` in every shell that builds or runs jitNN, and pass the SDK's version on
+every Maven command (below).
 
 ## jitNN
 

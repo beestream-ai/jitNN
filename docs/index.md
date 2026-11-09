@@ -88,11 +88,12 @@ TornadoVM device with `-Djitnn.device=<driver>:<device>` (`tornado --devices` li
 
 ## Quick start
 
-You need JDK 22 or newer and a TornadoVM 8.1.0 SDK to run on; Maven fetches TornadoVM's API from
-Maven Central. [INSTALL.md](INSTALL.md) has the details.
+You need JDK 22 or newer and a TornadoVM 8.1.0 SDK to run on, both from [SDKMAN!](https://sdkman.io);
+Maven fetches TornadoVM's API from Maven Central. [INSTALL.md](INSTALL.md) has the details.
 
 ```bash
-source <TornadoVM>/setvars.sh                        # JAVA_HOME and TORNADOVM_HOME
+sdk install java 25.0.4-tem                          # any JDK 22+
+sdk install tornadovm 8.1.0-jdk22plus-metal          # or ...-cuda, ...-opencl; sets TORNADOVM_HOME
 git clone https://github.com/beestream-ai/jitNN && cd jitNN
 ./mvnw install -DskipTests
 ./mvnw test                                          # reference backend, no GPU needed
