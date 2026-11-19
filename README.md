@@ -193,3 +193,9 @@ The same pages build as a Read the Docs site: `pip install -r docs/requirements.
 jitNN is released under the [Apache License, Version 2.0](LICENSE). Copyright (c) 2026 Beestream Ltd.
 Third-party material (code from jitllm under the MIT License, the Iris data under CC BY 4.0) is
 listed in [NOTICE](NOTICE).
+
+## Contributing
+
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to build and test a change
+and how to sign the [Contributor License Agreement](CLA.md), which every contributor signs once
+on their first pull request.
