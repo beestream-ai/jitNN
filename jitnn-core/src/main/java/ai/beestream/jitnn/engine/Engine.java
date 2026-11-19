@@ -76,6 +76,11 @@ public final class Engine {
         return backend() == Backend.TORNADO && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA;
     }
 
+    /** True when this thread's plans run through TornadoVM on a Metal device. */
+    public static boolean onMetal() {
+        return backend() == Backend.TORNADO && Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.METAL;
+    }
+
     /** Switches this thread's backend, first running anything recorded on the old one. */
     public static void setBackend(Backend backend) {
         checked(backend);
