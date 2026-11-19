@@ -10,6 +10,7 @@
   <img alt="Java 22+" src="https://img.shields.io/badge/java-22%2B-orange.svg">
   <img alt="TornadoVM" src="https://img.shields.io/badge/TornadoVM-8.1.0-0B1F33.svg">
   <a href="https://jitnn.beestream.ai/"><img alt="Javadoc" src="https://img.shields.io/badge/javadoc-public%20API-4c1.svg"></a>
+  <a href="https://jitnn.readthedocs.io/"><img alt="Documentation" src="https://readthedocs.org/projects/jitnn/badge/?version=latest"></a>
 </p>
 
 # jitNN
@@ -186,7 +187,8 @@ logs every compiled plan and `-Djitnn.debugKeys=true` shows why a step recompile
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | architecture, the public API and the internal packages, code layout, adding an operator, code generators |
 | [API reference](https://jitnn.beestream.ai/) | Javadoc of the public API of every module ([api.md](docs/api.md): the packages and building it) |
 
-The same pages build as a Read the Docs site: `pip install -r docs/requirements.txt && make -C docs html`.
+The same pages are published on Read the Docs at [jitnn.readthedocs.io](https://jitnn.readthedocs.io/),
+with a PDF; build them locally with `pip install -r docs/requirements.txt && make -C docs html`.
 
 ## License
 
