@@ -86,12 +86,18 @@ jobs:
           [ -x "$java_home/bin/java" ] || { echo "::error::no JDK at $java_home (set JITNN_JAVA_HOME)"; exit 1; }
           # the variable, else the SDKMAN! SDK of this backend: 8.1.0-jdk22plus-<backend>, else the
           # newest 8.1.x SDK whose name ends in -<backend>
+          # an SDK ships tornado-argfile.template; its launcher writes tornado-argfile on first run
+          is_sdk() { [ -x "$1/bin/tornado" ] && { [ -f "$1/tornado-argfile" ] || [ -f "$1/tornado-argfile.template" ]; }; }
           sdk=${SDK_OVERRIDE:-}
           if [ -z "$sdk" ]; then
             sdk=$candidates/tornadovm/8.1.0-jdk22plus-$backend
-            if [ ! -f "$sdk/tornado-argfile" ]; then
+            if ! is_sdk "$sdk"; then
               sdk=$(ls -d "$candidates"/tornadovm/8.1.*-"$backend" 2>/dev/null | sort | tail -1 || true)
             fi
+          fi
+          if [ -n "$sdk" ] && is_sdk "$sdk" && [ ! -f "$sdk/tornado-argfile" ]; then
+            echo "writing $sdk/tornado-argfile from its template"
+            JAVA_HOME=$java_home TORNADOVM_HOME=$sdk PATH=$java_home/bin:$sdk/bin:$PATH "$sdk/bin/tornado" --version
           fi
           if [ -z "$sdk" ] || [ ! -f "$sdk/tornado-argfile" ]; then
             echo "::error::no TornadoVM 8.1 $backend SDK on $(hostname) as $(whoami) (looked in $candidates/tornadovm; set ${{ matrix.sdk_var }})"
