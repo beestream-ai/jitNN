@@ -1,0 +1,153 @@
+# Builds and tests every pull request on the two self-hosted runners, one job per TornadoVM
+# backend: the Linux x86-64 runner on CUDA and OpenCL, the Apple silicon runner on Metal and OpenCL.
+# The first backend job of each runner also runs the host tests (reference and CPU backends); every
+# job runs the accelerator tests (-Paccel-tests) on its device, with the data gates (MNIST, CIFAR-10,
+# transformers, Hugging Face) whose data is staged on the runner (scripts/ci/stage-test-data.sh).
+#
+# The runners need a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!. Repository
+# variables (Settings > Secrets and variables > Actions > Variables) override the defaults:
+#   JITNN_JAVA_HOME                    JDK (default ~/.sdkman/candidates/java/current)
+#   TORNADOVM_CUDA_HOME, ..._OPENCL_LINUX_HOME, ..._METAL_HOME, ..._OPENCL_MAC_HOME
+#                                      SDK per job (default ~/.sdkman/candidates/tornadovm/8.1.0-jdk22plus-<backend>)
+#   JITNN_DEVICE_CUDA, ..._OPENCL_LINUX, ..._METAL, ..._OPENCL_MAC
+#                                      device as <driver>:<device> (default 0:0; `tornado --devices` lists them)
+#   JITNN_DATA                         staged test data (default ~/jitnn-data)
+#   JITNN_DEVICE_MEMORY                TornadoVM device-memory budget (default 12GB)
+#
+# Self-hosted runners execute the pull request's code, so jobs run only for branches of this
+# repository, never for forks.
+name: PR tests
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / ${{ matrix.backend }}
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux-x64
+            runner: [self-hosted, Linux, X64]
+            backend: cuda
+            sdk_var: TORNADOVM_CUDA_HOME
+            device_var: JITNN_DEVICE_CUDA
+            host_tests: true
+          - os: linux-x64
+            runner: [self-hosted, Linux, X64]
+            backend: opencl
+            sdk_var: TORNADOVM_OPENCL_LINUX_HOME
+            device_var: JITNN_DEVICE_OPENCL_LINUX
+            host_tests: false
+          - os: macos-arm64
+            runner: [self-hosted, macOS, ARM64]
+            backend: metal
+            sdk_var: TORNADOVM_METAL_HOME
+            device_var: JITNN_DEVICE_METAL
+            host_tests: true
+          - os: macos-arm64
+            runner: [self-hosted, macOS, ARM64]
+            backend: opencl
+            sdk_var: TORNADOVM_OPENCL_MAC_HOME
+            device_var: JITNN_DEVICE_OPENCL_MAC
+            host_tests: false
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    env:
+      SDK_OVERRIDE: ${{ vars[matrix.sdk_var] }}
+      DEVICE_OVERRIDE: ${{ vars[matrix.device_var] }}
+      JAVA_OVERRIDE: ${{ vars.JITNN_JAVA_HOME }}
+      DATA_OVERRIDE: ${{ vars.JITNN_DATA }}
+      MEMORY_OVERRIDE: ${{ vars.JITNN_DEVICE_MEMORY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the JDK and the TornadoVM SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          java_home=${JAVA_OVERRIDE:-$HOME/.sdkman/candidates/java/current}
+          sdk=${SDK_OVERRIDE:-$HOME/.sdkman/candidates/tornadovm/8.1.0-jdk22plus-${{ matrix.backend }}}
+          [ -x "$java_home/bin/java" ] || { echo "::error::no JDK at $java_home (set JITNN_JAVA_HOME)"; exit 1; }
+          [ -f "$sdk/tornado-argfile" ] || { echo "::error::no TornadoVM SDK at $sdk (set ${{ matrix.sdk_var }})"; exit 1; }
+          {
+            echo "JAVA_HOME=$java_home"
+            echo "TORNADOVM_HOME=$sdk"
+            echo "JITNN_TEST_DEVICE=${DEVICE_OVERRIDE:-0:0}"
+            echo "JITNN_DATA=${DATA_OVERRIDE:-$HOME/jitnn-data}"
+            echo "JITNN_DEVICE_MEMORY=${MEMORY_OVERRIDE:-12GB}"
+          } >> "$GITHUB_ENV"
+          echo "$java_home/bin" >> "$GITHUB_PATH"
+          echo "$sdk/bin" >> "$GITHUB_PATH"
+
+      - name: Show the toolchain and devices
+        shell: bash
+        run: |
+          java -version
+          tornado --version
+          tornado --devices
+
+      - name: Build and run the host tests
+        if: ${{ matrix.host_tests }}
+        shell: bash
+        run: ./mvnw -B -ntp install
+
+      - name: Build
+        if: ${{ !matrix.host_tests }}
+        shell: bash
+        run: ./mvnw -B -ntp install -DskipTests
+
+      - name: Run the accelerator tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          gates=()
+          check() {  # <property> <dir under JITNN_DATA> <file that must exist there>
+            if [ -e "$JITNN_DATA/$2/$3" ]; then
+              gates+=("-Djitnn.$1=$JITNN_DATA/$2")
+            else
+              echo "::warning::$1 gate skipped: $JITNN_DATA/$2/$3 not found (run scripts/ci/stage-test-data.sh on this runner)"
+            fi
+          }
+          check mnist   mnist   mnist_mlp_pytorch.f32
+          check cifar10 cifar10 resnet18_cifar10_pytorch.f32
+          check text    text    corpus.txt
+          check hf      hf      reference.json
+          # every module runs even when an earlier one has failures; the next step fails the job
+          ./mvnw -B -ntp test -Paccel-tests -Dmaven.test.failure.ignore=true \
+            -Djitnn.test.device="$JITNN_TEST_DEVICE" \
+            -Djitnn.test.deviceMemory="$JITNN_DEVICE_MEMORY" \
+            ${gates[@]+"${gates[@]}"}
+
+      - name: Check the test results
+        shell: bash
+        run: |
+          failed=$(grep -lE '(failures|errors)="[1-9]' */target/surefire-reports/TEST-*.xml || true)
+          if [ -n "$failed" ]; then
+            for f in $failed; do echo "::error::failures in $(basename "$f" .xml | sed 's/^TEST-//')"; done
+            exit 1
+          fi
+          ls */target/surefire-reports/TEST-*.xml >/dev/null || { echo "::error::no test reports"; exit 1; }
+
+      - name: Upload the test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-${{ matrix.os }}-${{ matrix.backend }}
+          path: "**/target/surefire-reports/"
+          if-no-files-found: ignore
+          retention-days: 14
