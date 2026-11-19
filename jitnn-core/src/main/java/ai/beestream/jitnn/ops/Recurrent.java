@@ -137,13 +137,23 @@ public final class Recurrent {
     /** Above this batch, the per-step kernels, which share W_hh across rows, win. */
     static final int FUSED_MAX_B = 256;
 
-    static boolean fused(int[] a) {
-        return FUSED && a[H] <= RnnKernels.FUSED_MAX_H && a[B] <= FUSED_MAX_B;
+    /**
+     * Whether the fused kernels run: they need a thread per hidden unit in one work-group, which
+     * Apple silicon's OpenCL (256 threads) does not give a 512-unit layer. Past the device's limit
+     * the backward kernel did not run there and left its gradients at zero.
+     */
+    static boolean fused(Emitter e, int[] a) {
+        return FUSED && a[H] <= RnnKernels.FUSED_MAX_H && a[B] <= FUSED_MAX_B && rowThreads(a) <= e.maxGroupThreads();
+    }
+
+    /** Threads of a {@link #rows} work-group: one per hidden unit, rounded up to a warp. */
+    private static int rowThreads(int[] a) {
+        return Math.max(32, Emitter.ceilDiv(a[H], 32) * 32);
     }
 
     /** One work-group per batch row, one thread per hidden unit (rounded up to a warp). */
     private static WorkerGrid rows(int[] a) {
-        return Emitter.blocks1D(a[B], Math.max(32, Emitter.ceilDiv(a[H], 32) * 32));
+        return Emitter.blocks1D(a[B], rowThreads(a));
     }
 
     /** Work-groups of the tiled step kernels: batch tiles x unit tiles. */
@@ -214,7 +224,7 @@ public final class Recurrent {
             FloatArray gates = e.f32(n.out(2));
             IntArray len = e.i32(n.in(5));
             int b = a[B], h = a[H];
-            if (fused(a)) {
+            if (fused(e, a)) {
                 FloatArray wt = e.scratch(4 * h * h);
                 int rows4 = 4 * h;
                 int steps = a[T];
@@ -325,7 +335,7 @@ public final class Recurrent {
             FloatArray dc = e.scratch(a[T] * a[B] * a[H]);
             IntArray len = e.i32(n.in(5));
             int steps = a[T], b = a[B], h = a[H];
-            if (fused(a)) {
+            if (fused(e, a)) {
                 e.task(rows(a), (g, id) -> g.task(id, RnnKernels::lstmFusedBackward, e.context(), dy, whh, gates, cs, c0, dGates, dc, dh0, dc0, len, steps, b, h));
                 return;
             }

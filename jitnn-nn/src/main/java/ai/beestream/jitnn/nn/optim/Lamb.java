@@ -57,7 +57,7 @@ public final class Lamb extends Optimizer {
         for (int i = 0; i < params.size(); i++) {
             Tensor p = params.get(i);
             if (p.grad() != null) {
-                LayerwiseOptim.lamb(p, p.grad(), m[i], v[i], hyper, stats, lr);
+                LayerwiseOptim.lamb(p, p.grad(), m[i], v[i], hyper, stats);
             }
         }
     }
