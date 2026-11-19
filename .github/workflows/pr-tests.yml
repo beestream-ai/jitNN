@@ -1,14 +1,15 @@
-# Builds and tests every pull request on the two self-hosted runners, one job per TornadoVM
-# backend: the Linux x86-64 runner on CUDA and OpenCL, the Apple silicon runner on Metal and OpenCL.
-# The first backend job of each runner also runs the host tests (reference and CPU backends); every
-# job runs the accelerator tests (-Paccel-tests) on its device, with the data gates (MNIST, CIFAR-10,
+# Builds and tests every pull request on the two self-hosted runners, in parallel: one job per
+# runner, which builds once, runs the host tests (reference and CPU backends), then the accelerator
+# tests (-Paccel-tests) on each of its TornadoVM backends in turn: CUDA then OpenCL on the Linux
+# x86-64 runner, Metal then OpenCL on the Apple silicon runner. The second backend runs even when
+# the first fails. scripts/ci/accel-tests.sh runs one backend, with the data gates (MNIST, CIFAR-10,
 # transformers, Hugging Face) whose data is staged on the runner (scripts/ci/stage-test-data.sh).
 #
 # The runners need a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!. Repository
 # variables (Settings > Secrets and variables > Actions > Variables) override the defaults:
 #   JITNN_JAVA_HOME                    JDK (default ~/.sdkman/candidates/java/current)
 #   TORNADOVM_CUDA_HOME, ..._OPENCL_LINUX_HOME, ..._METAL_HOME, ..._OPENCL_MAC_HOME
-#                                      SDK per job (default ~/.sdkman/candidates/tornadovm/8.1.0-jdk22plus-<backend>)
+#                                      SDK per backend (default ~/.sdkman/candidates/tornadovm/8.1.0-jdk22plus-<backend>)
 #   JITNN_DEVICE_CUDA, ..._OPENCL_LINUX, ..._METAL, ..._OPENCL_MAC
 #                                      device as <driver>:<device> (default 0:0; `tornado --devices` lists them)
 #   JITNN_DATA                         staged test data (default ~/jitnn-data)
@@ -33,7 +34,7 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os }} / ${{ matrix.backend }}
+    name: ${{ matrix.name }}
     if: >-
       github.event_name != 'pull_request' ||
       (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
@@ -41,135 +42,69 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: linux-x64
+          - name: linux-x64 (CUDA, OpenCL)
             runner: [self-hosted, Linux, X64]
-            backend: cuda
-            sdk_var: TORNADOVM_CUDA_HOME
-            device_var: JITNN_DEVICE_CUDA
-            host_tests: true
-          - os: linux-x64
-            runner: [self-hosted, Linux, X64]
-            backend: opencl
-            sdk_var: TORNADOVM_OPENCL_LINUX_HOME
-            device_var: JITNN_DEVICE_OPENCL_LINUX
-            host_tests: false
-          - os: macos-arm64
+            first: cuda
+            first_sdk_var: TORNADOVM_CUDA_HOME
+            first_device_var: JITNN_DEVICE_CUDA
+            second: opencl
+            second_sdk_var: TORNADOVM_OPENCL_LINUX_HOME
+            second_device_var: JITNN_DEVICE_OPENCL_LINUX
+          - name: macos-arm64 (Metal, OpenCL)
             runner: [self-hosted, macOS, ARM64]
-            backend: metal
-            sdk_var: TORNADOVM_METAL_HOME
-            device_var: JITNN_DEVICE_METAL
-            host_tests: true
-          - os: macos-arm64
-            runner: [self-hosted, macOS, ARM64]
-            backend: opencl
-            sdk_var: TORNADOVM_OPENCL_MAC_HOME
-            device_var: JITNN_DEVICE_OPENCL_MAC
-            host_tests: false
+            first: metal
+            first_sdk_var: TORNADOVM_METAL_HOME
+            first_device_var: JITNN_DEVICE_METAL
+            second: opencl
+            second_sdk_var: TORNADOVM_OPENCL_MAC_HOME
+            second_device_var: JITNN_DEVICE_OPENCL_MAC
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
-      SDK_OVERRIDE: ${{ vars[matrix.sdk_var] }}
-      DEVICE_OVERRIDE: ${{ vars[matrix.device_var] }}
-      JAVA_OVERRIDE: ${{ vars.JITNN_JAVA_HOME }}
       DATA_OVERRIDE: ${{ vars.JITNN_DATA }}
       MEMORY_OVERRIDE: ${{ vars.JITNN_DEVICE_MEMORY }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select the JDK and the TornadoVM SDK
+      - name: Select the JDK
         shell: bash
+        env:
+          JAVA_OVERRIDE: ${{ vars.JITNN_JAVA_HOME }}
         run: |
-          set -euo pipefail
-          backend=${{ matrix.backend }}
-          candidates=${SDKMAN_DIR:-$HOME/.sdkman}/candidates
-          java_home=${JAVA_OVERRIDE:-$candidates/java/current}
+          java_home=${JAVA_OVERRIDE:-${SDKMAN_DIR:-$HOME/.sdkman}/candidates/java/current}
           [ -x "$java_home/bin/java" ] || { echo "::error::no JDK at $java_home (set JITNN_JAVA_HOME)"; exit 1; }
-          # the variable, else the SDKMAN! SDK of this backend: 8.1.0-jdk22plus-<backend>, else the
-          # newest 8.1.x SDK whose name ends in -<backend>
-          # an SDK ships tornado-argfile.template; its launcher writes tornado-argfile on first run
-          is_sdk() { [ -x "$1/bin/tornado" ] && { [ -f "$1/tornado-argfile" ] || [ -f "$1/tornado-argfile.template" ]; }; }
-          sdk=${SDK_OVERRIDE:-}
-          if [ -z "$sdk" ]; then
-            sdk=$candidates/tornadovm/8.1.0-jdk22plus-$backend
-            if ! is_sdk "$sdk"; then
-              sdk=$(ls -d "$candidates"/tornadovm/8.1.*-"$backend" 2>/dev/null | sort | tail -1 || true)
-            fi
-          fi
-          if [ -n "$sdk" ] && is_sdk "$sdk" && [ ! -f "$sdk/tornado-argfile" ]; then
-            echo "writing $sdk/tornado-argfile from its template"
-            JAVA_HOME=$java_home TORNADOVM_HOME=$sdk PATH=$java_home/bin:$sdk/bin:$PATH "$sdk/bin/tornado" --version
-          fi
-          if [ -z "$sdk" ] || [ ! -f "$sdk/tornado-argfile" ]; then
-            echo "::error::no TornadoVM 8.1 $backend SDK on $(hostname) as $(whoami) (looked in $candidates/tornadovm; set ${{ matrix.sdk_var }})"
-            echo "TornadoVM SDKs in $candidates/tornadovm:"; ls -1 "$candidates/tornadovm" 2>&1 || true
-            echo "TORNADOVM_HOME in the runner's environment: ${TORNADOVM_HOME:-unset}"
-            exit 1
-          fi
-          echo "JDK $java_home, TornadoVM $sdk"
-          {
-            echo "JAVA_HOME=$java_home"
-            echo "TORNADOVM_HOME=$sdk"
-            echo "JITNN_TEST_DEVICE=${DEVICE_OVERRIDE:-0:0}"
-            echo "JITNN_DATA=${DATA_OVERRIDE:-$HOME/jitnn-data}"
-            echo "JITNN_DEVICE_MEMORY=${MEMORY_OVERRIDE:-12GB}"
-          } >> "$GITHUB_ENV"
+          echo "JAVA_HOME=$java_home" >> "$GITHUB_ENV"
           echo "$java_home/bin" >> "$GITHUB_PATH"
-          echo "$sdk/bin" >> "$GITHUB_PATH"
-
-      - name: Show the toolchain and devices
-        shell: bash
-        run: |
-          java -version
-          tornado --version
-          tornado --devices
+          "$java_home/bin/java" -version
 
       - name: Build and run the host tests
-        if: ${{ matrix.host_tests }}
+        id: build
         shell: bash
         run: ./mvnw -B -ntp install
 
-      - name: Build
-        if: ${{ !matrix.host_tests }}
+      - name: Accelerator tests (${{ matrix.first }})
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: bash
-        run: ./mvnw -B -ntp install -DskipTests
+        env:
+          SDK_OVERRIDE: ${{ vars[matrix.first_sdk_var] }}
+          DEVICE_OVERRIDE: ${{ vars[matrix.first_device_var] }}
+          SDK_VAR: ${{ matrix.first_sdk_var }}
+        run: bash scripts/ci/accel-tests.sh ${{ matrix.first }}
 
-      - name: Run the accelerator tests
+      - name: Accelerator tests (${{ matrix.second }})
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: bash
-        run: |
-          set -euo pipefail
-          gates=()
-          check() {  # <property> <dir under JITNN_DATA> <file that must exist there>
-            if [ -e "$JITNN_DATA/$2/$3" ]; then
-              gates+=("-Djitnn.$1=$JITNN_DATA/$2")
-            else
-              echo "::warning::$1 gate skipped: $JITNN_DATA/$2/$3 not found (run scripts/ci/stage-test-data.sh on this runner)"
-            fi
-          }
-          check mnist   mnist   mnist_mlp_pytorch.f32
-          check cifar10 cifar10 resnet18_cifar10_pytorch.f32
-          check text    text    corpus.txt
-          check hf      hf      reference.json
-          # every module runs even when an earlier one has failures; the next step fails the job
-          ./mvnw -B -ntp test -Paccel-tests -Dmaven.test.failure.ignore=true \
-            -Djitnn.test.device="$JITNN_TEST_DEVICE" \
-            -Djitnn.test.deviceMemory="$JITNN_DEVICE_MEMORY" \
-            ${gates[@]+"${gates[@]}"}
-
-      - name: Check the test results
-        shell: bash
-        run: |
-          failed=$(grep -lE '(failures|errors)="[1-9]' */target/surefire-reports/TEST-*.xml || true)
-          if [ -n "$failed" ]; then
-            for f in $failed; do echo "::error::failures in $(basename "$f" .xml | sed 's/^TEST-//')"; done
-            exit 1
-          fi
-          ls */target/surefire-reports/TEST-*.xml >/dev/null || { echo "::error::no test reports"; exit 1; }
+        env:
+          SDK_OVERRIDE: ${{ vars[matrix.second_sdk_var] }}
+          DEVICE_OVERRIDE: ${{ vars[matrix.second_device_var] }}
+          SDK_VAR: ${{ matrix.second_sdk_var }}
+        run: bash scripts/ci/accel-tests.sh ${{ matrix.second }}
 
       - name: Upload the test reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: surefire-${{ matrix.os }}-${{ matrix.backend }}
-          path: "**/target/surefire-reports/"
+          name: test-reports-${{ matrix.first }}-${{ matrix.second }}-${{ runner.os }}
+          path: ci-reports/
           if-no-files-found: ignore
           retention-days: 14

@@ -215,18 +215,21 @@ It puts everything in `~/jitnn-data` by default, with its own PyTorch venv there
 ## Continuous integration
 
 `.github/workflows/pr-tests.yml` builds and tests every pull request to `main` on two self-hosted
-runners. Each TornadoVM backend gets its own job:
+runners at once, one job per runner:
 
-| Runner labels | Jobs |
-|---|---|
-| `self-hosted, Linux, X64` | CUDA (also runs the host tests), OpenCL |
-| `self-hosted, macOS, ARM64` | Metal (also runs the host tests), OpenCL |
+| Job | Runner labels | Steps |
+|---|---|---|
+| `linux-x64 (CUDA, OpenCL)` | `self-hosted, Linux, X64` | build and host tests, then CUDA, then OpenCL |
+| `macos-arm64 (Metal, OpenCL)` | `self-hosted, macOS, ARM64` | build and host tests, then Metal, then OpenCL |
 
-Each job selects its SDK, prints `tornado --devices`, builds the project and runs
-`./mvnw test -Paccel-tests` on the job's device. It passes the data gates whose data it finds under
-`~/jitnn-data` and leaves a warning for each gate it skips. The surefire reports are uploaded as
-artifacts. Jobs run only for branches of this repository, not for forks, because self-hosted
-runners execute the pull request's code. Draft pull requests are skipped until they are marked ready.
+Each job builds the project and runs the host tests once. Then, for each of its backends,
+`scripts/ci/accel-tests.sh <backend>` runs `./mvnw test -Paccel-tests` on the backend's device. It
+finds the SDK, writes its `tornado-argfile` if the SDK has never been run, and prints
+`tornado --devices`. It passes the data gates whose data it finds under `~/jitnn-data`, with a
+warning for each gate it skips. The second backend runs even when the first fails. Each backend's
+reports are uploaded under `ci-reports/<backend>`. Jobs run only for branches of this repository, not
+for forks, because self-hosted runners execute the pull request's code. Draft pull requests are
+skipped until they are marked ready. The script also runs locally, after `./mvnw install`.
 
 Each runner needs a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!
 (`8.1.0-jdk22plus-cuda` and `-opencl` on Linux, `-metal` and `-opencl` on macOS). Run
