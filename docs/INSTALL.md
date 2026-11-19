@@ -215,21 +215,21 @@ It puts everything in `~/jitnn-data` by default, with its own PyTorch venv there
 ## Continuous integration
 
 `.github/workflows/pr-tests.yml` builds and tests every pull request to `main` on two self-hosted
-runners at once, one job per runner:
+runners. Each TornadoVM backend gets its own job, in two chains that run in parallel:
 
-| Job | Runner labels | Steps |
+| Runner labels | First job | Then |
 |---|---|---|
-| `linux-x64 (CUDA, OpenCL)` | `self-hosted, Linux, X64` | build and host tests, then CUDA, then OpenCL |
-| `macos-arm64 (Metal, OpenCL)` | `self-hosted, macOS, ARM64` | build and host tests, then Metal, then OpenCL |
+| `self-hosted, Linux, X64` | `linux-x64 / CUDA`: build, host tests, CUDA | `linux-x64 / OpenCL`: build, OpenCL |
+| `self-hosted, macOS, ARM64` | `macos-arm64 / Metal`: build, host tests, Metal | `macos-arm64 / OpenCL`: build, OpenCL |
 
-Each job builds the project and runs the host tests once. Then, for each of its backends,
+The second job of a chain starts when the first ends, even if the first failed. In each job,
 `scripts/ci/accel-tests.sh <backend>` runs `./mvnw test -Paccel-tests` on the backend's device. It
 finds the SDK, writes its `tornado-argfile` if the SDK has never been run, and prints
 `tornado --devices`. It passes the data gates whose data it finds under `~/jitnn-data`, with a
-warning for each gate it skips. The second backend runs even when the first fails. Each backend's
-reports are uploaded under `ci-reports/<backend>`. Jobs run only for branches of this repository, not
-for forks, because self-hosted runners execute the pull request's code. Draft pull requests are
-skipped until they are marked ready. The script also runs locally, after `./mvnw install`.
+warning for each gate it skips. Each job uploads its reports (`ci-reports/<backend>`). Jobs run only
+for branches of this repository, not for forks, because self-hosted runners execute the pull
+request's code. Draft pull requests are skipped until they are marked ready. The script also runs
+locally, after `./mvnw install`.
 
 Each runner needs a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!
 (`8.1.0-jdk22plus-cuda` and `-opencl` on Linux, `-metal` and `-opencl` on macOS). Run
