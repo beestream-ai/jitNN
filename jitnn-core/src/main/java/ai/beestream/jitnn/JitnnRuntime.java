@@ -69,6 +69,11 @@ public final class JitnnRuntime {
         return Engine.onCuda();
     }
 
+    /** True when this thread's plans run through TornadoVM on a Metal device. */
+    public static boolean onMetal() {
+        return Engine.onMetal();
+    }
+
     /** Runs everything recorded on this thread, fetching {@code wanted} to the host. */
     public static void sync(Tensor... wanted) {
         Engine.sync(wanted);

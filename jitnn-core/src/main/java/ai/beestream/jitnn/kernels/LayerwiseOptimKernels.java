@@ -52,10 +52,14 @@ public final class LayerwiseOptimKernels {
         }
     }
 
-    /** p -= lr r u with the trust ratio r = |p| / |u| (1 when either norm is 0); norms = [|p|, |u|]. */
-    public static void trustUpdate(KernelContext kc, FloatArray p, FloatArray u, FloatArray norms, float lr, int n) {
+    /**
+     * p -= lr r u with the trust ratio r = |p| / |u| (1 when either norm is 0); norms = [|p|, |u|],
+     * lr = hyper[0] (hyper as for {@link #lambMoments}).
+     */
+    public static void trustUpdate(KernelContext kc, FloatArray p, FloatArray u, FloatArray norms, FloatArray hyper, int n) {
         int i = kc.globalIdx;
         if (i < n) {
+            float lr = hyper.get(0);
             float wn = norms.get(0);
             float un = norms.get(1);
             float r = (wn > 0.0f) & (un > 0.0f) ? wn / un : 1.0f;
