@@ -235,6 +235,11 @@ public final class Emitter {
         return Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.METAL;
     }
 
+    /** Threads a work-group may have on the device the plan runs on. */
+    public int maxGroupThreads() {
+        return Devices.maxGroupThreads();
+    }
+
     /** True when the plan runs on CUDA. */
     public boolean isCuda() {
         return Devices.backend() == uk.ac.manchester.tornado.api.enums.TornadoVMBackendType.CUDA;

@@ -207,6 +207,42 @@ python <jitnn>/scripts/hf/hf_reference.py ~/jitnn-data/hf
 ./mvnw test -Paccel-tests -Djitnn.hf=$HOME/jitnn-data/hf -Dtest=HfAccelTest
 ```
 
+`scripts/ci/stage-test-data.sh [data dir] [mnist cifar10 text hf]` does all of the above, and also
+makes the references of the LeNet, CNN-on-MNIST, VAE, DCGAN, U-Net, LSTM, GRU and Llama-family gates.
+It puts everything in `~/jitnn-data` by default, with its own PyTorch venv there. Set
+`JITNN_TORCH_DEVICE=cuda` or `mps` to compute the references on a GPU.
+
+## Continuous integration
+
+`.github/workflows/pr-tests.yml` builds and tests every pull request to `main` on two self-hosted
+runners. Each TornadoVM backend gets its own job, in two chains that run in parallel:
+
+| Runner labels | First job | Then |
+|---|---|---|
+| `self-hosted, Linux, X64` | `linux-x64 / CUDA`: build, host tests, CUDA | `linux-x64 / OpenCL`: build, OpenCL |
+| `self-hosted, macOS, ARM64` | `macos-arm64 / Metal`: build, host tests, Metal | `macos-arm64 / OpenCL`: build, OpenCL |
+
+The second job of a chain starts when the first ends, even if the first failed. In each job,
+`scripts/ci/accel-tests.sh <backend>` runs `./mvnw test -Paccel-tests` on the backend's device. It
+finds the SDK, writes its `tornado-argfile` if the SDK has never been run, and prints
+`tornado --devices`. It passes the data gates whose data it finds under `~/jitnn-data`, with a
+warning for each gate it skips. Each job uploads its reports (`ci-reports/<backend>`). Jobs run only
+for branches of this repository, not for forks, because self-hosted runners execute the pull
+request's code. Draft pull requests are skipped until they are marked ready. The script also runs
+locally, after `./mvnw install`.
+
+Each runner needs a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!
+(`8.1.0-jdk22plus-cuda` and `-opencl` on Linux, `-metal` and `-opencl` on macOS). Run
+`scripts/ci/stage-test-data.sh` once on each runner. Repository variables override the defaults:
+
+| Variable | Default |
+|---|---|
+| `JITNN_JAVA_HOME` | `~/.sdkman/candidates/java/current` |
+| `TORNADOVM_CUDA_HOME`, `TORNADOVM_OPENCL_LINUX_HOME`, `TORNADOVM_METAL_HOME`, `TORNADOVM_OPENCL_MAC_HOME` | `~/.sdkman/candidates/tornadovm/8.1.0-jdk22plus-<backend>` |
+| `JITNN_DEVICE_CUDA`, `JITNN_DEVICE_OPENCL_LINUX`, `JITNN_DEVICE_METAL`, `JITNN_DEVICE_OPENCL_MAC` | `0:0` |
+| `JITNN_DATA` | `~/jitnn-data` |
+| `JITNN_DEVICE_MEMORY` | `12GB` |
+
 ## Regenerating the references
 
 All references are committed; regenerate them only to change or extend them:

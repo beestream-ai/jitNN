@@ -84,6 +84,10 @@ class AutotuneAccelTest {
 
     @Test
     void gemm() throws Exception {
+        // On Metal, MatMul.emitGemm skips the tuned variants (it only autotunes when the variant is
+        // "auto" and the device is not Metal) and always takes the simdgroup kernel, so no gemm
+        // decision is ever recorded there.
+        org.junit.jupiter.api.Assumptions.assumeFalse(JitnnRuntime.onMetal(), "the GEMM variants are not tuned on Metal (simdgroup kernel)");
         float[] a = random(200 * 152, 1);
         float[] b = random(152 * 168, 2);
         check("gemm", () -> Tensor.of(a, 200, 152).matmul(Tensor.of(b, 152, 168)), 1e-4f);

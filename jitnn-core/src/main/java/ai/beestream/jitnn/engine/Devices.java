@@ -81,6 +81,26 @@ final class Devices {
         });
     }
 
+    private static final java.util.Map<String, Integer> GROUP_THREADS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Threads a work-group may have on the device plans run on, as the driver reports it: 1024 on
+     * CUDA and Metal, 256 on Apple silicon's OpenCL.
+     */
+    static int maxGroupThreads() {
+        return GROUP_THREADS.computeIfAbsent(key(), k -> {
+            String spec = CURRENT.get();
+            TornadoDevice d;
+            if (spec.isEmpty()) {
+                d = TornadoExecutionPlan.getDefaultDevice();
+            } else {
+                String[] parts = spec.split(":");
+                d = TornadoExecutionPlan.getDevice(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+            }
+            return d.getPhysicalDevice().getMaxThreadsPerBlock();
+        });
+    }
+
     private static final java.util.Map<String, String> NAMES = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** The name of the device plans run on, as the driver reports it (e.g. "NVIDIA A100 80GB PCIe"). */

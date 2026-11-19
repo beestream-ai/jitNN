@@ -1,0 +1,166 @@
+# Builds and tests every pull request on the two self-hosted runners: one job per TornadoVM
+# backend, in two chains that run in parallel, one per runner:
+#   linux-x64 / CUDA     ->  linux-x64 / OpenCL       (self-hosted, Linux, X64)
+#   macos-arm64 / Metal  ->  macos-arm64 / OpenCL     (self-hosted, macOS, ARM64)
+# The first job of a chain builds and runs the host tests (reference and CPU backends), then its
+# backend's accelerator tests; the second builds and runs its own backend's, after the first, even
+# when the first failed. scripts/ci/accel-tests.sh runs one backend, with the data gates (MNIST,
+# CIFAR-10, transformers, Hugging Face) whose data is staged on the runner
+# (scripts/ci/stage-test-data.sh).
+#
+# The runners need a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!. Repository
+# variables (Settings > Secrets and variables > Actions > Variables) override the defaults:
+#   JITNN_JAVA_HOME                    JDK (default ~/.sdkman/candidates/java/current)
+#   TORNADOVM_CUDA_HOME, ..._OPENCL_LINUX_HOME, ..._METAL_HOME, ..._OPENCL_MAC_HOME
+#                                      SDK per backend (default ~/.sdkman/candidates/tornadovm/8.1.0-jdk22plus-<backend>)
+#   JITNN_DEVICE_CUDA, ..._OPENCL_LINUX, ..._METAL, ..._OPENCL_MAC
+#                                      device as <driver>:<device> (default 0:0; `tornado --devices` lists them)
+#   JITNN_DATA                         staged test data (default ~/jitnn-data)
+#   JITNN_DEVICE_MEMORY                TornadoVM device-memory budget (default 12GB)
+#
+# Self-hosted runners execute the pull request's code, so jobs run only for branches of this
+# repository, never for forks.
+name: PR tests
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_OVERRIDE: ${{ vars.JITNN_JAVA_HOME }}
+  DATA_OVERRIDE: ${{ vars.JITNN_DATA }}
+  MEMORY_OVERRIDE: ${{ vars.JITNN_DEVICE_MEMORY }}
+
+jobs:
+  linux-cuda:
+    name: linux-x64 / CUDA
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select the JDK
+        shell: bash
+        run: bash scripts/ci/select-jdk.sh
+      - name: Build and run the host tests
+        shell: bash
+        run: ./mvnw -B -ntp install
+      - name: Accelerator tests
+        shell: bash
+        env:
+          SDK_OVERRIDE: ${{ vars.TORNADOVM_CUDA_HOME }}
+          DEVICE_OVERRIDE: ${{ vars.JITNN_DEVICE_CUDA }}
+          SDK_VAR: TORNADOVM_CUDA_HOME
+        run: bash scripts/ci/accel-tests.sh cuda
+      - name: Upload the test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-linux-x64-cuda
+          path: ci-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  linux-opencl:
+    name: linux-x64 / OpenCL
+    needs: linux-cuda
+    # after the CUDA job, pass or fail; skipped with it (forks, drafts)
+    if: ${{ !cancelled() && needs.linux-cuda.result != 'skipped' }}
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select the JDK
+        shell: bash
+        run: bash scripts/ci/select-jdk.sh
+      - name: Build
+        shell: bash
+        run: ./mvnw -B -ntp install -DskipTests
+      - name: Accelerator tests
+        shell: bash
+        env:
+          SDK_OVERRIDE: ${{ vars.TORNADOVM_OPENCL_LINUX_HOME }}
+          DEVICE_OVERRIDE: ${{ vars.JITNN_DEVICE_OPENCL_LINUX }}
+          SDK_VAR: TORNADOVM_OPENCL_LINUX_HOME
+        run: bash scripts/ci/accel-tests.sh opencl
+      - name: Upload the test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-linux-x64-opencl
+          path: ci-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  macos-metal:
+    name: macos-arm64 / Metal
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select the JDK
+        shell: bash
+        run: bash scripts/ci/select-jdk.sh
+      - name: Build and run the host tests
+        shell: bash
+        run: ./mvnw -B -ntp install
+      - name: Accelerator tests
+        shell: bash
+        env:
+          SDK_OVERRIDE: ${{ vars.TORNADOVM_METAL_HOME }}
+          DEVICE_OVERRIDE: ${{ vars.JITNN_DEVICE_METAL }}
+          SDK_VAR: TORNADOVM_METAL_HOME
+        run: bash scripts/ci/accel-tests.sh metal
+      - name: Upload the test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-macos-arm64-metal
+          path: ci-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  macos-opencl:
+    name: macos-arm64 / OpenCL
+    needs: macos-metal
+    # after the Metal job, pass or fail; skipped with it (forks, drafts)
+    if: ${{ !cancelled() && needs.macos-metal.result != 'skipped' }}
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select the JDK
+        shell: bash
+        run: bash scripts/ci/select-jdk.sh
+      - name: Build
+        shell: bash
+        run: ./mvnw -B -ntp install -DskipTests
+      - name: Accelerator tests
+        shell: bash
+        env:
+          SDK_OVERRIDE: ${{ vars.TORNADOVM_OPENCL_MAC_HOME }}
+          DEVICE_OVERRIDE: ${{ vars.JITNN_DEVICE_OPENCL_MAC }}
+          SDK_VAR: TORNADOVM_OPENCL_MAC_HOME
+        run: bash scripts/ci/accel-tests.sh opencl
+      - name: Upload the test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-macos-arm64-opencl
+          path: ci-reports/
+          if-no-files-found: ignore
+          retention-days: 14

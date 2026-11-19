@@ -44,12 +44,12 @@ public final class LayerwiseOptim {
     }
 
     /** One LAMB step of p with gradient g and persistent moments m, v; hyper as {@link LayerwiseOptimKernels#lambMoments}. */
-    public static void lamb(Tensor p, Tensor g, Tensor m, Tensor v, Tensor hyper, Tensor stats, float lr) {
+    public static void lamb(Tensor p, Tensor g, Tensor m, Tensor v, Tensor hyper, Tensor stats) {
         try (Grad.Scope ignored = Grad.disabled()) {
             Tensor u = Tensor.result(p.shape(), DType.F32);
             Tensor.record(LAMB_MOMENTS, new Tensor[] { p, g, m, v, hyper, stats(stats) }, new Tensor[] { m, v, u }, null, null, true);
             Tensor norms = Tensor.cat(0, norm(p), norm(u));
-            Tensor.record(TRUST_UPDATE, new Tensor[] { p, u, norms }, new Tensor[] { p }, null, new float[] { lr }, true);
+            Tensor.record(TRUST_UPDATE, new Tensor[] { p, u, norms, hyper }, new Tensor[] { p }, null, null, true);
         }
     }
 
@@ -108,18 +108,17 @@ public final class LayerwiseOptim {
 
         @Override
         public void emit(Emitter e, Node n) {
-            FloatArray p = e.f32(n.in(0)), u = e.f32(n.in(1)), norms = e.f32(n.in(2));
-            float lr = n.fattr[0];
+            FloatArray p = e.f32(n.in(0)), u = e.f32(n.in(1)), norms = e.f32(n.in(2)), h = e.f32(n.in(3));
             int count = n.in(0).numel();
-            e.task(Emitter.grid1D(count), (tg, id) -> tg.task(id, LayerwiseOptimKernels::trustUpdate, e.context(), p, u, norms, lr, count));
+            e.task(Emitter.grid1D(count), (tg, id) -> tg.task(id, LayerwiseOptimKernels::trustUpdate, e.context(), p, u, norms, h, count));
         }
 
         @Override
         public void reference(Node n) {
-            FloatArray p = host(n, 0), u = host(n, 1), norms = host(n, 2);
+            FloatArray p = host(n, 0), u = host(n, 1), norms = host(n, 2), h = host(n, 3);
             double r = norms.get(0) > 0 && norms.get(1) > 0 ? norms.get(0) / (double) norms.get(1) : 1;
             for (int i = 0; i < n.in(0).numel(); i++) {
-                p.set(i, (float) (p.get(i) - n.fattr[0] * r * u.get(i)));
+                p.set(i, (float) (p.get(i) - h.get(0) * r * u.get(i)));
             }
         }
     }
