@@ -10,7 +10,7 @@
   <img alt="Java 22+" src="https://img.shields.io/badge/java-22%2B-orange.svg">
   <img alt="TornadoVM" src="https://img.shields.io/badge/TornadoVM-8.1.0-0B1F33.svg">
   <a href="https://jitnn.beestream.ai/"><img alt="Javadoc" src="https://img.shields.io/badge/javadoc-public%20API-4c1.svg"></a>
-  <a href="https://jitnn.readthedocs.io/"><img alt="Documentation" src="https://readthedocs.org/projects/jitnn/badge/?version=latest"></a>
+  <a href="https://jitnn.readthedocs.io/en/latest/"><img alt="Docs" src="https://img.shields.io/badge/docs-readthedocs-blue"></a>
 </p>
 
 # jitNN
