@@ -80,10 +80,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          java_home=${JAVA_OVERRIDE:-$HOME/.sdkman/candidates/java/current}
-          sdk=${SDK_OVERRIDE:-$HOME/.sdkman/candidates/tornadovm/8.1.0-jdk22plus-${{ matrix.backend }}}
+          backend=${{ matrix.backend }}
+          candidates=${SDKMAN_DIR:-$HOME/.sdkman}/candidates
+          java_home=${JAVA_OVERRIDE:-$candidates/java/current}
           [ -x "$java_home/bin/java" ] || { echo "::error::no JDK at $java_home (set JITNN_JAVA_HOME)"; exit 1; }
-          [ -f "$sdk/tornado-argfile" ] || { echo "::error::no TornadoVM SDK at $sdk (set ${{ matrix.sdk_var }})"; exit 1; }
+          # the variable, else the SDKMAN! SDK of this backend: 8.1.0-jdk22plus-<backend>, else the
+          # newest 8.1.x SDK whose name ends in -<backend>
+          sdk=${SDK_OVERRIDE:-}
+          if [ -z "$sdk" ]; then
+            sdk=$candidates/tornadovm/8.1.0-jdk22plus-$backend
+            if [ ! -f "$sdk/tornado-argfile" ]; then
+              sdk=$(ls -d "$candidates"/tornadovm/8.1.*-"$backend" 2>/dev/null | sort | tail -1 || true)
+            fi
+          fi
+          if [ -z "$sdk" ] || [ ! -f "$sdk/tornado-argfile" ]; then
+            echo "::error::no TornadoVM 8.1 $backend SDK on $(hostname) as $(whoami) (looked in $candidates/tornadovm; set ${{ matrix.sdk_var }})"
+            echo "TornadoVM SDKs in $candidates/tornadovm:"; ls -1 "$candidates/tornadovm" 2>&1 || true
+            echo "TORNADOVM_HOME in the runner's environment: ${TORNADOVM_HOME:-unset}"
+            exit 1
+          fi
+          echo "JDK $java_home, TornadoVM $sdk"
           {
             echo "JAVA_HOME=$java_home"
             echo "TORNADOVM_HOME=$sdk"
