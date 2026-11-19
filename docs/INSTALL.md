@@ -222,6 +222,11 @@ runners. Each TornadoVM backend gets its own job, in two chains that run in para
 | `self-hosted, Linux, X64` | `linux-x64 / CUDA`: build, host tests, CUDA | `linux-x64 / OpenCL`: build, OpenCL |
 | `self-hosted, macOS, ARM64` | `macos-arm64 / Metal`: build, host tests, Metal | `macos-arm64 / OpenCL`: build, OpenCL |
 
+Pull requests that change no code skip the workflow: those that touch only Markdown files, `docs/`,
+`.readthedocs.yaml`, `LICENSE`, `NOTICE`, `.gitignore` or the Javadoc and release workflows.
+`docs/CONFIGURATION.md` still triggers it, since `ConfigurationDocTest` checks its generated tables
+against the code. The workflow can always be run by hand (Actions > PR tests > Run workflow).
+
 The second job of a chain starts when the first ends, even if the first failed. In each job,
 `scripts/ci/accel-tests.sh <backend>` runs `./mvnw test -Paccel-tests` on the backend's device. It
 finds the SDK, writes its `tornado-argfile` if the SDK has never been run, and prints
