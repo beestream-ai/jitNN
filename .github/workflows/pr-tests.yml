@@ -26,6 +26,20 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
+    # Only pull requests that change code run the tests: not ones that touch only Markdown, the
+    # docs site, licences or the other workflows. Later patterns override earlier ones.
+    paths:
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "!.readthedocs.yaml"
+      - "!LICENSE"
+      - "!NOTICE"
+      - "!.gitignore"
+      - "!.github/workflows/javadoc.yml"
+      - "!.github/workflows/release.yml"
+      # ConfigurationDocTest checks the generated option tables of this page against the code
+      - "docs/CONFIGURATION.md"
   workflow_dispatch:
 
 permissions:
