@@ -1,9 +1,9 @@
 # API reference (Javadoc)
 
 The Javadoc of jitNN's public API, every module (`jitnn-core`, `jitnn-nn`, `jitnn-onnx`, `jitnn-gguf`,
-`jitnn-tf`, `jitnn-djl`), is published with this site:
+`jitnn-tf`, `jitnn-djl`), is published on GitHub Pages and rebuilt on every push to `main`:
 
-<p><a class="reference external" href="api/index.html"><strong>Open the jitNN API reference</strong></a></p>
+**[Open the jitNN API reference](https://beestream-ai.github.io/jitNN/)**
 
 The packages, by area:
 
@@ -34,5 +34,4 @@ With JDK 22+ (see [INSTALL.md](INSTALL.md)); Maven fetches the TornadoVM jars fr
 
 `docs/build-javadoc.sh <output directory>` does the same and downloads a JDK when none is found,
 as the Read the Docs build does. `make -C docs html-with-api` builds this site with the Javadoc
-under `_build/html/api`. The `Javadoc` GitHub workflow builds it on every push to `main` and
-publishes it with GitHub Pages once Pages is enabled for the repository.
+under `_build/html/api`.
