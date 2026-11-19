@@ -26,6 +26,7 @@ import java.util.Properties;
 import java.util.function.Supplier;
 
 import ai.beestream.jitnn.engine.Autotune;
+import ai.beestream.jitnn.engine.Native;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -88,6 +89,9 @@ class AutotuneAccelTest {
         // "auto" and the device is not Metal) and always takes the simdgroup kernel, so no gemm
         // decision is ever recorded there.
         org.junit.jupiter.api.Assumptions.assumeFalse(JitnnRuntime.onMetal(), "the GEMM variants are not tuned on Metal (simdgroup kernel)");
+        // With -Djitnn.native, cuBLAS takes the product (MatMul.emitNative) and jitNN's GEMM variants,
+        // the only ones autotuning measures, never run.
+        org.junit.jupiter.api.Assumptions.assumeFalse(Native.use("gemm", Native.Lib.CUBLAS), "the product runs in cuBLAS");
         float[] a = random(200 * 152, 1);
         float[] b = random(152 * 168, 2);
         check("gemm", () -> Tensor.of(a, 200, 152).matmul(Tensor.of(b, 152, 168)), 1e-4f);
