@@ -25,6 +25,8 @@ author = "Beestream Ltd"
 extensions = [
     "myst_parser",
     "sphinx_rtd_theme",
+    # LaTeX takes no SVG: converts the diagrams to PDF for the PDF build (needs Cairo).
+    "sphinxcontrib.cairosvgconverter",
 ]
 
 source_suffix = {".md": "markdown"}
@@ -45,5 +47,7 @@ html_theme_options = {"logo_only": True}
 
 # -- Options for LaTeX output (the PDF build)
 
+# XeLaTeX: the pages use Unicode symbols (arrows, Greek letters) that pdfLaTeX rejects.
+latex_engine = "xelatex"
 latex_logo = None
 latex_documents = [("index", "jitnn.tex", "jitNN Documentation", author, "manual")]
