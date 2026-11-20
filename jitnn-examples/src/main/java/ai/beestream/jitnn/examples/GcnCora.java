@@ -132,12 +132,23 @@ public final class GcnCora {
         return out;
     }
 
-    /** The Cora dataset (LINQS), downloaded and unpacked once. */
+    /**
+     * The Cora dataset (LINQS), downloaded and unpacked once. When the LINQS server cannot be reached
+     * (its certificate chain does not verify in Java), the same two files come from the copy in Thomas
+     * Kipf's pygcn repository, byte for byte the same.
+     */
     static Path cora() throws IOException, InterruptedException {
         Path dir = Examples.dataDir().resolve("cora");
         if (!Files.exists(dir.resolve("cora").resolve("cora.content"))) {
-            Path tgz = Examples.download("https://linqs-data.soe.ucsc.edu/public/lbc/cora.tgz", dir.resolve("cora.tgz"));
-            Examples.untar(tgz, dir);
+            try {
+                Path tgz = Examples.download("https://linqs-data.soe.ucsc.edu/public/lbc/cora.tgz", dir.resolve("cora.tgz"));
+                Examples.untar(tgz, dir);
+            } catch (IOException e) {
+                System.out.println("LINQS download failed (" + e.getClass().getSimpleName() + "); using the copy in tkipf/pygcn");
+                for (String f : new String[] { "cora.content", "cora.cites" }) {
+                    Examples.download("https://raw.githubusercontent.com/tkipf/pygcn/master/data/cora/" + f, dir.resolve("cora").resolve(f));
+                }
+            }
         }
         return dir.resolve("cora");
     }
