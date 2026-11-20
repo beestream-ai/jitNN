@@ -17,6 +17,7 @@ package ai.beestream.jitnn.examples;
 
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
+import java.util.List;
 
 import javax.imageio.ImageIO;
 
@@ -39,8 +40,9 @@ import ai.beestream.jitnn.nn.optim.Adam;
  * A generative adversarial network that learns to draw digits, PyTorch's DCGAN example with its
  * settings ({@code --dataset mnist}): MNIST resized to 64x64, a generator of five transposed
  * convolutions (512-256-128-64 channels) against a discriminator of five convolutions, Adam (lr
- * 2e-4, beta1 0.5) for both, batches of 64, 25 epochs. Afterwards it draws 64 digits into
- * dcgan-digits.png.
+ * 2e-4, beta1 0.5) for both, batches of 64, 25 epochs, and the original's weight initialisation
+ * (without it, PyTorch's own run of the example also collapses to a few shapes on most seeds).
+ * Afterwards it draws 64 digits into dcgan-digits.png.
  *
  * <pre>run.sh DcganMnist [epochs]</pre>
  */
@@ -72,6 +74,25 @@ public final class DcganMnist {
                 new Conv2d(NDF * 8, 1, 4, 1, 0, 1, 1, false, 15));                                                         // 1x1
     }
 
+    /**
+     * The original example's weights_init: convolution weights from N(0, 0.02), BatchNorm scales from
+     * N(1, 0.02) and shifts 0. The convolutions have no bias, so the only rank-1 parameters are the
+     * BatchNorm pairs (scale, then shift).
+     */
+    static void dcganInit(Module m, long seed) {
+        List<Tensor> ps = m.parameters();
+        for (int i = 0; i < ps.size(); i++) {
+            Tensor p = ps.get(i);
+            int[] dims = p.shape().dims();
+            if (dims.length == 4) {
+                p.assign(Tensor.normal(seed + i, 0f, 0.02f, dims));
+            } else if (dims.length == 1) {
+                p.assign(Tensor.normal(seed + i, 1f, 0.02f, dims));
+                i++;                                                   // the shift that follows stays 0
+            }
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         int epochs = Examples.intArg(args, 0, 25);
         int batch = 64;
@@ -79,6 +100,8 @@ public final class DcganMnist {
 
         Module g = generator();
         Module d = discriminator();
+        dcganInit(g, 100);
+        dcganInit(d, 200);
         Adam optG = new Adam(g.parameters(), 2e-4f, 0.5f, 0.999f, 1e-8f, 0, false);
         Adam optD = new Adam(d.parameters(), 2e-4f, 0.5f, 0.999f, 1e-8f, 0, false);
         System.out.printf("generator %,d parameters, discriminator %,d%n", g.parameterCount(), d.parameterCount());
