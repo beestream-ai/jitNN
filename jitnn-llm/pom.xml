@@ -30,8 +30,8 @@
     <description>Runs GGUF language models (text generation) through jitllm</description>
 
     <properties>
-        <!-- jitllm built against the same TornadoVM SDK: ./mvnw install in a jitllm checkout -->
-        <jitllm.version>1.0.2-jdk22plus</jitllm.version>
+        <!-- from Maven Central, built against jitNN's TornadoVM; .github/workflows/jitllm-bump.yml moves it -->
+        <jitllm.version>3.0.0-jdk22plus</jitllm.version>
     </properties>
 
     <dependencies>

@@ -1,0 +1,114 @@
+# Opens a pull request that moves jitNN to a new jitllm release, once a day. jitllm
+# (io.github.beehive-lab:jitllm, from github.com/beehive-lab/jitllm) is taken from Maven Central, so
+# the workflow watches Central rather than jitllm's GitHub releases, which reach Central hours later.
+# scripts/ci/jitllm-bump.sh picks Central's newest -jdk22plus release and replaces the old version
+# in every POM and doc; the change goes on a branch deps/jitllm-<version> and a pull request to
+# main, never to main itself. A version that already has a pull request, open, merged or closed, is
+# left alone (reopen a closed one to take it after all); a branch left without one, after a failed
+# run, gets its pull request on the next run. Run it by hand (Actions > jitllm bump > Run workflow)
+# to check now or to ask for a given version.
+#
+# Pull requests opened with the workflow's own GITHUB_TOKEN do not start other workflows, so it
+# starts the PR tests (.github/workflows/pr-tests.yml) on the branch itself; their checks show on the
+# pull request. With a token in the JITLLM_BUMP_TOKEN secret (a GitHub App's or a fine-grained
+# PAT's, with Contents, Pull requests and Workflows read and write), the pull request is opened with
+# it and starts the PR tests as any other does.
+#
+# Needs: Settings > Actions > General > Workflow permissions > "Allow GitHub Actions to create and
+# approve pull requests" (also at the organisation level). Repository variables
+# JITLLM_BUMP_AUTHOR_NAME and JITLLM_BUMP_AUTHOR_EMAIL set the commit author (default
+# github-actions[bot]), who must have signed the CLA or be on its allowlist.
+name: jitllm bump
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "jitllm version (such as 3.0.0-jdk22plus); empty for Maven Central's newest"
+        required: false
+        default: ""
+
+permissions:
+  contents: write        # push the branch
+  pull-requests: write   # open the pull request
+  actions: write         # start the PR tests on the branch
+
+concurrency:
+  group: jitllm-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.JITLLM_BUMP_TOKEN || github.token }}
+      OWN_TOKEN: ${{ secrets.JITLLM_BUMP_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          token: ${{ secrets.JITLLM_BUMP_TOKEN || github.token }}
+
+      - name: Find the newest jitllm
+        id: bump
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bash scripts/ci/jitllm-bump.sh "${VERSION:-}"
+
+      - name: Open the pull request
+        if: steps.bump.outputs.bump == 'true'
+        shell: bash
+        env:
+          CURRENT: ${{ steps.bump.outputs.current }}
+          LATEST: ${{ steps.bump.outputs.latest }}
+          FILES: ${{ steps.bump.outputs.files }}
+          AUTHOR_NAME: ${{ vars.JITLLM_BUMP_AUTHOR_NAME || 'github-actions[bot]' }}
+          AUTHOR_EMAIL: ${{ vars.JITLLM_BUMP_AUTHOR_EMAIL || '41898282+github-actions[bot]@users.noreply.github.com' }}
+        run: |
+          set -euo pipefail
+          branch="deps/jitllm-$LATEST"
+          prs=$(gh pr list --head "$branch" --state all --json number --jq length)
+          if [ "$prs" != "0" ]; then
+            echo "::notice::jitllm $LATEST already has a pull request ($branch), open, merged or closed"
+            exit 0
+          fi
+          release="${LATEST%%-*}"
+          notes="https://github.com/beehive-lab/jitllm/releases/tag/jitllm-v$release"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            # pushed by an earlier run that failed before its pull request: open it now
+            echo "::notice::$branch exists without a pull request; opening one"
+          else
+            git config user.name "$AUTHOR_NAME"
+            git config user.email "$AUTHOR_EMAIL"
+            git switch -c "$branch"
+            git add -- $FILES
+            git commit -q -m "Bump jitllm from $CURRENT to $LATEST" -m "Release notes: $notes"
+            git push -q origin "$branch"
+          fi
+
+          body=$(cat <<EOF
+          Moves \`jitnn-llm\` from jitllm \`$CURRENT\` to \`$LATEST\`
+          (\`io.github.beehive-lab:jitllm\` on Maven Central). Release notes: $notes
+
+          Changed: $(echo "$FILES" | sed 's/[^ ][^ ]*/`&`/g')
+
+          Before merging, check that the PR tests passed, \`LlmAccelTest\` included (it runs where the
+          runner has a model staged in \`~/jitnn-data/llm\`), and that this jitllm is built against the
+          TornadoVM version jitNN uses (\`tornadovm.release.version\` in its POM on Maven Central).
+
+          Opened by the jitllm bump workflow (\`.github/workflows/jitllm-bump.yml\`).
+          EOF
+          )
+          url=$(gh pr create --base main --head "$branch" \
+            --title "Bump jitllm from $CURRENT to $LATEST" --body "$body")
+          echo "::notice::opened $url"
+
+          if [ "$OWN_TOKEN" != "true" ]; then
+            # GITHUB_TOKEN's pull requests start no workflows: run the PR tests on the branch
+            gh workflow run pr-tests.yml --ref "$branch"
+            echo "::notice::started the PR tests on $branch"
+          fi
