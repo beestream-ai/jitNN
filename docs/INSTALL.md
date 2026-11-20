@@ -14,10 +14,8 @@
 jitNN depends only on TornadoVM's `tornado-api` and library modules, which Maven fetches from
 Maven Central; the TornadoVM SDK provides them at run time. `jitnn-onnx` and `jitnn-tf` use their own protobuf reader, `jitnn-gguf` its own GGUF
 reader. `jitnn-djl` depends on DJL's `ai.djl:api` (0.38.0). The optional `jitnn-llm`
-(`./mvnw -Pllm ...`) takes jitllm (`io.github.beehive-lab:jitllm`, `jitllm.version` in
-`jitnn-llm/pom.xml`) from Maven Central. It must be built against the TornadoVM version jitNN uses:
-jitllm 3.0.0 and later are built against 8.1.0. To use an older jitllm, or one built from source,
-run `./mvnw install` in a jitllm checkout first.
+(`./mvnw -Pllm ...`) takes jitllm from Maven Central; it must be built against jitNN's TornadoVM
+(jitllm 3.0.0 and later: 8.1.0).
 
 ## TornadoVM
 
@@ -209,16 +207,8 @@ python <jitnn>/scripts/hf/hf_reference.py ~/jitnn-data/hf
 ./mvnw test -Paccel-tests -Djitnn.hf=$HOME/jitnn-data/hf -Dtest=HfAccelTest
 ```
 
-`LlmAccelTest` (`-Pllm`) generates text from an instruction-tuned Llama or Qwen GGUF model:
-
-```bash
-./mvnw test -Pllm,accel-tests -pl jitnn-llm -am -Djitnn.llm.model=$HOME/jitnn-data/llm/model.gguf -Dtest=LlmAccelTest -Dsurefire.failIfNoSpecifiedTests=false
-```
-
 `scripts/ci/stage-test-data.sh [data dir] [mnist cifar10 text hf llm]` does all of the above, and also
 makes the references of the LeNet, CNN-on-MNIST, VAE, DCGAN, U-Net, LSTM, GRU and Llama-family gates.
-Its `llm` part downloads Llama 3.2 1B Instruct (Q8_0, 1.3 GB) as `llm/model.gguf`; set
-`JITNN_LLM_MODEL_URL` for another model.
 It puts everything in `~/jitnn-data` by default, with its own PyTorch venv there. Set
 `JITNN_TORCH_DEVICE=cuda` or `mps` to compute the references on a GPU.
 
@@ -259,17 +249,8 @@ Each runner needs a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!
 | `JITNN_DATA` | `~/jitnn-data` |
 | `JITNN_DEVICE_MEMORY` | `12GB` |
 
-### jitllm updates
-
-`.github/workflows/jitllm-bump.yml` checks Maven Central once a day for a jitllm release newer than
-`jitllm.version` (with the same `-jdk22plus` suffix). When it finds one, `scripts/ci/jitllm-bump.sh`
-replaces the old version in every POM and doc that names it. The change goes on a branch
-`deps/jitllm-<version>` with a pull request to `main`, and the workflow starts the PR tests on that
-branch. It never pushes to `main`. It opens no second pull request for a version that already has a
-branch, so to have one opened again, delete the branch. Run it by hand (Actions > jitllm bump > Run
-workflow) to check now or to ask for a given version. It needs "Allow GitHub Actions to create and
-approve pull requests" (Settings > Actions > General). The optional `JITLLM_BUMP_TOKEN` secret and
-the `JITLLM_BUMP_AUTHOR_NAME` and `JITLLM_BUMP_AUTHOR_EMAIL` variables are described in the workflow.
+`.github/workflows/jitllm-bump.yml` opens a pull request for each new jitllm release on Maven Central;
+its header describes the setup.
 
 ## Regenerating the references
 
