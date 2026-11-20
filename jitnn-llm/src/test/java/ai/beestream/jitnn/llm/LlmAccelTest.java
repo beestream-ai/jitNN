@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Text generation from a GGUF model on the test device. Needs a model:
- * {@code -Djitnn.test.extra=-Djitnn.llm.model=<file.gguf>} (an instruction-tuned Llama or Qwen).
+ * {@code -Djitnn.llm.model=<file.gguf>} (an instruction-tuned Llama or Qwen).
  */
 class LlmAccelTest {
 

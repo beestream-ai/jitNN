@@ -14,20 +14,22 @@
 # limitations under the License.
 # usage: scripts/ci/stage-test-data.sh [data dir] [parts...]
 # Stages the data and PyTorch references of the accelerator data gates on a machine, once: what the
-# PR workflow (.github/workflows/pr-tests.yml) passes as -Djitnn.mnist, -Djitnn.cifar10, -Djitnn.text
-# and -Djitnn.hf. Run it from the jitNN checkout on each self-hosted runner; rerun it after the
+# PR workflow (.github/workflows/pr-tests.yml) passes as -Djitnn.mnist, -Djitnn.cifar10, -Djitnn.text,
+# -Djitnn.hf and -Djitnn.llm.model. Run it from the jitNN checkout on each self-hosted runner; rerun it after the
 # reference scripts change. The data dir defaults to ~/jitnn-data (the workflow's JITNN_DATA);
-# parts are any of mnist cifar10 text hf (default: all).
+# parts are any of mnist cifar10 text hf llm (default: all).
 # Environment:
 #   PYTHON              a Python 3.10+ to make the venv with (default python3)
 #   JITNN_TORCH_DEVICE  cuda or mps to make the references on a GPU (the scripts default to CPU)
 #   TORNADOVM_DOCS      a TornadoVM checkout whose docs/source/*.rst form the text corpus
 #                       (default: a shallow clone of github.com/beehive-lab/TornadoVM)
+#   JITNN_LLM_MODEL_URL the GGUF model for LlmAccelTest, saved as llm/model.gguf
+#                       (default: Llama 3.2 1B Instruct, Q8_0, 1.3 GB)
 set -euo pipefail
 JITNN=$(cd "$(dirname "$0")/../.." && pwd)
 DATA=${1:-$HOME/jitnn-data}
 shift || true
-PARTS=${*:-mnist cifar10 text hf}
+PARTS=${*:-mnist cifar10 text hf llm}
 mkdir -p "$DATA"
 DATA=$(cd "$DATA" && pwd)
 
@@ -95,6 +97,11 @@ if has hf; then
     d=$DATA/hf; mkdir -p "$d"
     "$PY" "$JITNN/scripts/hf/hf_reference.py" "$d"
     "$PY" "$JITNN/scripts/hf/hf_llama_reference.py" "$d"
+fi
+
+if has llm; then
+    d=$DATA/llm; mkdir -p "$d"
+    fetch "${JITNN_LLM_MODEL_URL:-https://huggingface.co/unsloth/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q8_0.gguf}" "$d/model.gguf"
 fi
 
 echo "staged in $DATA:"

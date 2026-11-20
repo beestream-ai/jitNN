@@ -76,6 +76,8 @@
         <jitnn.cifar10></jitnn.cifar10>
         <!-- Directory with corpus.txt and the PyTorch references; the transformer gates are skipped when empty. -->
         <jitnn.text></jitnn.text>
+        <!-- A GGUF model (an instruction-tuned Llama or Qwen) for jitnn-llm's LlmAccelTest; skipped when empty. -->
+        <jitnn.llm.model></jitnn.llm.model>
     </properties>
 
     <dependencyManagement>
@@ -335,7 +337,7 @@
                 </plugins>
             </build>
         </profile>
-        <!-- jitnn-llm: needs jitllm installed in the local repository (./mvnw install in a jitllm checkout) -->
+        <!-- jitnn-llm: jitllm from Maven Central, built against the TornadoVM jitNN uses -->
         <profile>
             <id>llm</id>
             <modules>
@@ -367,6 +369,7 @@
                                     -Djitnn.hf=${jitnn.hf}
                                     -Djitnn.cifar10=${jitnn.cifar10}
                                     -Djitnn.text=${jitnn.text}
+                                    -Djitnn.llm.model=${jitnn.llm.model}
                                     -Djitnn.profile=${jitnn.test.profile}
                                     -Djitnn.gemm=${jitnn.test.gemm} ${jitnn.test.extra}</argLine>
                             </configuration>

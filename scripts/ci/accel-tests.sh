@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # usage: scripts/ci/accel-tests.sh <backend>
-# Runs the accelerator tests (-Paccel-tests) on one TornadoVM backend (cuda, opencl or metal), as
+# Runs the accelerator tests (-Paccel-tests, jitnn-llm's included) on one TornadoVM backend (cuda, opencl or metal), as
 # the PR workflow does on each self-hosted runner, after ./mvnw install. Run from the checkout root.
 # It finds the backend's SDK, writes its tornado-argfile if the SDK has never been run, passes the
 # data gates whose data is staged (scripts/ci/stage-test-data.sh), runs every module even when an
@@ -68,10 +68,16 @@ gate mnist   mnist   mnist_mlp_pytorch.f32
 gate cifar10 cifar10 resnet18_cifar10_pytorch.f32
 gate text    text    corpus.txt
 gate hf      hf      reference.json
+# jitnn-llm's LlmAccelTest takes the model file itself
+if [ -f "$data/llm/model.gguf" ]; then
+    gates+=("-Djitnn.llm.model=$data/llm/model.gguf")
+else
+    echo "::warning::$backend: llm gate skipped, $data/llm/model.gguf not found (run scripts/ci/stage-test-data.sh on this runner)"
+fi
 
 rm -rf ./*/target/surefire-reports "ci-reports/$backend"
 # every module runs even when an earlier one has failures; the reports decide
-./mvnw -B -ntp test -Paccel-tests -Dmaven.test.failure.ignore=true \
+./mvnw -B -ntp test -Pllm,accel-tests -Dmaven.test.failure.ignore=true \
     -Djitnn.test.device="$device" \
     -Djitnn.test.deviceMemory="${MEMORY_OVERRIDE:-12GB}" \
     ${gates[@]+"${gates[@]}"}

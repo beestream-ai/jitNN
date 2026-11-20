@@ -4,9 +4,10 @@
 #   macos-arm64 / Metal  ->  macos-arm64 / OpenCL     (self-hosted, macOS, ARM64)
 # The first job of a chain builds and runs the host tests (reference and CPU backends), then its
 # backend's accelerator tests; the second builds and runs its own backend's, after the first, even
-# when the first failed. scripts/ci/accel-tests.sh runs one backend, with the data gates (MNIST,
-# CIFAR-10, transformers, Hugging Face) whose data is staged on the runner
-# (scripts/ci/stage-test-data.sh).
+# when the first failed. Every build includes jitnn-llm (-Pllm; jitllm comes from Maven Central).
+# scripts/ci/accel-tests.sh runs one backend, with the data gates (MNIST, CIFAR-10, transformers,
+# Hugging Face, the LLM) whose data is staged on the runner (scripts/ci/stage-test-data.sh).
+# The jitllm bump workflow (jitllm-bump.yml) starts this workflow on its branches by hand.
 #
 # The runners need a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!. Repository
 # variables (Settings > Secrets and variables > Actions > Variables) override the defaults:
@@ -38,6 +39,7 @@ on:
       - "!.gitignore"
       - "!.github/workflows/javadoc.yml"
       - "!.github/workflows/release.yml"
+      - "!.github/workflows/jitllm-bump.yml"
       # ConfigurationDocTest checks the generated option tables of this page against the code
       - "docs/CONFIGURATION.md"
   workflow_dispatch:
@@ -69,7 +71,7 @@ jobs:
         run: bash scripts/ci/select-jdk.sh
       - name: Build and run the host tests
         shell: bash
-        run: ./mvnw -B -ntp install
+        run: ./mvnw -B -ntp -Pllm install
       - name: Accelerator tests
         shell: bash
         env:
@@ -100,7 +102,7 @@ jobs:
         run: bash scripts/ci/select-jdk.sh
       - name: Build
         shell: bash
-        run: ./mvnw -B -ntp install -DskipTests
+        run: ./mvnw -B -ntp -Pllm install -DskipTests
       - name: Accelerator tests
         shell: bash
         env:
@@ -131,7 +133,7 @@ jobs:
         run: bash scripts/ci/select-jdk.sh
       - name: Build and run the host tests
         shell: bash
-        run: ./mvnw -B -ntp install
+        run: ./mvnw -B -ntp -Pllm install
       - name: Accelerator tests
         shell: bash
         env:
@@ -162,7 +164,7 @@ jobs:
         run: bash scripts/ci/select-jdk.sh
       - name: Build
         shell: bash
-        run: ./mvnw -B -ntp install -DskipTests
+        run: ./mvnw -B -ntp -Pllm install -DskipTests
       - name: Accelerator tests
         shell: bash
         env:
