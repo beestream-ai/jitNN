@@ -3,9 +3,10 @@
 # the workflow watches Central rather than jitllm's GitHub releases, which reach Central hours later.
 # scripts/ci/jitllm-bump.sh picks Central's newest -jdk22plus release and replaces the old version
 # in every POM and doc; the change goes on a branch deps/jitllm-<version> and a pull request to
-# main, never to main itself. A version that already has a branch is left alone, so close the pull
-# request and delete its branch to have it opened again. Run it by hand (Actions > jitllm bump > Run
-# workflow) to check now or to ask for a given version.
+# main, never to main itself. A version that already has a pull request, open, merged or closed, is
+# left alone (reopen a closed one to take it after all); a branch left without one, after a failed
+# run, gets its pull request on the next run. Run it by hand (Actions > jitllm bump > Run workflow)
+# to check now or to ask for a given version.
 #
 # Pull requests opened with the workflow's own GITHUB_TOKEN do not start other workflows, so it
 # starts the PR tests (.github/workflows/pr-tests.yml) on the branch itself; their checks show on the
@@ -70,22 +71,28 @@ jobs:
         run: |
           set -euo pipefail
           branch="deps/jitllm-$LATEST"
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
-            echo "::notice::$branch already exists; jitllm $LATEST has a pull request or was declined"
+          prs=$(gh pr list --head "$branch" --state all --json number --jq length)
+          if [ "$prs" != "0" ]; then
+            echo "::notice::jitllm $LATEST already has a pull request ($branch), open, merged or closed"
             exit 0
           fi
           release="${LATEST%%-*}"
           notes="https://github.com/beehive-lab/jitllm/releases/tag/jitllm-v$release"
-          git config user.name "$AUTHOR_NAME"
-          git config user.email "$AUTHOR_EMAIL"
-          git switch -c "$branch"
-          git add -- $FILES
-          git commit -q -m "Bump jitllm from $CURRENT to $LATEST" -m "Release notes: $notes"
-          git push -q origin "$branch"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            # pushed by an earlier run that failed before its pull request: open it now
+            echo "::notice::$branch exists without a pull request; opening one"
+          else
+            git config user.name "$AUTHOR_NAME"
+            git config user.email "$AUTHOR_EMAIL"
+            git switch -c "$branch"
+            git add -- $FILES
+            git commit -q -m "Bump jitllm from $CURRENT to $LATEST" -m "Release notes: $notes"
+            git push -q origin "$branch"
+          fi
 
           body=$(cat <<EOF
-          Moves \`jitnn-llm\` from jitllm \`$CURRENT\` to \`$LATEST\`, the newest jitllm on Maven Central
-          (\`io.github.beehive-lab:jitllm\`). Release notes: $notes
+          Moves \`jitnn-llm\` from jitllm \`$CURRENT\` to \`$LATEST\`
+          (\`io.github.beehive-lab:jitllm\` on Maven Central). Release notes: $notes
 
           Changed: $(echo "$FILES" | sed 's/[^ ][^ ]*/`&`/g')
 

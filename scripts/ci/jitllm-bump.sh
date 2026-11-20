@@ -16,7 +16,8 @@
 # Moves jitNN to the newest jitllm on Maven Central (io.github.beehive-lab:jitllm), as the
 # jitllm-bump workflow (.github/workflows/jitllm-bump.yml) does: it reads jitllm.version from
 # jitnn-llm/pom.xml, picks Central's newest release with the same JDK suffix (-jdk22plus), or the
-# version given, and if that is newer replaces the old version in every POM and doc that names it.
+# version given (which must be such a release), and if that is newer replaces the old version in
+# every POM and doc that names it.
 # Run from the checkout root; it only edits files, never commits.
 # Prints, and appends to $GITHUB_OUTPUT when set: current=, latest=, bump=true|false, files=.
 # Environment:
@@ -30,14 +31,17 @@ current=$(sed -n 's:.*<jitllm.version>\(.*\)</jitllm.version>.*:\1:p' "$pom")
 suffix=${current#*-}                      # jdk22plus: the TornadoVM build jitNN runs on
 [ "$suffix" != "$current" ] || suffix=""
 
+versions=$(curl -fsSL --retry 3 "$metadata" | sed -n 's:.*<version>\(.*\)</version>.*:\1:p') \
+    || { echo "::error::could not read $metadata"; exit 1; }
+# releases only (X.Y.Z-<suffix>): no -SNAPSHOT, -rc or -dev builds, no other JDK's build
+if [ -n "$suffix" ]; then pattern="^[0-9]+\.[0-9]+\.[0-9]+-${suffix}\$"; else pattern='^[0-9]+\.[0-9]+\.[0-9]+$'; fi
+releases=$(echo "$versions" | grep -E "$pattern" || true)
 if [ -n "${1:-}" ]; then
     latest=$1
+    echo "$releases" | grep -qxF -- "$latest" \
+        || { echo "::error::$latest is not a jitllm release ending in -$suffix in $metadata"; exit 1; }
 else
-    # releases only (X.Y.Z-<suffix>): no -SNAPSHOT, -rc or -dev builds
-    if [ -n "$suffix" ]; then pattern="^[0-9]+\.[0-9]+\.[0-9]+-${suffix}\$"; else pattern='^[0-9]+\.[0-9]+\.[0-9]+$'; fi
-    latest=$(curl -fsSL --retry 3 "$metadata" \
-        | sed -n 's:.*<version>\(.*\)</version>.*:\1:p' \
-        | grep -E "$pattern" | sort -V | tail -1 || true)
+    latest=$(echo "$releases" | sort -V | tail -1)
     [ -n "$latest" ] || { echo "::error::no jitllm release ending in -$suffix in $metadata"; exit 1; }
 fi
 
@@ -50,7 +54,9 @@ if [ "$latest" != "$current" ] && [ "$newest" = "$latest" ]; then
     files=$(git grep -l -F "$current" -- 'pom.xml' '*/pom.xml' '*.md' 'docs/**' || true)
     for f in $files; do
         # escape the dots so 1.0.2 does not also match 1x0y2
-        sed -i.bak "s/$(printf '%s' "$current" | sed 's/[.]/\\./g')/$latest/g" "$f" && rm -f "$f.bak"
+        sed -i.bak "s/$(printf '%s' "$current" | sed 's/[.]/\\./g')/$latest/g" "$f"
+        rm -f "$f.bak"
+        grep -qF -- "$latest" "$f" || { echo "::error::could not put $latest in $f"; exit 1; }
     done
     files=$(echo $files)
 fi

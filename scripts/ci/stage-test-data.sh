@@ -42,7 +42,8 @@ fi
 PY=$VENV/bin/python
 
 has() { [[ " $PARTS " == *" $1 "* ]]; }
-fetch() { [ -f "$2" ] || curl -fL --retry 3 -o "$2" "$1"; }
+# downloads to <file>.part first, so an interrupted download is not taken for a finished one
+fetch() { [ -f "$2" ] || { curl -fL --retry 3 -o "$2.part" "$1" && mv "$2.part" "$2"; }; }
 
 if has mnist; then
     d=$DATA/mnist; mkdir -p "$d"
