@@ -6,18 +6,29 @@ code that runs on jitNN unchanged). Each downloads its data on first use and pri
 
 ## Running them
 
+The examples run against a released jitNN jar, `jitnn-<version>.jar` from the
+[releases page](https://github.com/beestream-ai/jitNN/releases): no Maven build. `run.sh` downloads
+it once into `~/.jitnn/releases`, compiles the examples against it and runs one on the TornadoVM
+SDK in `TORNADOVM_HOME`:
+
 ```bash
-source <TornadoVM>/setvars.sh            # TORNADOVM_HOME, as for building jitNN
-./mvnw install -DskipTests               # in the jitNN checkout, once
-jitnn-examples/run.sh                    # lists the examples
-jitnn-examples/run.sh MnistMlp           # runs one; arguments follow the name
+sdk install tornadovm 8.1.0-jdk22plus-metal   # or ...-cuda, ...-opencl; sets TORNADOVM_HOME
+git clone https://github.com/beestream-ai/jitNN && cd jitNN
+jitnn-examples/run.sh                         # lists the examples
+jitnn-examples/run.sh MnistMlp                # runs one; arguments follow the name
 jitnn-examples/run.sh Gpt2TextGeneration "The meaning of life is" 80
 ```
 
+- The release is this checkout's version when it is a release (a `v*` tag), else the newest one on
+  GitHub; `JITNN_VERSION=0.1.0-alpha` picks one, `JITNN_JAR=<file>` uses a jar you have.
+  `git clone --branch v0.1.0-alpha` gives the examples as they were for that release.
+- `JITNN_FROM_SOURCE=1` runs against this checkout's own build instead (`./mvnw install -DskipTests`
+  first).
+- `djl.TrainMnistDjl` also needs DJL: its jars are resolved once with the Maven wrapper.
 - Downloads go to `~/.jitnn/examples` (`JAVA_OPTS=-Djitnn.examples.data=<dir>` to change it).
 - `JAVA_OPTS` passes JVM flags: `-Djitnn.device=1:0` for another device (`tornado --devices` lists
-  them), `-Djitnn.verbose=true` to log every compiled plan, `-Djitnn.native=auto` to call the vendor
-  libraries where installed ([NATIVE.md](../docs/NATIVE.md)).
+  them), `-Djitnn.backend=cpu` for the CPU backend, `-Djitnn.verbose=true` to log every compiled
+  plan, `-Djitnn.native=auto` to call the vendor libraries where installed ([NATIVE.md](../docs/NATIVE.md)).
 - `JITNN_DEVICE_MEMORY` sets TornadoVM's device-memory budget (default 12GB).
 
 The first step of every example compiles the whole step (forward, backward and optimiser) into one
