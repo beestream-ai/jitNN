@@ -124,7 +124,7 @@ Import `jitnn-bom` once, then list modules without versions, so they always matc
         <dependency>
             <groupId>ai.beestream</groupId>
             <artifactId>jitnn-bom</artifactId>
-            <version>0.1.0</version>
+            <version>0.1.0-alpha</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -143,19 +143,66 @@ GitHub Packages asks for a login even for public packages: add a `<server>` with
 your GitHub user name and a personal access token with the `read:packages` scope to
 `~/.m2/settings.xml`.
 
-#### Without a build tool
+#### The one jar, without a build tool
 
-`jitnn-<version>-all.jar` from the release page holds every module except `jitnn-llm`, and nothing
-else: TornadoVM comes from its SDK, and DJL (only for `jitnn-djl`) from your application.
+`jitnn-<version>-all.jar` holds every module except `jitnn-llm`, and nothing else: TornadoVM comes
+from its SDK, and DJL (only for `jitnn-djl`) from your application. Take it from the release page,
+or build it from a checkout:
 
 ```bash
-java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-all.jar:your-app.jar your.Main
+./mvnw install -DskipTests       # writes jitnn-all/target/jitnn-all-<version>.jar
 ```
+
+The commands below use `jitnn-0.1.0-alpha-all.jar` and a program `Hello.java`:
+
+```java
+import ai.beestream.jitnn.JitnnRuntime;
+import ai.beestream.jitnn.Tensor;
+
+public class Hello {
+    public static void main(String[] args) {
+        Tensor a = Tensor.of(new float[] { 1, 2, 3, 4, 5, 6 }, 2, 3);
+        Tensor b = Tensor.of(new float[] { 1, 0, 0, 1, 1, 1 }, 3, 2);
+        System.out.println(JitnnRuntime.backend() + ": " + java.util.Arrays.toString(a.matmul(b).toFloatArray()));
+    }
+}
+```
+
+**Compile.** `javac` also needs TornadoVM's API jar, from the SDK, because some `Tensor` methods
+take TornadoVM array types:
+
+```bash
+javac -cp jitnn-0.1.0-alpha-all.jar:$TORNADOVM_HOME/share/java/tornado/tornado-api-8.1.0.jar Hello.java
+```
+
+**Run on a GPU.** The TornadoVM argument file sets up its JVM; `-Djitnn.device=<driver>:<device>`
+picks a device (`tornado --devices` lists them):
+
+```bash
+java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-alpha-all.jar:. Hello
+# TORNADO: [4.0, 5.0, 10.0, 11.0]
+```
+
+The argument file puts the current directory on the module path, so run from a directory without
+unrelated or damaged jars in it (macOS `._*.jar` files left by copying count too).
+`java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-alpha-all.jar Hello.java` compiles and runs
+in one step.
+
+**Run on the CPU, without TornadoVM.** Any JDK 22 or newer; the TornadoVM API jar must be on the
+class path (from the SDK, or `tornado-api-8.1.0-jdk22plus.jar` from
+[Maven Central](https://repo1.maven.org/maven2/io/github/beehive-lab/tornado-api/8.1.0-jdk22plus/)):
+
+```bash
+java --add-modules jdk.incubator.vector -Djitnn.backend=cpu -cp jitnn-0.1.0-alpha-all.jar:tornado-api-8.1.0-jdk22plus.jar:. Hello
+# CPU: [4.0, 5.0, 10.0, 11.0]
+```
+
+Without `--add-modules jdk.incubator.vector`, jitNN uses the `reference` backend (scalar Java).
 
 #### Making a release
 
 Maintainers release from the Actions tab: Release > Run workflow, with the version (for example
-`0.1.0`). It sets that version on a commit of its own and tags it `v0.1.0` (`main` keeps its
+`0.1.0-alpha`). It sets that version on a commit of its own and tags it `v0.1.0-alpha` (`main` keeps its
 `-SNAPSHOT` version), runs the tests, publishes the modules and the BOM to GitHub Packages and
 creates the GitHub release. "Dry run" stops after building and testing.
 
