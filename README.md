@@ -76,7 +76,7 @@ Every operator, with its kernels and gradient, is listed in [OPERATORS.md](docs/
 | `jitnn-djl` | the DJL engine, named `jitNN` (the default engine when it is on the class path) |
 | `jitnn-examples` | runnable examples after DL4J, Deep Netts, DJL, PyTorch, Keras, H2O, Tribuo and Smile ([README](jitnn-examples/README.md)) |
 | `jitnn-bom` | the bill of materials: import it to use modules of one version |
-| `jitnn-all` | every module in one jar, attached to each [release](https://github.com/beestream-ai/jitNN/releases) |
+| `jitnn-all` | every module in one jar, `jitnn-<version>.jar`: the file each [release](https://github.com/beestream-ai/jitNN/releases) ships |
 
 Which module to depend on for what, and how to use a release from Maven or without a build tool:
 [INSTALL.md](docs/INSTALL.md#releases).
@@ -111,15 +111,15 @@ git clone https://github.com/beestream-ai/jitNN && cd jitNN
 ./mvnw test -Paccel-tests -Djitnn.test.device=0:0    # on a TornadoVM device
 ```
 
-Or skip the build: take `jitnn-0.1.0-alpha-all.jar` (every module in one jar) from the
+Or skip the build: take `jitnn-0.1.0-alpha.jar` (every module in one jar) from the
 [releases page](https://github.com/beestream-ai/jitNN/releases) and use it with your program:
 
 ```bash
 API=$TORNADOVM_HOME/share/java/tornado/tornado-api-8.1.0.jar
-javac -cp jitnn-0.1.0-alpha-all.jar:$API Hello.java                          # TornadoVM's API is needed to compile
-java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-alpha-all.jar:. Hello  # on the GPU
+javac -cp jitnn-0.1.0-alpha.jar:$API Hello.java                          # TornadoVM's API is needed to compile
+java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-alpha.jar:. Hello  # on the GPU
 java --add-modules jdk.incubator.vector -Djitnn.backend=cpu \
-     -cp jitnn-0.1.0-alpha-all.jar:$API:. Hello                               # on the CPU, without TornadoVM's JVM
+     -cp jitnn-0.1.0-alpha.jar:$API:. Hello                           # on the CPU, without TornadoVM's JVM
 ```
 
 [INSTALL.md](docs/INSTALL.md#the-one-jar-without-a-build-tool) has a `Hello.java` to try and the details.

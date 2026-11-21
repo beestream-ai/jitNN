@@ -86,9 +86,9 @@ release, pass its version on every Maven command: `-Dtornadovm.version=8.1.1-jdk
 
 ### Releases
 
-Released versions are on the [GitHub releases page](https://github.com/beestream-ai/jitNN/releases)
-and in GitHub Packages. Each release has the module jars, `jitnn-<version>-all.jar` (every module in
-one jar) and the Javadoc.
+Released versions are on the [GitHub releases page](https://github.com/beestream-ai/jitNN/releases).
+Each release has one jar, `jitnn-<version>.jar`, with every module in it, and the Javadoc. Releases
+published for Maven are also in GitHub Packages, one artifact per module.
 
 #### Which module do I need
 
@@ -145,15 +145,15 @@ your GitHub user name and a personal access token with the `read:packages` scope
 
 #### The one jar, without a build tool
 
-`jitnn-<version>-all.jar` holds every module except `jitnn-llm`, and nothing else: TornadoVM comes
+`jitnn-<version>.jar` holds every module except `jitnn-llm`, and nothing else: TornadoVM comes
 from its SDK, and DJL (only for `jitnn-djl`) from your application. Take it from the release page,
 or build it from a checkout:
 
 ```bash
-./mvnw install -DskipTests       # writes jitnn-all/target/jitnn-all-<version>.jar
+./mvnw install -DskipTests       # writes jitnn-all/target/jitnn-<version>.jar
 ```
 
-The commands below use `jitnn-0.1.0-alpha-all.jar` and a program `Hello.java`:
+The commands below use `jitnn-0.1.0-alpha.jar` and a program `Hello.java`:
 
 ```java
 import ai.beestream.jitnn.JitnnRuntime;
@@ -172,20 +172,20 @@ public class Hello {
 take TornadoVM array types:
 
 ```bash
-javac -cp jitnn-0.1.0-alpha-all.jar:$TORNADOVM_HOME/share/java/tornado/tornado-api-8.1.0.jar Hello.java
+javac -cp jitnn-0.1.0-alpha.jar:$TORNADOVM_HOME/share/java/tornado/tornado-api-8.1.0.jar Hello.java
 ```
 
 **Run on a GPU.** The TornadoVM argument file sets up its JVM; `-Djitnn.device=<driver>:<device>`
 picks a device (`tornado --devices` lists them):
 
 ```bash
-java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-alpha-all.jar:. Hello
+java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-alpha.jar:. Hello
 # TORNADO: [4.0, 5.0, 10.0, 11.0]
 ```
 
 The argument file puts the current directory on the module path, so run from a directory without
 unrelated or damaged jars in it (macOS `._*.jar` files left by copying count too).
-`java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-alpha-all.jar Hello.java` compiles and runs
+`java @$TORNADOVM_HOME/tornado-argfile -cp jitnn-0.1.0-alpha.jar Hello.java` compiles and runs
 in one step.
 
 **Run on the CPU, without TornadoVM.** Any JDK 22 or newer; the TornadoVM API jar must be on the
@@ -193,7 +193,7 @@ class path (from the SDK, or `tornado-api-8.1.0-jdk22plus.jar` from
 [Maven Central](https://repo1.maven.org/maven2/io/github/beehive-lab/tornado-api/8.1.0-jdk22plus/)):
 
 ```bash
-java --add-modules jdk.incubator.vector -Djitnn.backend=cpu -cp jitnn-0.1.0-alpha-all.jar:tornado-api-8.1.0-jdk22plus.jar:. Hello
+java --add-modules jdk.incubator.vector -Djitnn.backend=cpu -cp jitnn-0.1.0-alpha.jar:tornado-api-8.1.0-jdk22plus.jar:. Hello
 # CPU: [4.0, 5.0, 10.0, 11.0]
 ```
 

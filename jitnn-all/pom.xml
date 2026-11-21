@@ -68,6 +68,8 @@
     </dependencies>
 
     <build>
+        <!-- the release file name: jitnn-<version>.jar -->
+        <finalName>jitnn-${project.version}</finalName>
         <resources>
             <!-- the jar carries the license and the third-party notices -->
             <resource>
