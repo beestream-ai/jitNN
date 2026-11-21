@@ -21,7 +21,7 @@
 
     <groupId>ai.beestream</groupId>
     <artifactId>jitnn-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0-alpha</version>
     <packaging>pom</packaging>
 
     <name>jitNN</name>
@@ -59,7 +59,7 @@
         <junit.version>5.10.1</junit.version>
         <djl.version>0.38.0</djl.version>
         <!-- reproducible jars: a fixed timestamp in every archive entry -->
-        <project.build.outputTimestamp>2026-11-08T00:00:00Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-11-21T12:14:52Z</project.build.outputTimestamp>
         <!-- Device for accelerator tests, as <driver>:<device> listed by the tornado devices command. -->
         <jitnn.test.device>0:0</jitnn.test.device>
         <jitnn.test.verbose>false</jitnn.test.verbose>
