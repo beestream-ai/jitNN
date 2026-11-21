@@ -69,6 +69,11 @@
                 <artifactId>jitnn-djl</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>ai.beestream</groupId>
+                <artifactId>jitnn-native-image</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>

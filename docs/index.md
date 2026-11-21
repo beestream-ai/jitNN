@@ -69,6 +69,7 @@ Every operator, with its kernels and gradient, is listed in [OPERATORS.md](OPERA
 | `jitnn-llm` | optional (`-Pllm`): text generation through jitllm, `Llm` |
 | `jitnn-djl` | the DJL engine, named `jitNN` (the default engine when it is on the class path) |
 | `jitnn-examples` | runnable examples after DL4J, Deep Netts, DJL, PyTorch, Keras, H2O, Tribuo and Smile ([README](EXAMPLES.md)) |
+| `jitnn-native-image` | GraalVM native images of jitNN applications on TornadoVM's CUDA backend ([NATIVE_IMAGE.md](NATIVE_IMAGE.md)) |
 
 ## Where it runs
 
@@ -176,6 +177,7 @@ CONFIGURATION
 
 OPERATORS
 NATIVE
+NATIVE_IMAGE
 CPU_BACKEND
 api
 ```
