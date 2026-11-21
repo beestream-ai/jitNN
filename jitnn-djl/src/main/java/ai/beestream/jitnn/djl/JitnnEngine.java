@@ -15,10 +15,13 @@
  */
 package ai.beestream.jitnn.djl;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 
 import ai.djl.Device;
@@ -98,9 +101,23 @@ public final class JitnnEngine extends Engine {
 
     @Override
     public String getVersion() {
-        Package p = JitnnEngine.class.getPackage();
-        String v = p == null ? null : p.getImplementationVersion();
-        return v == null ? "0.1.0-SNAPSHOT" : v;
+        return VERSION;
+    }
+
+    /** The version Maven records in the jar (jitnn-djl's own or the one jar), "dev" when run from classes. */
+    private static final String VERSION = readVersion();
+
+    private static String readVersion() {
+        try (InputStream in = JitnnEngine.class.getResourceAsStream("/META-INF/maven/ai.beestream/jitnn-djl/pom.properties")) {
+            if (in != null) {
+                Properties p = new Properties();
+                p.load(in);
+                return p.getProperty("version", "dev");
+            }
+        } catch (IOException e) {
+            // fall through
+        }
+        return "dev";
     }
 
     @Override
