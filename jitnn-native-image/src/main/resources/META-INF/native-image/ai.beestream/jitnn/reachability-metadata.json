@@ -1,0 +1,6 @@
+{
+  "resources": [
+    { "glob": "ai/beestream/jitnn/**/*.class" },
+    { "glob": "tuning/*.json" }
+  ]
+}
