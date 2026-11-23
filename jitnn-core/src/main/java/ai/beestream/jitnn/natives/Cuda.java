@@ -21,6 +21,8 @@ import ai.beestream.jitnn.engine.Native.Lib;
 import ai.beestream.jitnn.engine.Native;
 
 import uk.ac.manchester.tornado.api.TaskGraph;
+import uk.ac.manchester.tornado.api.common.Access;
+import uk.ac.manchester.tornado.api.common.LibraryTaskDescriptor;
 import uk.ac.manchester.tornado.api.enums.DataTransferMode;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.HalfFloatArray;
@@ -48,6 +50,32 @@ final class Cuda {
 
     /** FP32 tensor cores (TF32) for cuBLAS products with {@code -Djitnn.native.tf32=true}; off by default (FP32 results). */
     static final boolean TF32 = JitnnConfig.current().get(JitnnConfig.NATIVE_TF32);
+
+    /** cuBLASLt's FP32 and TF32 products with a bias (and ReLU or GELU) epilogue (TornadoVM after 8.1.0). */
+    static final boolean LT_FP32 = has(CuBlasLt.class, "ltMatmulBiasFP32");
+
+    /** A library call by name: TornadoVM dispatches on the function name, so jitNN can call functions newer than its build. */
+    private static LibraryTaskDescriptor call(String library, String function, Object[] parameters, int output) {
+        Access[] access = new Access[parameters.length];
+        java.util.Arrays.fill(access, Access.READ_ONLY);
+        access[output] = Access.WRITE_ONLY;
+        return new LibraryTaskDescriptor().withLibrary(library).withFunction(function).withParameters(parameters).withAccess(access);
+    }
+
+    /**
+     * FP32 C [m, n] = op(A) op(B) + bias [n] (then ReLU with {@code relu}, tanh GELU with
+     * {@code gelu}), row-major, in cuBLASLt's epilogue: on TF32 tensor cores with
+     * {@code -Djitnn.native.tf32=true}. Needs {@link #LT_FP32}.
+     */
+    static void sgemmBias(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, boolean relu, boolean gelu) {
+        int opB = tb == 1 ? OP_T : OP_N;
+        int opA = ta == 1 ? OP_T : OP_N;
+        int ldb = tb == 1 ? k : n;
+        int lda = ta == 1 ? m : k;
+        String function = "ltMatmul" + (gelu ? "GeluBias" : relu ? "ReluBias" : "Bias") + (TF32 ? "TF32" : "FP32");
+        e.library(Lib.CUBLAS, "gemmBias", (g, id) -> g.libraryTask(id, (p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13) -> call("nvidia/cublaslt", function,
+                new Object[] { p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13 }, 11), opB, opA, n, m, k, 1.0f, b, ldb, a, lda, 0.0f, c, n, bias));
+    }
 
     /** C [m, n] = op(A) op(B), row-major. */
     static void sgemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, int m, int n, int k, int ta, int tb) {

@@ -134,7 +134,7 @@ See [NATIVE.md](NATIVE.md) for what each library takes and how jitNN falls back 
 | `jitnn.withNative` | `false` | `true` is the same as `jitnn.native=auto` (the `--with-native` option of the [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking) scripts sets it) |
 | `jitnn.halfAttention` | `auto` | attention in FP16 inference (`Autocast.enableHalf`): `auto` uses cuDNN's fused attention, else CUTLASS's batched FP16 GEMMs when `jitnn.native` allows them, else the FP16 FlashAttention kernel; `cudnn`, `cutlass` or `flash` forces one |
 | `jitnn.native.approximateGelu` | `true` | with the bias epilogue, exact GELU after an FP16 linear layer runs as cuBLASLt's tanh-approximated GELU (differences up to about 5e-4, below FP16 rounding); `false` keeps exact GELU as a separate kernel |
-| `jitnn.native.biasEpilogue` | `true` | FP16 linear layers in `Autocast.enableHalf` inference add bias (and ReLU) in cuBLASLt's GEMM epilogue; `false` runs a separate kernel |
+| `jitnn.native.biasEpilogue` | `true` | FP16 linear layers in `Autocast.enableHalf` inference add bias (and ReLU) in cuBLASLt's GEMM epilogue, and so do FP32 ones on cuBLAS when TornadoVM has cuBLASLt's FP32 epilogues (after 8.1.0); with `jitnn.native.tf32=true` and `jitnn.native.approximateGelu`, also GELU; `false` runs a separate kernel |
 | `jitnn.native.tf32` | `false` | cuBLAS FP32 products on TF32 tensor cores |
 | `jitnn.native.convMinFlops` | `1073741824` (2^30) | fewest multiply-adds for a convolution to go to cuDNN |
 | `jitnn.native.mlxConvMinFlops` | `268435456` (2^28) | fewest multiply-adds for a convolution to go to MLX |

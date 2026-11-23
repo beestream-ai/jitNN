@@ -19,6 +19,7 @@ import ai.beestream.jitnn.JitnnConfig;
 import ai.beestream.jitnn.engine.Emitter;
 import ai.beestream.jitnn.engine.Native.Lib;
 import ai.beestream.jitnn.engine.Native;
+import ai.beestream.jitnn.kernels.GemmKernels;
 import ai.beestream.jitnn.kernels.LibraryGlueKernels;
 
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
@@ -149,6 +150,9 @@ public final class Libs {
     /** C [m, n] = op(A) op(B) (+ epilogue, see GemmKernels) for FP32 row-major matrices. */
     public static boolean gemm(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
         if (Native.use("gemm", Lib.CUBLAS)) {
+            if (gemmBiasEpilogue(e, a, b, c, bias, m, n, k, ta, tb, epilogue)) {
+                return true;
+            }
             Cuda.sgemm(e, a, b, c, m, n, k, ta, tb);
         } else if (ta == 0 && !(m == 1 && n == 1) && mlxOperands(a, b, c, (long) m * k, (long) k * n, (long) m * n, 2L * m * n * k) && Native.use("gemm", Lib.MLX)) {
             FloatArray ax = exactCopy(e, a, m * k);
@@ -167,6 +171,32 @@ public final class Libs {
             return false;
         }
         epilogue(e, c, bias, m, n, 1, epilogue);
+        return true;
+    }
+
+    /**
+     * The FP32 product with its column bias (and ReLU, or GELU) in cuBLASLt's epilogue, when the
+     * installed TornadoVM has it: exact GELU only with TF32 and {@code jitnn.native.approximateGelu}
+     * (cuBLASLt's GELU is the tanh approximation); otherwise the bias goes in the epilogue and GELU
+     * stays a separate kernel. False when the epilogue cannot go there.
+     */
+    private static boolean gemmBiasEpilogue(Emitter e, FloatArray a, FloatArray b, FloatArray c, FloatArray bias, int m, int n, int k, int ta, int tb, int epilogue) {
+        if (!Cuda.LT_FP32 || !BIAS_EPILOGUE || bias == null || (epilogue & GemmKernels.BIAS) == 0 || (epilogue & GemmKernels.ROW_BIAS) != 0) {
+            return false;
+        }
+        int rest = epilogue & ~GemmKernels.BIAS;
+        boolean relu = rest == GemmKernels.RELU;
+        boolean tanh = rest == GemmKernels.GELU_TANH || rest == GemmKernels.GELU && Cuda.TF32 && APPROXIMATE_GELU;
+        if (rest != 0 && !relu && !tanh && rest != GemmKernels.GELU) {
+            return false;
+        }
+        if (!Native.use("gemmBias", Lib.CUBLAS)) {
+            return false;
+        }
+        Cuda.sgemmBias(e, a, b, c, bias, m, n, k, ta, tb, relu, tanh);
+        if (rest == GemmKernels.GELU && !tanh) {
+            epilogue(e, c, null, m, n, 1, GemmKernels.GELU);
+        }
         return true;
     }
 

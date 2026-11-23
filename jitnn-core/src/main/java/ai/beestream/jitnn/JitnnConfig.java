@@ -469,7 +469,7 @@ public final class JitnnConfig {
     public static final Option<Boolean> NATIVE_APPROXIMATE_GELU = bool("jitnn.native.approximateGelu", true, NATIVE_LIBS, "`true`", "with the bias epilogue, exact GELU after an FP16 linear layer runs as cuBLASLt's tanh-approximated GELU (differences up to about 5e-4, below FP16 rounding); `false` keeps exact GELU as a separate kernel");
 
     /** {@code jitnn.native.biasEpilogue}. */
-    public static final Option<Boolean> NATIVE_BIAS_EPILOGUE = bool("jitnn.native.biasEpilogue", true, NATIVE_LIBS, "`true`", "FP16 linear layers in `Autocast.enableHalf` inference add bias (and ReLU) in cuBLASLt's GEMM epilogue; `false` runs a separate kernel");
+    public static final Option<Boolean> NATIVE_BIAS_EPILOGUE = bool("jitnn.native.biasEpilogue", true, NATIVE_LIBS, "`true`", "FP16 linear layers in `Autocast.enableHalf` inference add bias (and ReLU) in cuBLASLt's GEMM epilogue, and so do FP32 ones on cuBLAS when TornadoVM has cuBLASLt's FP32 epilogues (after 8.1.0); with `jitnn.native.tf32=true` and `jitnn.native.approximateGelu`, also GELU; `false` runs a separate kernel");
 
     /** {@code jitnn.native.tf32}. */
     public static final Option<Boolean> NATIVE_TF32 = bool("jitnn.native.tf32", false, NATIVE_LIBS, "`false`", "cuBLAS FP32 products on TF32 tensor cores");
