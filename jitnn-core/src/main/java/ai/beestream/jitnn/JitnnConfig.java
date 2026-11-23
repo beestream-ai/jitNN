@@ -492,6 +492,12 @@ public final class JitnnConfig {
     /** {@code jitnn.native.cudnnChannelsLast}. */
     public static final Option<String> NATIVE_CUDNN_CHANNELS_LAST = choice("jitnn.native.cudnnChannelsLast", "all", NATIVE_LIBS, "`all`", new String[] { "all", "half", "off" }, "cuDNN convolutions in inference run channels-last (NHWC), with surrounding tensors kept channels-last: `all`, `half` (FP16 only) or `off` (NCHW)");
 
+    /** {@code jitnn.native.cudnnFusedConv}. */
+    public static final Option<String> NATIVE_CUDNN_FUSED_CONV = string("jitnn.native.cudnnFusedConv", "3", NATIVE_LIBS, "`3`", "channels-last FP32 cuDNN convolutions in inference add their bias and ReLU in the convolution's kernel (cuDNN graph API, TornadoVM after 8.1.0): how many of cuDNN's candidate kernels are timed per shape the first time it runs (a number, or `all`: faster kernels, longer first run), or `off` for a separate kernel");
+
+    /** {@code jitnn.native.cudnnFusedConvHalf}. */
+    public static final Option<Boolean> NATIVE_CUDNN_FUSED_CONV_HALF = bool("jitnn.native.cudnnFusedConvHalf", false, NATIVE_LIBS, "`false`", "FP16 convolutions too fuse their bias and ReLU as `jitnn.native.cudnnFusedConv` sets (off by default: cuDNN compiles fused FP16 kernels at run time, seconds per shape on the first run, for a few percent)");
+
     /** {@code jitnn.native.attentionFp16}. */
     public static final Option<Boolean> NATIVE_ATTENTION_FP16 = bool("jitnn.native.attentionFp16", false, NATIVE_LIBS, "`false`", "FP32 attention in inference through cuDNN's fused FP16 attention (q, k, v rounded to FP16)");
 

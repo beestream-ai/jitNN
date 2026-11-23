@@ -142,6 +142,8 @@ See [NATIVE.md](NATIVE.md) for what each library takes and how jitNN falls back 
 | `jitnn.native.mlxCopyMinFlops` | `1073741824` (2^30) | fewest multiply-adds for a product whose operands sit in larger reused buffers to go to MLX through exact-size copies |
 | `jitnn.native.mlxGatherMin` | `67108864` (2^26) | fewest q k^T multiply-adds for attention in another layout (packed, or [B, T, H, d]) to be gathered into [B, H, T, d] for MLX |
 | `jitnn.native.cudnnChannelsLast` | `all` | cuDNN convolutions in inference run channels-last (NHWC), with surrounding tensors kept channels-last: `all`, `half` (FP16 only) or `off` (NCHW) |
+| `jitnn.native.cudnnFusedConv` | `3` | channels-last FP32 cuDNN convolutions in inference add their bias and ReLU in the convolution's kernel (cuDNN graph API, TornadoVM after 8.1.0): how many of cuDNN's candidate kernels are timed per shape the first time it runs (a number, or `all`: faster kernels, longer first run), or `off` for a separate kernel |
+| `jitnn.native.cudnnFusedConvHalf` | `false` | FP16 convolutions too fuse their bias and ReLU as `jitnn.native.cudnnFusedConv` sets (off by default: cuDNN compiles fused FP16 kernels at run time, seconds per shape on the first run, for a few percent) |
 | `jitnn.native.attentionFp16` | `false` | FP32 attention in inference through cuDNN's fused FP16 attention (q, k, v rounded to FP16) |
 | `jitnn.native.unavailable` | empty | comma-separated libraries treated as missing, to test the fallback |
 | `jitnn.native.verbose` | `false` | log the libraries found on each device |

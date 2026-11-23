@@ -139,6 +139,31 @@ final class Cuda {
     static final boolean BF16_GEMM = has(CuBlas.class, "cublasGemmExBF16FP32");
     static final boolean CONV_BACKWARD = has(CuDnn.class, "cudnnConv2dBackwardData");
     static final boolean PACKED_ATTENTION = has(CuDnn.class, "sdpaForwardPackedQkv");
+    static final boolean CONV_FUSED = has(CuDnn.class, "cudnnConv2dNHWCFused");
+
+    /** Epilogue flag of TornadoVM's fused cuDNN convolution: add a per-channel FP32 bias. */
+    static final int CONV_BIAS = 1;
+
+    /** Epilogue flag of TornadoVM's fused cuDNN convolution: add a residual shaped as the output. */
+    static final int CONV_RESIDUAL = 2;
+
+    /** Epilogue flag of TornadoVM's fused cuDNN convolution: ReLU last. */
+    static final int CONV_RELU = 4;
+
+    /**
+     * out [n, oh, ow, cout] = relu(conv(x [n, h, w, c], w [cout, r, r, c]) + bias + residual) in one
+     * cuDNN kernel (graph API), the terms per {@code epilogue} (CONV_BIAS, CONV_RESIDUAL, CONV_RELU):
+     * x, w, residual and out FP16 when {@code half} (FP32 accumulation), else FP32 (TF32 tensor
+     * cores); the bias FP32. An unused bias or residual is not read. The fastest of the first
+     * {@code plans} candidate kernels (all when 0) is chosen the first time the shape runs. Needs
+     * {@link #CONV_FUSED}.
+     */
+    static void conv2dLastFused(Emitter e, Object x, Object w, FloatArray bias, Object residual, Object out, int n, int c, int h, int wd, int cout, int r, int pad, int stride,
+            int epilogue, boolean half, int plans) {
+        String function = half ? "cudnnConv2dNHWCFusedFP16" : "cudnnConv2dNHWCFused";
+        e.library(Lib.CUDNN, "convFused", (g, id) -> g.libraryTask(id, (p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15) -> call(CuDnn.LIBRARY_NAME, function,
+                new Object[] { p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15 }, 4), x, w, bias, residual, out, n, c, h, wd, cout, r, r, pad, stride, epilogue, plans));
+    }
 
     private static boolean has(Class<?> type, String method) {
         for (var m : type.getMethods()) {
@@ -276,6 +301,45 @@ final class Cuda {
      * One small channels-last convolution, FP16 when {@code half}: null when it works (a TornadoVM
      * without the NHWC convolutions fails here).
      */
+    /**
+     * One small fused channels-last convolution with bias and ReLU: null when it works (a
+     * TornadoVM whose cuDNN shim was built without cudnn-frontend fails here).
+     */
+    static String probeConvFused(boolean half) {
+        int c = 8, h = 8, k = 8;
+        TaskGraph g = Native.probeGraph(half ? "ConvFusedHalf" : "ConvFused");
+        FloatArray bias = new FloatArray(k);
+        bias.init(0.5f);
+        String function = half ? "cudnnConv2dNHWCFusedFP16" : "cudnnConv2dNHWCFused";
+        int epilogue = CONV_BIAS | CONV_RELU;
+        float centre;
+        if (half) {
+            HalfFloatArray x = new HalfFloatArray(c * h * h);
+            HalfFloatArray w = new HalfFloatArray(k * c * 9);
+            x.init(new uk.ac.manchester.tornado.api.types.HalfFloat(1.0f));
+            w.init(new uk.ac.manchester.tornado.api.types.HalfFloat(0.125f));
+            HalfFloatArray o = new HalfFloatArray(k * h * h);
+            g.transferToDevice(DataTransferMode.EVERY_EXECUTION, x, w, bias).libraryTask("t", (p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15) -> call(CuDnn.LIBRARY_NAME,
+                    function, new Object[] { p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15 }, 4), x, w, bias, x, o, 1, c, h, h, k, 3, 3, 1, 1, epilogue, 1)
+                    .transferToHost(DataTransferMode.EVERY_EXECUTION, o);
+            Native.runProbe(g);
+            centre = o.get((h * h / 2 + h / 2) * k).getFloat32();
+        } else {
+            FloatArray x = new FloatArray(c * h * h);
+            FloatArray w = new FloatArray(k * c * 9);
+            x.init(1.0f);
+            w.init(0.125f);
+            FloatArray o = new FloatArray(k * h * h);
+            g.transferToDevice(DataTransferMode.EVERY_EXECUTION, x, w, bias).libraryTask("t", (p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15) -> call(CuDnn.LIBRARY_NAME,
+                    function, new Object[] { p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15 }, 4), x, w, bias, x, o, 1, c, h, h, k, 3, 3, 1, 1, epilogue, 1)
+                    .transferToHost(DataTransferMode.EVERY_EXECUTION, o);
+            Native.runProbe(g);
+            centre = o.get((h * h / 2 + h / 2) * k);
+        }
+        // an interior output sums 8 channels x 9 taps of 0.125, plus the bias
+        return Math.abs(centre - 9.5f) < 1e-2f ? null : "probe returned " + centre;
+    }
+
     static String probeConvLast(boolean half) {
         int c = 8, h = 8, k = 8;
         TaskGraph g = Native.probeGraph(half ? "ConvNhwcHalf" : "ConvNhwc");

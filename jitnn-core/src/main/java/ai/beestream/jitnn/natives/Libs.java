@@ -55,6 +55,9 @@ public final class Libs {
         if (lib == Lib.CUDNN && function.equals("sdpa")) {
             return Cuda.probeAttention();
         }
+        if (lib == Lib.CUDNN && (function.equals("convFused") || function.equals("convFusedHalf"))) {
+            return Cuda.probeConvFused(function.equals("convFusedHalf"));
+        }
         if (lib == Lib.CUDNN && (function.equals("convNhwc") || function.equals("convNhwcHalf"))) {
             return Cuda.probeConvLast(function.equals("convNhwcHalf"));
         }
@@ -520,6 +523,48 @@ public final class Libs {
      */
     private static final String CUDNN_CHANNELS_LAST = JitnnConfig.current().get(JitnnConfig.NATIVE_CUDNN_CHANNELS_LAST);
 
+    /**
+     * How many candidate kernels a fused cuDNN convolution times per shape ({@code
+     * jitnn.native.cudnnFusedConv}): 0 for all of them, -1 when fused convolutions are off.
+     */
+    private static final int FUSED_CONV_PLANS = fusedConvPlans(JitnnConfig.current().get(JitnnConfig.NATIVE_CUDNN_FUSED_CONV));
+
+    /** Whether FP16 convolutions fuse too ({@code jitnn.native.cudnnFusedConvHalf}). */
+    private static final boolean FUSED_CONV_HALF = JitnnConfig.current().get(JitnnConfig.NATIVE_CUDNN_FUSED_CONV_HALF);
+
+    static int fusedConvPlans(String value) {
+        switch (value) {
+            case "off":
+                return -1;
+            case "all":
+                return 0;
+            default:
+                try {
+                    int plans = Integer.parseInt(value);
+                    if (plans > 0) {
+                        return plans;
+                    }
+                } catch (NumberFormatException ignored) {
+                    // reported below
+                }
+                throw new IllegalArgumentException("jitnn.native.cudnnFusedConv: expected a positive number, all or off, not \"" + value + "\"");
+        }
+    }
+
+    /**
+     * Whether a channels-last cuDNN convolution with this epilogue (BIAS and RELU only) runs as one
+     * fused cuDNN kernel (FP16 when {@code half}).
+     */
+    private static boolean fusedConv(int epilogue, boolean half) {
+        return FUSED_CONV_PLANS >= 0 && (!half || FUSED_CONV_HALF) && Cuda.CONV_FUSED && (epilogue & ~(GemmKernels.BIAS | GemmKernels.RELU)) == 0
+                && Native.use(half ? "convFusedHalf" : "convFused", Lib.CUDNN);
+    }
+
+    /** The fused cuDNN convolution's epilogue flags for a jitNN epilogue of BIAS and RELU. */
+    private static int fusedFlags(int epilogue) {
+        return ((epilogue & GemmKernels.BIAS) != 0 ? Cuda.CONV_BIAS : 0) | ((epilogue & GemmKernels.RELU) != 0 ? Cuda.CONV_RELU : 0);
+    }
+
     /** Whether cuDNN takes channels-last convolutions (FP16 when {@code half}) on the current device. */
     private static boolean cudnnChannelsLast(boolean half) {
         if (CUDNN_CHANNELS_LAST.equals("off") || !half && (!CUDNN_CHANNELS_LAST.equals("all") || !cudnnFp32Conv())) {
@@ -561,6 +606,11 @@ public final class Libs {
             if (!weightLast) {
                 e.task(Emitter.grid1D(nw), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLast, e.context(), w, wl, cin, kk, nw));
             }
+            if (fusedConv(epilogue, false)) {
+                // an unused bias is not read
+                Cuda.conv2dLastFused(e, x, wl, bias != null ? bias : e.dummyF32(), x, out, n, cin, h, wd, cout, r, pad, stride, fusedFlags(epilogue), false, FUSED_CONV_PLANS);
+                return;
+            }
             Cuda.conv2dLast(e, x, wl, out, n, cin, h, wd, cout, r, pad, stride);
             epilogue(e, out, bias, n * oh * ow, cout, 1, epilogue);
             return;
@@ -594,6 +644,10 @@ public final class Libs {
             HalfFloatArray wl = weightLast ? w : e.sharedScratchF16("convWeightLast", nw);
             if (!weightLast) {
                 e.task(Emitter.grid1D(nw), (g, id) -> g.task(id, LibraryGlueKernels::toChannelsLastHalf, e.context(), w, wl, cin, kk, nw));
+            }
+            if (fusedConv(epilogue, true)) {
+                Cuda.conv2dLastFused(e, x, wl, bias != null ? bias : e.dummyF32(), x, out, n, cin, h, wd, cout, r, pad, stride, fusedFlags(epilogue), true, FUSED_CONV_PLANS);
+                return;
             }
             Cuda.conv2dLastHalf(e, x, wl, out, n, cin, h, wd, cout, r, pad, stride);
             if (epilogue != 0) {
