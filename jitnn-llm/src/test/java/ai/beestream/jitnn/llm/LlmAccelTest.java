@@ -24,6 +24,7 @@ import java.nio.file.Path;
 
 import ai.beestream.jitnn.JitnnRuntime;
 import ai.beestream.jitnn.Tensor;
+import org.beehive.jitllm.api.ModelOptions;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +35,8 @@ import org.junit.jupiter.api.Test;
 class LlmAccelTest {
 
     private static final String MODEL = System.getProperty("jitnn.llm.model", "");
+    /** A short context: the model's own (128K for Llama 3.2) sizes a KV cache larger than a test heap. */
+    private static final ModelOptions OPTIONS = ModelOptions.builder().contextLength(512).build();
 
     @AfterAll
     static void release() {
@@ -43,7 +46,7 @@ class LlmAccelTest {
     @Test
     void generatesGreedily() throws Exception {
         assumeTrue(!MODEL.isEmpty(), "no -Djitnn.llm.model");
-        try (Llm llm = Llm.load(Path.of(MODEL))) {
+        try (Llm llm = Llm.load(Path.of(MODEL), OPTIONS)) {
             System.out.println("model: " + llm.info());
             StringBuilder streamed = new StringBuilder();
             String a = llm.generate("What is the capital of France? Answer in one word.", 24, streamed::append);
@@ -59,7 +62,7 @@ class LlmAccelTest {
     @Test
     void weightsAreJitnnTensorsToo() throws Exception {
         assumeTrue(!MODEL.isEmpty(), "no -Djitnn.llm.model");
-        try (Llm llm = Llm.load(Path.of(MODEL))) {
+        try (Llm llm = Llm.load(Path.of(MODEL), OPTIONS)) {
             String name = llm.gguf().tensorInfos().keySet().stream().filter(n -> n.endsWith("attn_q.weight")).findFirst().orElseThrow();
             Tensor wq = llm.gguf().tensor(name);
             int dim = llm.gguf().integer(llm.gguf().architecture() + ".embedding_length");
