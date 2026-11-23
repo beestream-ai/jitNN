@@ -485,7 +485,56 @@ public final class FlashAttention implements Op {
             e.task(Emitter.grid1D(total), (g, id) -> g.task(id, ai.beestream.jitnn.kernels.LibraryGlueKernels::epilogueBatched, e.context(), q, bias, rows, cols, total,
                     ai.beestream.jitnn.kernels.GemmKernels.BIAS));
         }
+        if (tf32Attention(d) && e.unread(n.out(1))) {
+            emitTf32(e, n, a, q, k, v, mask, o, hm, meta, scale, packed);
+            return;
+        }
         emitKernels(e, n, a, q, k, v, mask, o, hm, meta, scale);
+    }
+
+    /** Whether FP32 attention runs on the FP16 tensor-core kernels (see {@code jitnn.tf32Attention}). */
+    private static boolean tf32Attention(int d) {
+        String mode = JitnnConfig.current().get(JitnnConfig.TF32_ATTENTION);
+        if (mode.equals("off") || mode.equals("auto") && !JitnnConfig.current().get(JitnnConfig.NATIVE_TF32)) {
+            return false;
+        }
+        return mmaKernels(d);
+    }
+
+    /**
+     * FP32 attention in TF32 mode on the FP16 tensor-core FlashAttention kernel: q, k and v rounded to
+     * FP16 (the 10-bit mantissa of TF32 products, with FP16's smaller range), softmax and
+     * accumulation in FP32 inside FlashMma, the output converted back to FP32. Same layouts (meta) as
+     * the FP32 kernels.
+     */
+    private static void emitTf32(Emitter e, Node n, int[] a, FloatArray q, FloatArray k, FloatArray v, FloatArray mask, FloatArray o, int hm, IntArray meta, float scale,
+            boolean packed) {
+        int z = a[0];
+        int t = a[1];
+        int s = a[2];
+        int d = a[3];
+        int causal = a[4];
+        HalfFloatArray qh = toHalf(e, q, n.in(0).numel());
+        HalfFloatArray kh = packed ? qh : toHalf(e, k, n.in(1).numel());
+        HalfFloatArray vh = packed ? qh : toHalf(e, v, n.in(2).numel());
+        int on = n.out(0).numel();
+        HalfFloatArray oh = e.scratchF16(on);
+        FloatArray lh = e.f32(n.out(1));
+        int size = FlashMma.size(d);
+        WorkerGrid mg = Emitter.blocks1D(z * Emitter.ceilDiv(t, FlashMma.forwardRows(size)), 2 * FlashMma.forwardRows(size));
+        switch (size) {
+            case 32 -> e.task(mg, (g, id) -> g.task(id, FlashMma::forward32, e.context(), qh, kh, vh, mask, oh, lh, t, s, d, scale, causal, hm, meta));
+            case 64 -> e.task(mg, (g, id) -> g.task(id, FlashMma::forward64, e.context(), qh, kh, vh, mask, oh, lh, t, s, d, scale, causal, hm, meta));
+            default -> e.task(mg, (g, id) -> g.task(id, FlashMma::forward128, e.context(), qh, kh, vh, mask, oh, lh, t, s, d, scale, causal, hm, meta));
+        }
+        e.task(Emitter.grid1D(on), (g, id) -> g.task(id, ai.beestream.jitnn.kernels.LowPrecision::f16ToF32, e.context(), oh, o, on));
+    }
+
+    /** An FP16 copy of the first count elements of an FP32 array. */
+    private static HalfFloatArray toHalf(Emitter e, FloatArray f, int count) {
+        HalfFloatArray h = e.scratchF16(count);
+        e.task(Emitter.grid1D(count), (g, id) -> g.task(id, ai.beestream.jitnn.kernels.LowPrecision::f32ToF16, e.context(), f, h, count));
+        return h;
     }
 
     /** An FP32 copy of the first count elements of an FP16 array. */

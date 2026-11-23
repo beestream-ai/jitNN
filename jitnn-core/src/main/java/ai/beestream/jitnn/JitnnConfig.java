@@ -463,6 +463,9 @@ public final class JitnnConfig {
     public static final Option<Boolean> WITH_NATIVE = bool("jitnn.withNative", false, NATIVE_LIBS, "`false`", "`true` is the same as `jitnn.native=auto` (the `--with-native` option of the [jitNN-benchmarking](https://github.com/beestream-ai/jitNN-benchmarking) scripts sets it)");
 
     /** {@code jitnn.halfAttention}. */
+    /** {@code jitnn.tf32Attention}. */
+    public static final Option<String> TF32_ATTENTION = choice("jitnn.tf32Attention", "auto", NATIVE_LIBS, "`auto`", new String[] { "auto", "on", "off" }, "FP32 attention in inference on the FP16 tensor-core FlashAttention kernel (CUDA, compute capability 8.0+): q, k and v rounded to FP16 (TF32's 10-bit mantissa, a smaller range), softmax and sums in FP32; `auto` does so with `jitnn.native.tf32=true`, `on` always, `off` never").runtime();
+
     public static final Option<String> HALF_ATTENTION = choice("jitnn.halfAttention", "auto", NATIVE_LIBS, "`auto`", new String[] { "auto", "cudnn", "cutlass", "flash" }, "attention in FP16 inference (`Autocast.enableHalf`): `auto` uses cuDNN's fused attention, else CUTLASS's batched FP16 GEMMs when `jitnn.native` allows them, else the FP16 FlashAttention kernel; `cudnn`, `cutlass` or `flash` forces one");
 
     /** {@code jitnn.native.approximateGelu}. */

@@ -122,4 +122,36 @@ class FlashMmaAccelTest {
             }
         }
     }
+
+    /** FP32 attention with {@code jitnn.tf32Attention=on} (FP16 tensor cores) against the FP32 host reference. */
+    private static float[] attentionTf32(Backend backend, int b, int h, int t, int s, int d, boolean causal) {
+        return JitnnRuntime.with(backend, () -> Grad.inference(() -> {
+            Tensor q = Tensor.uniform(1, -1, 1, b, h, t, d);
+            Tensor k = Tensor.uniform(2, -1, 1, b, h, s, d);
+            Tensor v = Tensor.uniform(3, -1, 1, b, h, s, d);
+            return F.scaledDotProductAttention(q, k, v, null, causal, -1);
+        }).toFloatArray());
+    }
+
+    @Test
+    void tf32MatchesReference() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(JitnnRuntime.onCuda(), "the TF32 attention path is the CUDA tensor-core kernel");
+        String before = JitnnConfig.current().get(JitnnConfig.TF32_ATTENTION);
+        JitnnConfig.change(JitnnConfig.TF32_ATTENTION, "on");
+        try {
+            JitnnRuntime.reset();
+            for (int d : new int[] { 32, 64, 128 }) {
+                for (int[] ts : new int[][] { { 17, 17 }, { 130, 130 }, { 37, 100 } }) {
+                    for (boolean causal : new boolean[] { false, true }) {
+                        String name = "tf32 d " + d + " t " + ts[0] + " s " + ts[1] + (causal ? " causal" : "");
+                        // inputs rounded to FP16 (TF32's 10-bit mantissa): about 1e-3 relative
+                        close(attentionTf32(Backend.REFERENCE, 2, 3, ts[0], ts[1], d, causal), attentionTf32(Backend.TORNADO, 2, 3, ts[0], ts[1], d, causal), 5e-3, 5e-3, name);
+                    }
+                }
+            }
+        } finally {
+            JitnnConfig.change(JitnnConfig.TF32_ATTENTION, before);
+            JitnnRuntime.reset();
+        }
+    }
 }
