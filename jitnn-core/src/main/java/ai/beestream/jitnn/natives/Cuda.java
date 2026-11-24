@@ -51,7 +51,7 @@ final class Cuda {
     /** FP32 tensor cores (TF32) for cuBLAS products with {@code -Djitnn.native.tf32=true}; off by default (FP32 results). */
     static final boolean TF32 = JitnnConfig.current().get(JitnnConfig.NATIVE_TF32);
 
-    /** cuBLASLt's FP32 and TF32 products with a bias (and ReLU or GELU) epilogue (TornadoVM after 8.1.0). */
+    /** cuBLASLt's FP32 and TF32 products with a bias (and ReLU or GELU) epilogue (TornadoVM 8.2.0 or newer). */
     static final boolean LT_FP32 = has(CuBlasLt.class, "ltMatmulBiasFP32");
 
     /** A library call by name: TornadoVM dispatches on the function name, so jitNN can call functions newer than its build. */

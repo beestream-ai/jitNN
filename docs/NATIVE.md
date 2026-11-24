@@ -36,7 +36,7 @@ tasks compiled into plans.
 
 ## Requirements
 
-- **TornadoVM** 8.1.0 or newer, built with the CUDA or Metal backend
+- **TornadoVM** 8.2.0 (or 8.1.0, without the fused epilogues), built with the CUDA or Metal backend
   (`make jdk22plus BACKEND=cuda`). Its SDK includes the library modules and its `tornado-argfile`
   adds them. It loads the newest CUDA libraries first, which Blackwell GPUs (RTX 50 series) need:
   cuBLAS 12.0, found first on many systems, has no kernels for them.
@@ -85,7 +85,7 @@ Everything else runs on jitNN's kernels, mostly because TornadoVM has no binding
 |---|---|---|
 | `jitnn.native.convMinFlops` | 2^30 | smallest FP32 convolution (multiply-adds) cuDNN takes; smaller ones keep jitNN's kernels |
 | `jitnn.native.cudnnChannelsLast` | `all` | in inference, keep image tensors [N, H, W, C] between the convolutions cuDNN runs channels-last, converting only around operators that need [N, C, H, W]; `half` limits it to FP16 convolutions, `off` turns it off. Needs a TornadoVM whose cuDNN binding has NHWC convolutions |
-| `jitnn.native.cudnnFusedConv` | `3` | add the bias and ReLU of a channels-last FP32 cuDNN convolution in the convolution's own kernel (cuDNN graph API) instead of a separate pass; the first run of each shape times this many of cuDNN's candidate kernels and keeps the fastest (`all` times every one: faster kernels, a longer first run); `off` keeps the separate pass. Needs a TornadoVM after 8.1.0 built against CUDA 12 or newer |
+| `jitnn.native.cudnnFusedConv` | `3` | add the bias and ReLU of a channels-last FP32 cuDNN convolution in the convolution's own kernel (cuDNN graph API) instead of a separate pass; the first run of each shape times this many of cuDNN's candidate kernels and keeps the fastest (`all` times every one: faster kernels, a longer first run); `off` keeps the separate pass. Needs a TornadoVM 8.2.0 or newer built against CUDA 12 or newer |
 | `jitnn.native.cudnnFusedConvHalf` | `false` | do the same for FP16 convolutions. Off by default: cuDNN compiles fused FP16 kernels on the first run (seconds per shape) and they gain little over cuDNN's FP16 convolution plus jitNN's epilogue |
 | `jitnn.native.tf32` | `false` | run cuBLAS FP32 products on TF32 tensor cores; under `auto`, FP32 convolutions go to cuDNN only with this set (or with `cudnn` named in `jitnn.native`) |
 | `jitnn.native.attentionFp16` | `false` | cuDNN fused SDPA in FP32 inference (rounds q, k, v to FP16) |

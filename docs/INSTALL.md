@@ -5,7 +5,7 @@
 | What | Version | Notes |
 |---|---|---|
 | JDK | 22 or newer | compiled with `--release 22`; tested on JDK 25 |
-| TornadoVM | 8.1.0 or newer | needs `TornadoExecutionPlan.transferToDevice(Object...)`, `withDynamicShapes()` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), all on Maven Central |
+| TornadoVM | 8.2.0 (8.1.0 also runs, without the fused cuBLASLt and cuDNN epilogues) | needs `TornadoExecutionPlan.transferToDevice(Object...)`, `withDynamicShapes()` and the library tasks (`TaskGraph.libraryTask`) with their modules (`tornado-cublas`, `tornado-cudnn`, `tornado-cufft`, `tornado-cusparse`, `tornado-mlx`), all on Maven Central |
 | A device | CUDA, OpenCL or Metal | optional: the reference backend runs on any CPU |
 | CUDA toolkit | 12 or 13; 13 for Blackwell GPUs (RTX 50 series) | optional, for the CUDA backend |
 | cuDNN, MLX | cuDNN 9; MLX from `brew install mlx` | optional, for `-Djitnn.native` (see [NATIVE.md](NATIVE.md)); cuBLAS, cuFFT and cuSPARSE come with the CUDA toolkit |
@@ -19,22 +19,22 @@ reader. `jitnn-djl` depends on DJL's `ai.djl:api` (0.38.0). The optional `jitnn-
 
 ## TornadoVM
 
-jitNN runs on a TornadoVM 8.1.0 SDK, the version it compiles against. Install it, and a JDK, with
+jitNN runs on a TornadoVM 8.2.0 SDK, the version it compiles against. Install it, and a JDK, with
 [SDKMAN!](https://sdkman.io), which keeps several versions side by side:
 
 ```bash
 curl -s "https://get.sdkman.io" | bash          # once, then open a new shell
 sdk install java 25.0.4-tem                     # any JDK 22+; the TornadoVM SDK does not include one
-sdk install tornadovm 8.1.0-jdk22plus-metal     # the SDK for your platform, from the table below
+sdk install tornadovm 8.2.0-jdk22plus-metal     # the SDK for your platform, from the table below
 tornado --devices                               # device ids, as <driver>:<device>
 ```
 
 | Platform | SDKMAN! identifier |
 |---|---|
-| macOS, Apple Silicon | `8.1.0-jdk22plus-metal` (recommended) or `8.1.0-jdk22plus-opencl` |
-| Linux x86-64, NVIDIA GPU | `8.1.0-jdk22plus-cuda` |
-| Linux x86-64, other OpenCL GPU | `8.1.0-jdk22plus-opencl` |
-| Linux x86-64, every backend in one SDK | `8.1.0-jdk22plus-full` |
+| macOS, Apple Silicon | `8.2.0-jdk22plus-metal` (recommended) or `8.2.0-jdk22plus-opencl` |
+| Linux x86-64, NVIDIA GPU | `8.2.0-jdk22plus-cuda` |
+| Linux x86-64, other OpenCL GPU | `8.2.0-jdk22plus-opencl` |
+| Linux x86-64, every backend in one SDK | `8.2.0-jdk22plus-full` |
 | Linux AArch64 (such as NVIDIA Grace), Windows | not on SDKMAN!: see below |
 
 Use the `jdk22plus` SDKs; the `jdk21` ones do not run jitNN. Every SDK includes the library modules
@@ -46,14 +46,14 @@ shell only, and `sdk list tornadovm` shows what is available.
 ### Without SDKMAN!
 
 Every SDK, including CUDA for Linux AArch64 and Windows, is attached to the
-[TornadoVM 8.1.0 release](https://github.com/beehive-lab/TornadoVM/releases/tag/v8.1.0) and on
+[TornadoVM 8.2.0 release](https://github.com/beehive-lab/TornadoVM/releases/tag/v8.2.0) and on
 [tornadovm.org/downloads](https://www.tornadovm.org/downloads). Unpack it and point `TORNADOVM_HOME`
 at it:
 
 ```bash
-curl -fLO https://github.com/beehive-lab/TornadoVM/releases/download/v8.1.0/tornadovm-8.1.0-jdk22plus-cuda-linux-aarch64.tar.gz
-tar xzf tornadovm-8.1.0-jdk22plus-cuda-linux-aarch64.tar.gz
-export TORNADOVM_HOME=$PWD/tornadovm-8.1.0-cuda PATH=$PWD/tornadovm-8.1.0-cuda/bin:$PATH
+curl -fLO https://github.com/beehive-lab/TornadoVM/releases/download/v8.2.0/tornadovm-8.2.0-jdk22plus-cuda-linux-aarch64.tar.gz
+tar xzf tornadovm-8.2.0-jdk22plus-cuda-linux-aarch64.tar.gz
+export TORNADOVM_HOME=$PWD/tornadovm-8.2.0-cuda PATH=$PWD/tornadovm-8.2.0-cuda/bin:$PATH
 tornado --devices
 ```
 
@@ -82,7 +82,7 @@ git clone https://github.com/beestream-ai/jitNN && cd jitNN
 
 The Maven wrapper downloads Maven 3.9.6 on first use; `./mvnw -o` builds offline once the
 dependencies are in `~/.m2`. To build against a TornadoVM `develop` install instead of the
-release, pass its version on every Maven command: `-Dtornadovm.version=8.1.1-jdk22plus-dev`.
+release, pass its version on every Maven command: `-Dtornadovm.version=8.2.1-jdk22plus-dev`.
 
 ### Releases
 
@@ -172,7 +172,7 @@ public class Hello {
 take TornadoVM array types:
 
 ```bash
-javac -cp jitnn-0.1.0-alpha.jar:$TORNADOVM_HOME/share/java/tornado/tornado-api-8.1.0.jar Hello.java
+javac -cp jitnn-0.1.0-alpha.jar:$TORNADOVM_HOME/share/java/tornado/tornado-api-8.2.0.jar Hello.java
 ```
 
 **Run on a GPU.** The TornadoVM argument file sets up its JVM; `-Djitnn.device=<driver>:<device>`
@@ -189,11 +189,11 @@ unrelated or damaged jars in it (macOS `._*.jar` files left by copying count too
 in one step.
 
 **Run on the CPU, without TornadoVM.** Any JDK 22 or newer; the TornadoVM API jar must be on the
-class path (from the SDK, or `tornado-api-8.1.0-jdk22plus.jar` from
-[Maven Central](https://repo1.maven.org/maven2/io/github/beehive-lab/tornado-api/8.1.0-jdk22plus/)):
+class path (from the SDK, or `tornado-api-8.2.0-jdk22plus.jar` from
+[Maven Central](https://repo1.maven.org/maven2/io/github/beehive-lab/tornado-api/8.2.0-jdk22plus/)):
 
 ```bash
-java --add-modules jdk.incubator.vector -Djitnn.backend=cpu -cp jitnn-0.1.0-alpha.jar:tornado-api-8.1.0-jdk22plus.jar:. Hello
+java --add-modules jdk.incubator.vector -Djitnn.backend=cpu -cp jitnn-0.1.0-alpha.jar:tornado-api-8.2.0-jdk22plus.jar:. Hello
 # CPU: [4.0, 5.0, 10.0, 11.0]
 ```
 
@@ -284,14 +284,14 @@ for branches of this repository, not for forks, because self-hosted runners exec
 request's code. Draft pull requests are skipped until they are marked ready. The script also runs
 locally, after `./mvnw install`.
 
-Each runner needs a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!
-(`8.1.0-jdk22plus-cuda` and `-opencl` on Linux, `-metal` and `-opencl` on macOS). Run
+Each runner needs a JDK 22+ and the TornadoVM 8.2.0 SDKs installed with SDKMAN!
+(`8.2.0-jdk22plus-cuda` and `-opencl` on Linux, `-metal` and `-opencl` on macOS). Run
 `scripts/ci/stage-test-data.sh` once on each runner. Repository variables override the defaults:
 
 | Variable | Default |
 |---|---|
 | `JITNN_JAVA_HOME` | `~/.sdkman/candidates/java/current` |
-| `TORNADOVM_CUDA_HOME`, `TORNADOVM_OPENCL_LINUX_HOME`, `TORNADOVM_METAL_HOME`, `TORNADOVM_OPENCL_MAC_HOME` | `~/.sdkman/candidates/tornadovm/8.1.0-jdk22plus-<backend>` |
+| `TORNADOVM_CUDA_HOME`, `TORNADOVM_OPENCL_LINUX_HOME`, `TORNADOVM_METAL_HOME`, `TORNADOVM_OPENCL_MAC_HOME` | `~/.sdkman/candidates/tornadovm/8.2.0-jdk22plus-<backend>` |
 | `JITNN_DEVICE_CUDA`, `JITNN_DEVICE_OPENCL_LINUX`, `JITNN_DEVICE_METAL`, `JITNN_DEVICE_OPENCL_MAC` | `0:0` |
 | `JITNN_DATA` | `~/jitnn-data` |
 | `JITNN_DEVICE_MEMORY` | `12GB` |

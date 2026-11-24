@@ -9,11 +9,11 @@
 # Hugging Face, the LLM) whose data is staged on the runner (scripts/ci/stage-test-data.sh).
 # The jitllm bump workflow (jitllm-bump.yml) starts this workflow on its branches by hand.
 #
-# The runners need a JDK 22+ and the TornadoVM 8.1.0 SDKs installed with SDKMAN!. Repository
+# The runners need a JDK 22+ and the TornadoVM 8.2.0 SDKs installed with SDKMAN!. Repository
 # variables (Settings > Secrets and variables > Actions > Variables) override the defaults:
 #   JITNN_JAVA_HOME                    JDK (default ~/.sdkman/candidates/java/current)
 #   TORNADOVM_CUDA_HOME, ..._OPENCL_LINUX_HOME, ..._METAL_HOME, ..._OPENCL_MAC_HOME
-#                                      SDK per backend (default ~/.sdkman/candidates/tornadovm/8.1.0-jdk22plus-<backend>)
+#                                      SDK per backend (default ~/.sdkman/candidates/tornadovm/8.2.0-jdk22plus-<backend>)
 #   JITNN_DEVICE_CUDA, ..._OPENCL_LINUX, ..._METAL, ..._OPENCL_MAC
 #                                      device as <driver>:<device> (default 0:0; `tornado --devices` lists them)
 #   JITNN_DATA                         staged test data (default ~/jitnn-data)

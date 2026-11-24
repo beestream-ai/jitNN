@@ -12,7 +12,7 @@ it once into `~/.jitnn/releases`, compiles the examples against it and runs one 
 SDK in `TORNADOVM_HOME`:
 
 ```bash
-sdk install tornadovm 8.1.0-jdk22plus-metal   # or ...-cuda, ...-opencl; sets TORNADOVM_HOME
+sdk install tornadovm 8.2.0-jdk22plus-metal   # or ...-cuda, ...-opencl; sets TORNADOVM_HOME
 git clone https://github.com/beestream-ai/jitNN && cd jitNN
 jitnn-examples/run.sh                         # lists the examples
 jitnn-examples/run.sh MnistMlp                # runs one; arguments follow the name

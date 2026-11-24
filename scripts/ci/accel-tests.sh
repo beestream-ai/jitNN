@@ -20,7 +20,7 @@
 # earlier one has failures, copies the reports to ci-reports/<backend> and fails if any test failed.
 # Environment (empty means the default):
 #   JAVA_HOME              the JDK (default: SDKMAN!'s current java)
-#   SDK_OVERRIDE           the SDK (default: SDKMAN!'s 8.1.0-jdk22plus-<backend>, else its newest 8.1.x -<backend>)
+#   SDK_OVERRIDE           the SDK (default: SDKMAN!'s 8.2.0-jdk22plus-<backend>, else its newest 8.2.x -<backend>)
 #   DEVICE_OVERRIDE        the device as <driver>:<device> (default 0:0)
 #   DATA_OVERRIDE          the staged data (default ~/jitnn-data)
 #   MEMORY_OVERRIDE        TornadoVM's device-memory budget (default 12GB)
@@ -35,9 +35,9 @@ java_home=${JAVA_HOME:-$candidates/java/current}
 is_sdk() { [ -x "$1/bin/tornado" ] && { [ -f "$1/tornado-argfile" ] || [ -f "$1/tornado-argfile.template" ]; }; }
 sdk=${SDK_OVERRIDE:-}
 if [ -z "$sdk" ]; then
-    sdk=$candidates/tornadovm/8.1.0-jdk22plus-$backend
+    sdk=$candidates/tornadovm/8.2.0-jdk22plus-$backend
     if ! is_sdk "$sdk"; then
-        sdk=$(ls -d "$candidates"/tornadovm/8.1.*-"$backend" 2>/dev/null | sort | tail -1 || true)
+        sdk=$(ls -d "$candidates"/tornadovm/8.2.*-"$backend" 2>/dev/null | sort | tail -1 || true)
     fi
 fi
 export JAVA_HOME=$java_home TORNADOVM_HOME=$sdk PATH=$java_home/bin:$sdk/bin:$PATH
